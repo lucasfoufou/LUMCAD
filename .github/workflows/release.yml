@@ -1,0 +1,134 @@
+name: Release LUMCAD
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: lumcad-release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Check tag and declared versions
+        run: node scripts/check-release-version.mjs "$GITHUB_REF_NAME"
+
+      - name: Run frontend and Rust checks
+        run: npm run check
+
+  build:
+    name: Build · ${{ matrix.label }}
+    needs: validate
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      # tauri-action updates the same draft release for every target. Keeping the
+      # jobs sequential prevents concurrent drafts or missing platform assets.
+      max-parallel: 1
+      matrix:
+        include:
+          - label: macOS Apple Silicon
+            platform: macos-latest
+            args: --target aarch64-apple-darwin --bundles dmg
+          - label: macOS Intel
+            platform: macos-latest
+            args: --target x86_64-apple-darwin --bundles dmg
+          - label: Linux x64
+            platform: ubuntu-22.04
+            args: --bundles appimage,deb
+          - label: Windows x64
+            platform: windows-latest
+            args: --target x86_64-pc-windows-msvc --bundles nsis
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ startsWith(matrix.platform, 'macos-') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build and attach installers to the draft release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_SIGNING_IDENTITY: ${{ startsWith(matrix.platform, 'macos-') && '-' || '' }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: LUMCAD ${{ github.ref_name }}
+          releaseBody: Download the installer for your platform from the assets below.
+          generateReleaseNotes: true
+          releaseDraft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          retryAttempts: 2
+          releaseAssetNamePattern: "[name]_[version]_[platform]_[arch][setup].[ext]"
+          args: ${{ matrix.args }}
+
+  publish:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Verify all expected installers
+        run: |
+          assets="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          test "$(printf '%s\n' "$assets" | grep -c '\.dmg$')" -ge 2
+          printf '%s\n' "$assets" | grep -q '\.AppImage$'
+          printf '%s\n' "$assets" | grep -q '\.deb$'
+          printf '%s\n' "$assets" | grep -q '\.exe$'
+
+      - name: Publish release
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false

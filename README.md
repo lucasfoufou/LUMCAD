@@ -1,0 +1,126 @@
+# LUMCAD
+
+LUMCAD is an open-source, AI-enabled 2D CAD application. Its goal is to make everyday 2D CAD operations simpler through a lightweight, local-first, multi-platform desktop application that can also be controlled by AI tools.
+
+> LUMCAD is in early development. The `.lcad` format and user-facing workflows may evolve before the first stable release.
+
+## Why LUMCAD?
+
+LUMCAD was originally created to simplify 2D plan generation for our company, **LUMÉOL**. Repetitive drawing work should be fast to perform manually and straightforward to automate, without requiring a heavyweight or proprietary CAD environment.
+
+The project is now open source so that this foundation can grow into a useful general-purpose 2D CAD tool: free to inspect, use, improve, and adapt, with AI integration designed into the application from the start.
+
+## Project goals
+
+- provide a responsive 2D drawing experience on macOS, Windows, and Linux;
+- keep drawings portable and locally owned through the documented `.lcad` file format;
+- cover common CAD operations with both visual tools and command aliases;
+- expose the active drawing through a local MCP server so compatible AI clients can inspect and edit it;
+- remain lightweight, transparent, and useful without an online account or cloud service.
+
+## Current capabilities
+
+- lines, rectangles, regular polygons, circles, arcs, polylines, text, reference images, and dimensions;
+- layers and ByLayer/custom colors, line weights, and line types;
+- object snaps, tracking helpers, grips, selection windows, and command aliases;
+- move, copy, rotate, scale, offset, trim, mirror, join, explode, and rectangular array operations;
+- local `.lcad` files with native Open and Save As dialogs plus continuous autosave;
+- atomic autosave and automatic recovery for drawings that do not yet have a file path;
+- portrait or landscape A4, A3, A2, A1, and A0 layouts with multiple model viewports, exact `1/X` scales, and per-viewport layer visibility;
+- export of one layout or every layout through the system PDF print dialog;
+- a local Streamable HTTP MCP server for AI-assisted drawing workflows;
+- an English and French interface, with English as the source language.
+
+## AI and MCP
+
+LUMCAD starts a local MCP server alongside the desktop application. Its preferred endpoint is `http://127.0.0.1:43622/mcp`; if that port is occupied, LUMCAD automatically selects another free localhost port. The active endpoint and preferred port are available from the application settings.
+
+See [MCP.md](./MCP.md) for client configuration, available tools, action examples, the local security model, and the command-coverage tests.
+
+## The `.lcad` format
+
+A LUMCAD drawing is a standard ZIP container with this initial structure:
+
+```text
+drawing.lcad
+├── manifest.json
+└── assets/
+    ├── 0001-reference.png
+    └── 0002-title-block-logo.svg
+```
+
+`manifest.json` is a versioned JSON document containing the drawing geometry, layers, settings, and asset descriptors. Binary images are stored separately below `assets/`; they are not duplicated as base64 inside the manifest. This keeps reference images—and future title-block resources—portable inside one `.lcad` file while remaining easy to inspect with standard ZIP tools.
+
+The initial `.lcad` format version is version 1 and always uses this ZIP structure. See [LCAD_FORMAT.md](./LCAD_FORMAT.md) for the container contract and safety limits.
+
+Rust writes to a temporary file next to the target, synchronizes it to disk, and then replaces the target atomically. A drawing without a file path is saved as `recovery.lcad` in LUMCAD's application data directory and restored at the next startup.
+
+## Downloads
+
+Tagged versions are published on the [GitHub Releases page](https://github.com/lucasfoufou/LUMCAD/releases) for:
+
+- macOS on Apple Silicon and Intel (`.dmg`);
+- Windows x64 (NSIS installer);
+- Linux x64 (`.AppImage` and `.deb`).
+
+The initial release workflow uses ad-hoc signing on macOS and does not yet notarize the macOS bundle or sign the Windows installer with an identified developer certificate. Your operating system may therefore display a security warning for downloaded builds.
+
+## Development
+
+### Requirements
+
+- Node.js 22 (the exact version is recorded in `.nvmrc`);
+- the stable Rust toolchain;
+- the [Tauri 2 system prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform.
+
+### Run locally
+
+```bash
+npm ci
+npm run tauri dev
+```
+
+### Run the complete local checks
+
+```bash
+npm run check
+```
+
+This runs the frontend tests, the production frontend build, and the Rust test suite.
+
+To create a development bundle on macOS:
+
+```bash
+npm run tauri build -- --debug
+```
+
+## Releases
+
+Releases are built by [`.github/workflows/release.yml`](./.github/workflows/release.yml) whenever a tag matching `v*` is pushed. The workflow validates and tests the source, builds every supported desktop target sequentially into one draft GitHub release, verifies the expected artifacts, and publishes the release only after every platform succeeds.
+
+Before creating `vX.Y.Z`, update the same version in:
+
+- `package.json` and `package-lock.json`;
+- `src-tauri/Cargo.toml` and `src-tauri/Cargo.lock`;
+- `src-tauri/tauri.conf.json`;
+- `src/utils/lcadDocument.js`.
+
+Then run `npm run check`, create the matching Git tag, and push that tag. `scripts/check-release-version.mjs` rejects a release if any declared version differs from the tag.
+
+## Translations
+
+English is the source and fallback language. See [TRANSLATING.md](./TRANSLATING.md) for the catalog conventions, the steps for adding a locale, and the validation checklist.
+
+## Contributing
+
+Issues and pull requests are welcome. Please keep changes focused, reuse existing components and geometry helpers where possible, and include tests for behavior that can be exercised independently of the UI. Run `npm run check` before submitting a pull request.
+
+Translations are particularly welcome; follow [TRANSLATING.md](./TRANSLATING.md) so every locale remains complete and testable.
+
+## License
+
+LUMCAD is licensed under the [GNU General Public License version 3 only](./LICENSE) (`GPL-3.0-only`). Commercial use is allowed. If you distribute LUMCAD or a modified version, the GPL's source-code and copyleft requirements apply. The software is provided without warranty; consult the license text for the complete terms.
+
+## Maintainers
+
+LUMCAD is built and maintained by **Lucas FOUGERAS and DIGITAL CACTUS**.

@@ -1,0 +1,36 @@
+@use "~style/colors.scss" as *;
+
+.drawing-array-control-guide,
+.drawing-array-control-link {
+  stroke: $lum_orange;
+  stroke-width: 1.2;
+  stroke-dasharray: 5 4;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.drawing-array-control-link { opacity: 0.7; }
+
+.drawing-array-handle {
+  stroke: #fff;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  pointer-events: all;
+  cursor: move;
+
+  &.is-base { fill: $lum_orange; }
+  &.is-spacing { fill: #fff; stroke: $lum_orange; cursor: ew-resize; }
+  &.is-quantity { fill: #2563eb; cursor: ew-resize; }
+  &.is-y { cursor: ns-resize; }
+}
+
+.drawing-array-control-label {
+  fill: $lum_orange;
+  font-family: SourceSans3, Arial, sans-serif;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 0.18em;
+  stroke-linejoin: round;
+  pointer-events: none;
+}

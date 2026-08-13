@@ -1,0 +1,1178 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import DrawingEditorBody from '~components/drawing/DrawingEditorBody';
+import DrawingEditorHeader from '~components/drawing/DrawingEditorHeader';
+import DrawingLayoutEditor from '~components/drawing/DrawingLayoutEditor';
+import DrawingPrintPage from '~components/drawing/DrawingPrintPage';
+import DrawingWorkspaceTabs from '~components/drawing/DrawingWorkspaceTabs';
+import useDrawingArrayCommand from '~hooks/useDrawingArrayCommand';
+import useDrawingCompoundCommands from '~hooks/useDrawingCompoundCommands';
+import useDrawingEditorShortcuts from '~hooks/useDrawingEditorShortcuts';
+import useDrawingHistory from '~hooks/useDrawingHistory';
+import useLcadAutosave from '~hooks/useLcadAutosave';
+import useLcadFileCommands from '~hooks/useLcadFileCommands';
+import useLocalDrawingImageImport from '~hooks/useLocalDrawingImageImport';
+import useLumcadMcpBridge from '~hooks/useLumcadMcpBridge';
+import { useI18n } from '~i18n/I18nProvider';
+import { useAppSettings } from '~settings/AppSettingsProvider';
+import { getDrawingCommandDefinition, isNumericDrawingInput, parseDrawingCommand, parseDrawingNumbers } from '~utils/drawingCommands';
+import {
+    canEditEntity,
+    createDrawingId,
+    deleteSelectedEntities,
+    getLayer,
+    normalizeDrawingContent,
+    pasteDrawingEntities,
+    transformSelectedEntities,
+    updateSelectedEntities,
+} from '~utils/drawingDocument';
+import { getOffsetThroughParameters, getScreenScaleRatio, offsetEntity, offsetEntityTowardPoint, pointDistance, rotateEntity, scaleEntity, translateEntity } from '~utils/drawingGeometry';
+import {
+    advanceReferenceTransform,
+    beginReferenceTransform,
+    convertAngle,
+    createAngleConfig,
+    directionalDelta,
+    formatOperationDelta,
+    formatOperationNumber,
+    operationAngle,
+    operationDelta,
+    operationScaleFactor,
+    operationUsesCopy,
+} from '~utils/drawingOperations';
+import { parseDrawingOperationOption, reopenBasicDrawingOperationOption } from '~utils/drawingOperationOptions';
+import { replaceTrimScope, trimDrawingFence, trimDrawingTarget } from '~utils/drawingTrimOperations';
+import { isDrawingTextInput } from '~utils/drawingInteraction';
+import { createDrawingLayout, removeDrawingViewport, scaleDrawingViewport, updateDrawingLayout } from '~utils/drawingLayouts';
+import { normalizeLcadDocument } from '~utils/lcadDocument';
+import { supportsDrawingCreationPanel } from '~utils/drawingCreation';
+
+export default function DrawingEditorWorkspace({
+    initialDocument,
+    initialPath = null,
+    recovered = false,
+    onReplaceSession,
+    onOpenSettings,
+}) {
+    const { locale, t } = useI18n();
+    const { settings } = useAppSettings();
+    const canvasRef = useRef(null);
+    const layoutCanvasRef = useRef(null);
+    const commandBarRef = useRef(null);
+    const imageInputRef = useRef(null);
+    const clipboardRef = useRef([]);
+    const previousLocaleRef = useRef(locale);
+    const hasAppliedRotationRef = useRef(false);
+    const lastOperationValuesRef = useRef({
+        offset: 1,
+        move: 1,
+        copy: 1,
+        rotate: settings.drawingDefaults.clockwiseAngles ? -90 : 90,
+        scale: 1,
+        arrayColumns: 2,
+        arrayRows: 2,
+    });
+    const [name, setName] = useState(initialDocument.name);
+    const [assets, setAssets] = useState(initialDocument.assets || []);
+    const [layouts, setLayouts] = useState(initialDocument.layouts || []);
+    const [filePath, setFilePath] = useState(initialPath);
+    const [selectedIds, setSelectedIds] = useState([]);
+    const [activeTool, setActiveTool] = useState('select');
+    const [dimensionMode, setDimensionMode] = useState('auto');
+    const [commandValue, setCommandValue] = useState('');
+    const [interactiveOperation, setInteractiveOperation] = useState(null);
+    const [creationPanelEntityId, setCreationPanelEntityId] = useState(null);
+    const [message, setMessage] = useState('');
+    const [viewport, setViewport] = useState({ x: 10, y: 10, width: 30, height: 20 });
+    const [workspaceMode, setWorkspaceMode] = useState('model');
+    const [activeLayoutId, setActiveLayoutId] = useState(initialDocument.layouts?.[0]?.id || null);
+    const [selectedViewportId, setSelectedViewportId] = useState(null);
+    const [layoutTool, setLayoutTool] = useState('select');
+    const history = useDrawingHistory(normalizeDrawingContent(initialDocument.content));
+    const document = useMemo(() => ({
+        ...initialDocument,
+        name,
+        assets,
+        layouts,
+        content: history.content,
+    }), [assets, history.content, initialDocument, layouts, name]);
+    const handlePathChange = useCallback(nextPath => setFilePath(nextPath), []);
+    const autosave = useLcadAutosave({
+        document,
+        filePath,
+        onPathChange: handlePathChange,
+        delayMs: settings.autosaveDelayMs,
+    });
+    const {
+        createNewDrawing,
+        exportPdf,
+        isExporting,
+        openDrawing,
+        printJob,
+        saveDrawingAs,
+    } = useLcadFileCommands({
+        autosave,
+        document,
+        drawingDefaults: settings.drawingDefaults,
+        filePath,
+        recovered,
+        onReplaceSession,
+        setMessage,
+    });
+
+    const activeLayout = useMemo(() => (
+        layouts.find(layout => layout.id === activeLayoutId) || layouts[0] || null
+    ), [activeLayoutId, layouts]);
+    const selectedEntities = useMemo(() => history.content.entities.filter(entity => selectedIds.includes(entity.id)), [history.content.entities, selectedIds]);
+    const creationPanelEntity = useMemo(() => (
+        history.content.entities.find(entity => entity.id === creationPanelEntityId) || null
+    ), [creationPanelEntityId, history.content.entities]);
+
+    const openModelWorkspace = () => {
+        layoutCanvasRef.current?.cancel();
+        setWorkspaceMode('model');
+        setSelectedViewportId(null);
+        setLayoutTool('select');
+        setMessage('');
+    };
+
+    const openLayoutWorkspace = layoutId => {
+        canvasRef.current?.cancel();
+        setWorkspaceMode('layout');
+        setActiveLayoutId(layoutId);
+        setSelectedIds([]);
+        setInteractiveOperation(null);
+        setActiveTool('select');
+        setCommandValue('');
+        setSelectedViewportId(null);
+        setLayoutTool('select');
+        setMessage(t('layout.opened'));
+    };
+
+    const addLayout = () => {
+        const layout = createDrawingLayout({
+            name: t('layout.defaultName', { number: layouts.length + 1 }),
+            format: activeLayout?.format || 'A0',
+            orientation: activeLayout?.orientation || 'landscape',
+        });
+        setLayouts(current => [...current, layout]);
+        setActiveLayoutId(layout.id);
+        setWorkspaceMode('layout');
+        setSelectedIds([]);
+        setInteractiveOperation(null);
+        setActiveTool('select');
+        setCommandValue('');
+        setSelectedViewportId(null);
+        setLayoutTool('viewport');
+        setMessage(t('layout.created'));
+    };
+
+    const commitActiveLayout = nextLayout => {
+        if (!activeLayout) return;
+        setLayouts(current => updateDrawingLayout(current, activeLayout.id, nextLayout));
+    };
+
+    const deleteActiveLayout = () => {
+        if (!activeLayout || layouts.length <= 1) return;
+        const index = layouts.findIndex(layout => layout.id === activeLayout.id);
+        const remaining = layouts.filter(layout => layout.id !== activeLayout.id);
+        const next = remaining[Math.min(index, remaining.length - 1)];
+        setLayouts(remaining);
+        setActiveLayoutId(next.id);
+        setSelectedViewportId(null);
+        setLayoutTool('select');
+        setMessage(t('layout.deleted'));
+    };
+
+    const deleteSelectedViewport = () => {
+        if (!activeLayout || !selectedViewportId) return;
+        commitActiveLayout(removeDrawingViewport(activeLayout, selectedViewportId));
+        setSelectedViewportId(null);
+        setMessage(t('layout.viewportDeleted'));
+    };
+    const { beginCompoundOperation, completeMirrorChoice, executeCompoundOperation, handleMirrorPoint } = useDrawingCompoundCommands({
+        canvasRef,
+        history,
+        selectedIds,
+        selectedEntities,
+        setActiveTool,
+        setInteractiveOperation,
+        setMessage,
+        setSelectedIds,
+    });
+    const { activateArraySelection, beginArray, handleArrayPoint, submitArrayValue } = useDrawingArrayCommand({
+        canvasRef, commandBarRef, history, lastOperationValuesRef, selectedEntities,
+        setActiveTool, setInteractiveOperation, setMessage, setSelectedIds,
+    });
+    const { handleImageFile, isUploading } = useLocalDrawingImageImport({
+        history, viewport, setActiveTool, setAssets, setMessage, setSelectedIds,
+    });
+
+    useEffect(() => {
+        const validIds = new Set(history.content.entities.map(entity => entity.id));
+        setSelectedIds(current => current.filter(id => validIds.has(id)));
+    }, [history.content.entities]);
+
+    useEffect(() => {
+        if (!creationPanelEntityId) return;
+        const exists = history.content.entities.some(entity => entity.id === creationPanelEntityId);
+        if (!exists || !selectedIds.includes(creationPanelEntityId)) setCreationPanelEntityId(null);
+    }, [creationPanelEntityId, history.content.entities, selectedIds]);
+
+    useEffect(() => {
+        if (!creationPanelEntityId) history.endCoalescing();
+    }, [creationPanelEntityId, history.endCoalescing]);
+
+    useEffect(() => {
+        window.document.title = `${name || t('document.untitled')} — LUMCAD`;
+    }, [name, t]);
+
+    useEffect(() => {
+        if (!hasAppliedRotationRef.current) {
+            lastOperationValuesRef.current.rotate = settings.drawingDefaults.clockwiseAngles ? -90 : 90;
+        }
+    }, [settings.drawingDefaults.clockwiseAngles]);
+
+    useEffect(() => {
+        if (previousLocaleRef.current === locale) return;
+        previousLocaleRef.current = locale;
+        if (interactiveOperation) setMessage(t('messages.continueActiveCommand'));
+        else if (activeTool !== 'select') setMessage(t('messages.toolActive', { tool: t(`commands.${activeTool}`) }));
+        else setMessage('');
+    }, [locale]);
+
+    const deleteSelection = () => {
+        if (!selectedIds.length) return;
+        history.commit(deleteSelectedEntities(history.content, selectedIds));
+        setSelectedIds([]);
+        setMessage(t('messages.selectionDeleted'));
+    };
+
+    const copyToClipboard = () => {
+        clipboardRef.current = selectedEntities.map(entity => JSON.parse(JSON.stringify(entity)));
+        setMessage(t('messages.objectsCopied', { count: clipboardRef.current.length }));
+    };
+
+    const pasteClipboard = () => {
+        if (!clipboardRef.current.length) {
+            setMessage(t('messages.clipboardEmpty'));
+            return;
+        }
+        const result = pasteDrawingEntities(history.content, clipboardRef.current);
+        history.commit(result.content);
+        setSelectedIds(result.selectedIds);
+        clipboardRef.current = result.entities.map(entity => JSON.parse(JSON.stringify(entity)));
+        setMessage(t('messages.objectsPasted', { count: result.entities.length }));
+    };
+
+    const activateOperationSelection = (operation, editable, reportInvalid = true) => {
+        if (operation.type === 'offset') {
+            const sources = editable.filter(entity => ['line', 'rectangle', 'circle', 'polygon', 'arc', 'polyline'].includes(entity.type));
+            if (!sources.length) {
+                if (reportInvalid) setMessage(t('messages.offsetSelectionRequired'));
+                return false;
+            }
+            const distance = operation.requestedValue;
+            const hasDistance = Number.isFinite(distance) && distance > 0;
+            const offsetMode = operation.offsetMode === 'through' ? 'through' : 'distance';
+            const shared = {
+                type: 'offset',
+                entityIds: sources.map(entity => entity.id),
+                offsetMode,
+                eraseSource: Boolean(operation.eraseSource),
+                destinationLayer: operation.destinationLayer === 'current' ? 'current' : 'source',
+            };
+            if (hasDistance) lastOperationValuesRef.current.offset = distance;
+            setInteractiveOperation(offsetMode === 'through'
+                ? { ...shared, stage: 'side' }
+                : hasDistance
+                    ? { ...shared, stage: 'side', distance }
+                    : { ...shared, stage: 'distance' });
+            setActiveTool('offset');
+            setMessage(offsetMode === 'through'
+                ? t('messages.offsetThroughPrompt', { count: sources.length })
+                : hasDistance
+                ? t('messages.offsetSidePrompt', { count: sources.length, distance })
+                : t('messages.offsetDistancePrompt', { distance: lastOperationValuesRef.current.offset }));
+            if (offsetMode !== 'through' && !hasDistance) commandBarRef.current?.focus('');
+            return true;
+        }
+        if (!editable.length) {
+            if (reportInvalid) setMessage(t('messages.editableSelectionRequired'));
+            return false;
+        }
+        setInteractiveOperation({ ...operation, stage: 'base', entityIds: editable.map(entity => entity.id) });
+        setActiveTool(operation.type);
+        setMessage(operationBasePrompt(operation.type, t));
+        return true;
+    };
+
+    const beginTransformOperation = (type, requestedValue = null) => {
+        if (workspaceMode === 'layout' && type === 'scale') {
+            beginViewportScale(requestedValue);
+            return;
+        }
+        canvasRef.current?.cancel();
+        setCreationPanelEntityId(null);
+        const operation = {
+            type,
+            stage: 'select',
+            requestedValue: Number.isFinite(requestedValue) ? requestedValue : null,
+            ...(['rotate', 'scale'].includes(type) ? { copyMode: 'replace' } : {}),
+            ...(type === 'rotate' ? {
+                angleUnit: settings.drawingDefaults.angleUnit,
+                angleDirection: settings.drawingDefaults.clockwiseAngles ? 'clockwise' : 'counterClockwise',
+            } : {}),
+            ...(type === 'mirror' ? {
+                copyMode: 'copy',
+                mirrorTextGlyphs: settings.drawingDefaults.mirrorText,
+            } : {}),
+            ...(type === 'offset' ? {
+                offsetMode: 'distance',
+                eraseSource: false,
+                destinationLayer: 'source',
+            } : {}),
+        };
+        const editable = selectedEntities.filter(entity => canEditEntity(history.content, entity));
+        if (activateOperationSelection(operation, editable, false)) return;
+        setInteractiveOperation(operation);
+        setActiveTool('select');
+        setMessage(t('messages.operationSelectionPrompt', { operation: t(`operations.${type}`) }));
+    };
+
+    const beginViewportScale = (requestedValue = null) => {
+        layoutCanvasRef.current?.cancel();
+        const viewport = activeLayout?.viewports.find(item => item.id === selectedViewportId) || null;
+        const operation = {
+            type: 'scale',
+            scope: 'viewport',
+            stage: viewport ? 'base' : 'select',
+            viewportId: viewport?.id || null,
+            requestedValue: Number.isFinite(requestedValue) ? requestedValue : null,
+        };
+        setInteractiveOperation(operation);
+        setLayoutTool(viewport ? 'scale' : 'select');
+        setMessage(viewport
+            ? operationBasePrompt('scale', t)
+            : t('layout.scaleSelectionPrompt'));
+    };
+
+    const beginTrim = () => {
+        canvasRef.current?.cancel();
+        const scopeIds = selectedEntities.filter(entity => canEditEntity(history.content, entity)).map(entity => entity.id);
+        setInteractiveOperation({ type: 'trim', stage: 'pick', scopeIds: scopeIds.length ? scopeIds : null });
+        setActiveTool('trim');
+        setMessage(scopeIds.length
+            ? t('messages.trimPreselected', { count: scopeIds.length })
+            : t('messages.trimStart'));
+    };
+
+    const confirmOperationSelection = () => {
+        if (!interactiveOperation || interactiveOperation.stage !== 'select') return false;
+        if (interactiveOperation.scope === 'viewport') {
+            const viewport = activeLayout?.viewports.find(item => item.id === selectedViewportId);
+            if (!viewport) {
+                setMessage(t('layout.scaleSelectionPrompt'));
+                return true;
+            }
+            setInteractiveOperation({ ...interactiveOperation, stage: 'base', viewportId: viewport.id });
+            setLayoutTool('scale');
+            setMessage(operationBasePrompt('scale', t));
+            return true;
+        }
+        if (interactiveOperation.type === 'array') return activateArraySelection(interactiveOperation, selectedEntities);
+        if (['join', 'explode'].includes(interactiveOperation.type)) {
+            executeCompoundOperation(
+                interactiveOperation.type,
+                selectedEntities.filter(entity => canEditEntity(history.content, entity)).map(entity => entity.id),
+            );
+            return true;
+        }
+        activateOperationSelection(
+            interactiveOperation,
+            selectedEntities.filter(entity => canEditEntity(history.content, entity)),
+        );
+        return true;
+    };
+
+    const finishInteractiveOperation = (nextSelection, nextMessage) => {
+        setSelectedIds(nextSelection);
+        setInteractiveOperation(null);
+        setActiveTool('select');
+        setMessage(nextMessage);
+    };
+
+    const applyScaleOperation = (operation, factorOrTransform, basePoint) => {
+        const nonUniform = factorOrTransform && typeof factorOrTransform === 'object';
+        const factor = nonUniform ? null : Number(factorOrTransform);
+        const scaleX = nonUniform ? Number(factorOrTransform.scaleX) : factor;
+        const scaleY = nonUniform ? Number(factorOrTransform.scaleY) : factor;
+        if (![scaleX, scaleY].every(value => Number.isFinite(value) && value > 0)) return false;
+        if (!nonUniform) lastOperationValuesRef.current.scale = factor;
+        if (operation.scope === 'viewport') {
+            if (!activeLayout?.viewports.some(viewport => viewport.id === operation.viewportId)) {
+                setInteractiveOperation(null);
+                setLayoutTool('select');
+                setMessage(t('layout.viewportNoLongerAvailable'));
+                return false;
+            }
+            commitActiveLayout(scaleDrawingViewport(activeLayout, operation.viewportId, factor, basePoint));
+            setSelectedViewportId(operation.viewportId);
+            setInteractiveOperation(null);
+            setLayoutTool('select');
+            setMessage(t('layout.viewportScaleApplied', { factor: formatOperationNumber(factor, locale) }));
+            return true;
+        }
+        const result = transformSelectedEntities(
+            history.content,
+            operation.entityIds,
+            entity => scaleEntity(entity, nonUniform
+                ? { origin: basePoint, scaleX, scaleY }
+                : factor, basePoint),
+            { copy: operationUsesCopy(operation) },
+        );
+        if (!result.changed) return false;
+        history.commit(result.content);
+        finishInteractiveOperation(result.selectedIds, t(nonUniform
+            ? operationUsesCopy(operation) ? 'messages.scaleXYCopyApplied' : 'messages.scaleXYApplied'
+            : operationUsesCopy(operation) ? 'messages.scaleCopyApplied' : 'messages.scaleApplied', {
+            factor: formatOperationNumber(factor, locale),
+            scaleX: formatOperationNumber(scaleX, locale),
+            scaleY: formatOperationNumber(scaleY, locale),
+        }));
+        return true;
+    };
+
+    const applyRotateOperation = (operation, angle, basePoint) => {
+        hasAppliedRotationRef.current = true;
+        lastOperationValuesRef.current.rotate = angle;
+        const result = transformSelectedEntities(
+            history.content,
+            operation.entityIds,
+            entity => rotateEntity(entity, angle, basePoint),
+            { copy: operationUsesCopy(operation) },
+        );
+        if (!result.changed) return false;
+        history.commit(result.content);
+        finishInteractiveOperation(result.selectedIds, t(operationUsesCopy(operation)
+            ? 'messages.rotationCopyApplied'
+            : 'messages.rotationApplied', {
+            angle: formatOperationNumber(displayRotationAngle(angle, operation), locale),
+            unit: angleUnitSymbol(operation.angleUnit),
+        }));
+        return true;
+    };
+
+    const handleReferencePoint = (operation, point) => {
+        const result = advanceReferenceTransform(operation, point);
+        if (!result) return false;
+        if (!result.complete) {
+            setInteractiveOperation(result.operation);
+            setMessage(referenceTransformPrompt(result.operation, t));
+            return true;
+        }
+        if (!result.valid) {
+            setInteractiveOperation(result.reason === 'source'
+                ? beginReferenceTransform(operation)
+                : operation);
+            setMessage(t(result.reason === 'source'
+                ? 'messages.referenceSourceDistinct'
+                : 'messages.referenceTargetDistinct'));
+            return true;
+        }
+        if (operation.type === 'scale') return applyScaleOperation(operation, result.value, result.basePoint);
+        applyRotateOperation(operation, result.value, result.basePoint);
+        return true;
+    };
+
+    const handleInteractiveOperation = ({ point, targetId, fence, arrayHandle }) => {
+        if (interactiveOperation?.stage === 'reference') {
+            handleReferencePoint(interactiveOperation, point);
+            return;
+        }
+        if (handleArrayPoint(interactiveOperation, point, arrayHandle)) return;
+        if (handleMirrorPoint(interactiveOperation, point)) return;
+        if (interactiveOperation?.type === 'offset') {
+            if (interactiveOperation.stage !== 'side') return;
+            const sources = history.content.entities.filter(entity => (
+                interactiveOperation.entityIds.includes(entity.id) && canEditEntity(history.content, entity)
+            ));
+            if (!sources.length) {
+                setInteractiveOperation(null);
+                setActiveTool('select');
+                setMessage(t('messages.offsetNoLongerEditable'));
+                return;
+            }
+            if (interactiveOperation.destinationLayer === 'current') {
+                const destination = getLayer(history.content, history.content.activeLayerId);
+                if (!destination?.visible || destination.locked) {
+                    setMessage(t('messages.offsetDestinationLayerUnavailable'));
+                    return;
+                }
+            }
+            const offsetResults = sources.map(source => {
+                const through = interactiveOperation.offsetMode === 'through'
+                    ? getOffsetThroughParameters(source, point)
+                    : null;
+                const offset = interactiveOperation.offsetMode === 'through'
+                    ? through && offsetEntity(source, through.distance * through.side)
+                    : offsetEntityTowardPoint(source, interactiveOperation.distance, point);
+                return {
+                    source,
+                    copy: offset ? {
+                        ...offset,
+                        id: createDrawingId(offset.type || source.type),
+                        layerId: interactiveOperation.destinationLayer === 'current'
+                            ? history.content.activeLayerId
+                            : source.layerId,
+                    } : null,
+                };
+            });
+            const copies = offsetResults.map(result => result.copy).filter(Boolean);
+            if (!copies.length) {
+                setMessage(t('messages.offsetInvalidSide'));
+                return;
+            }
+            const baseContent = interactiveOperation.eraseSource
+                ? deleteSelectedEntities(history.content, offsetResults
+                    .filter(result => result.copy)
+                    .map(result => result.source.id))
+                : history.content;
+            history.commit({ ...baseContent, entities: [...baseContent.entities, ...copies] });
+            const skipped = sources.length - copies.length;
+            setSelectedIds([]);
+            setInteractiveOperation({
+                type: 'offset',
+                stage: 'select',
+                requestedValue: interactiveOperation.offsetMode === 'through' ? null : interactiveOperation.distance,
+                offsetMode: interactiveOperation.offsetMode,
+                eraseSource: interactiveOperation.eraseSource,
+                destinationLayer: interactiveOperation.destinationLayer,
+            });
+            setActiveTool('offset');
+            const through = interactiveOperation.offsetMode === 'through';
+            setMessage(t(through
+                ? skipped ? 'messages.offsetThroughCreatedWithSkipped' : 'messages.offsetThroughCreated'
+                : skipped ? 'messages.offsetCreatedWithSkipped' : 'messages.offsetCreated', {
+                count: copies.length,
+                distance: interactiveOperation.distance,
+                skipped,
+            }));
+            return;
+        }
+
+        if (interactiveOperation?.type !== 'trim') {
+            if (!interactiveOperation || interactiveOperation.stage === 'select') return;
+            if (interactiveOperation.stage === 'base') {
+                const nextStage = ({ move: 'destination', copy: 'destination', rotate: 'angle', scale: 'factor', mirror: 'mirror-axis' })[interactiveOperation.type];
+                setInteractiveOperation({ ...interactiveOperation, stage: nextStage, basePoint: point });
+                const promptKeys = {
+                    move: 'messages.moveDestinationPrompt',
+                    copy: 'messages.copyDestinationPrompt',
+                    rotate: 'messages.rotateAnglePrompt',
+                    scale: 'messages.scaleFactorPrompt',
+                    mirror: 'messages.mirrorAxisSecond',
+                };
+                setMessage(t(promptKeys[interactiveOperation.type], {
+                    angle: formatOperationNumber(displayRotationAngle(
+                        lastOperationValuesRef.current.rotate,
+                        interactiveOperation,
+                    ), locale),
+                    unit: angleUnitSymbol(interactiveOperation.angleUnit),
+                    factor: lastOperationValuesRef.current.scale,
+                }));
+                return;
+            }
+            if (interactiveOperation.type === 'mirror' && interactiveOperation.stage === 'mirror-axis') {
+                if (pointDistance(interactiveOperation.basePoint, point) <= 1e-9) {
+                    setMessage(t('messages.mirrorAxisDistinct'));
+                    return;
+                }
+                setInteractiveOperation({ ...interactiveOperation, stage: 'mirror-choice', axisSecond: point });
+                setMessage(t('messages.mirrorOptions'));
+                commandBarRef.current?.focus('');
+                return;
+            }
+            if (interactiveOperation.type === 'mirror' && interactiveOperation.stage === 'mirror-choice') return;
+            if (!interactiveOperation.basePoint || !point) return;
+            if (interactiveOperation.type === 'move') {
+                const delta = operationDelta(interactiveOperation.basePoint, point);
+                history.commit(updateSelectedEntities(history.content, interactiveOperation.entityIds, entity => translateEntity(entity, delta.x, delta.y)));
+                finishInteractiveOperation(interactiveOperation.entityIds, t('messages.moveApplied', { delta: formatOperationDelta(delta, locale) }));
+            } else if (interactiveOperation.type === 'copy') {
+                const delta = operationDelta(interactiveOperation.basePoint, point);
+                const originals = history.content.entities.filter(entity => interactiveOperation.entityIds.includes(entity.id));
+                const result = pasteDrawingEntities(history.content, originals, delta);
+                history.commit(result.content);
+                lastOperationValuesRef.current.copy = Math.hypot(delta.x, delta.y);
+                setSelectedIds(result.selectedIds);
+                setInteractiveOperation(current => ({ ...current, placedCount: (current.placedCount || 0) + 1 }));
+                setMessage(t('messages.copyPlaced', { count: result.entities.length }));
+            } else if (interactiveOperation.type === 'rotate') {
+                const angle = operationAngle(interactiveOperation.basePoint, point);
+                applyRotateOperation(interactiveOperation, angle, interactiveOperation.basePoint);
+            } else if (interactiveOperation.type === 'scale') {
+                const factor = operationScaleFactor(interactiveOperation.basePoint, point);
+                if (factor <= 0) return;
+                applyScaleOperation(interactiveOperation, factor, interactiveOperation.basePoint);
+            }
+            return;
+        }
+
+        if (fence) {
+            const result = trimDrawingFence(history.content, fence, { scopeIds: interactiveOperation.scopeIds });
+            if (result.changedCount) history.commit(result.content);
+            const nextScope = replaceTrimScope(interactiveOperation.scopeIds, result.affectedIds, result.replacementIds);
+            if (interactiveOperation.scopeIds) setInteractiveOperation({ ...interactiveOperation, scopeIds: nextScope });
+            setSelectedIds(interactiveOperation.scopeIds ? nextScope : result.replacementIds);
+            setMessage(result.changedCount
+                ? t('messages.trimFenceChanged', { count: result.changedCount })
+                : t('messages.trimFenceMiss'));
+            return;
+        }
+
+        const target = history.content.entities.find(entity => entity.id === targetId);
+        if (!target) {
+            setMessage(t('messages.trimClickPortion'));
+            return;
+        }
+        if (interactiveOperation.scopeIds && !interactiveOperation.scopeIds.includes(target.id)) {
+            setMessage(t('messages.trimOutsideSelection'));
+            return;
+        }
+        if (!canEditEntity(history.content, target)) {
+            setMessage(t('messages.trimLocked'));
+            return;
+        }
+        if (target.type === 'circle') {
+            setMessage(t('messages.trimCircleUnsupported'));
+            return;
+        }
+        if (!['line', 'rectangle', 'arc'].includes(target.type)) {
+            setMessage(t('messages.trimTargetTypes'));
+            return;
+        }
+        const result = trimDrawingTarget(history.content, target, point, { boundaryIds: interactiveOperation.scopeIds });
+        if (!result.changed) {
+            setMessage(t('messages.trimCannot'));
+            return;
+        }
+        history.commit(result.content);
+        const replacementIds = result.replacements.map(entity => entity.id);
+        const nextScope = replaceTrimScope(interactiveOperation.scopeIds, [target.id], replacementIds);
+        if (interactiveOperation.scopeIds) setInteractiveOperation({ ...interactiveOperation, scopeIds: nextScope });
+        setSelectedIds(interactiveOperation.scopeIds ? nextScope : replacementIds);
+        setMessage(result.replacements.length
+            ? t('messages.trimFragments', { count: result.replacements.length })
+            : t('messages.trimSegmentDeleted'));
+    };
+
+    const submitOperationValue = rawValue => {
+        if (!interactiveOperation) return false;
+        const empty = !String(rawValue).trim();
+        if (interactiveOperation.stage === 'mirror-choice') {
+            completeMirrorChoice(interactiveOperation, rawValue);
+            return true;
+        }
+        if (interactiveOperation.type === 'mirror' && ['mirror-option-base', 'mirror-option-axis'].includes(interactiveOperation.stage)) {
+            if (parseDrawingOperationOption(interactiveOperation, rawValue)) {
+                completeMirrorChoice(interactiveOperation, rawValue);
+                return true;
+            }
+            const values = parseDrawingNumbers(rawValue);
+            if (values.length >= 2) handleMirrorPoint(interactiveOperation, { x: values[0], y: values[1] });
+            else setMessage(t('messages.mirrorPointOrCoordinates'));
+            return true;
+        }
+        if (interactiveOperation.type === 'array') {
+            return submitArrayValue(interactiveOperation, rawValue);
+        }
+        const parsedOption = parseDrawingOperationOption(interactiveOperation, rawValue);
+        if (parsedOption?.option === 'reference' && ['scale', 'rotate'].includes(interactiveOperation.type)) {
+            const referenceOperation = beginReferenceTransform(interactiveOperation, interactiveOperation.type === 'rotate'
+                ? { referenceMode: 'sourceTarget' }
+                : {});
+            setInteractiveOperation(referenceOperation);
+            setMessage(referenceTransformPrompt(referenceOperation, t));
+            return true;
+        }
+        if (parsedOption?.option === 'nonUniform' && interactiveOperation.type === 'scale'
+            && parsedOption.args.length >= 2 && interactiveOperation.basePoint) {
+            const [scaleX, scaleY] = parsedOption.args;
+            if (![scaleX, scaleY].every(value => Number.isFinite(value) && value > 0)) {
+                setMessage(t('messages.scaleXYPositive'));
+                return true;
+            }
+            applyScaleOperation(interactiveOperation, { scaleX, scaleY }, interactiveOperation.basePoint);
+            return true;
+        }
+        const reopened = reopenBasicDrawingOperationOption(interactiveOperation, parsedOption, t);
+        if (reopened) {
+            setInteractiveOperation(reopened.operation);
+            setMessage(reopened.message);
+            if (reopened.focus) commandBarRef.current?.focus('');
+            return true;
+        }
+        if (!empty && !isNumericDrawingInput(rawValue)) return false;
+        const values = empty ? (interactiveOperation.requestedValues || []) : parseDrawingNumbers(rawValue);
+        if (interactiveOperation.stage === 'select') return confirmOperationSelection();
+        if (interactiveOperation.stage === 'reference') {
+            if (values.length >= 2) handleReferencePoint(interactiveOperation, { x: values[0], y: values[1] });
+            else setMessage(referenceTransformPrompt(interactiveOperation, t));
+            return true;
+        }
+        if (interactiveOperation.stage === 'distance') {
+            const distance = values[0] ?? lastOperationValuesRef.current.offset;
+            if (!Number.isFinite(distance) || distance <= 0) {
+                setMessage(t('messages.offsetPositive'));
+                return true;
+            }
+            lastOperationValuesRef.current.offset = distance;
+            setInteractiveOperation({ ...interactiveOperation, stage: 'side', distance });
+            setMessage(t('operationPrompt.offsetSide', { distance }));
+            return true;
+        }
+        if (interactiveOperation.stage === 'destination') {
+            const basePoint = interactiveOperation.basePoint;
+            const currentPoint = canvasRef.current?.getOperationPoint();
+            let delta = null;
+            if (values.length >= 2) delta = { x: values[0], y: values[1] };
+            else {
+                const distance = values[0] ?? lastOperationValuesRef.current[interactiveOperation.type];
+                delta = directionalDelta(basePoint, currentPoint, distance);
+                if (Number.isFinite(distance)) lastOperationValuesRef.current[interactiveOperation.type] = distance;
+            }
+            if (!delta) return true;
+            handleInteractiveOperation({ point: { x: basePoint.x + delta.x, y: basePoint.y + delta.y } });
+            return true;
+        }
+        if (interactiveOperation.stage === 'angle') {
+            const enteredAngle = values[0] ?? interactiveOperation.requestedValue
+                ?? displayRotationAngle(lastOperationValuesRef.current.rotate, interactiveOperation);
+            const configured = createAngleConfig(enteredAngle, {
+                unit: interactiveOperation.angleUnit,
+                direction: interactiveOperation.angleDirection,
+            });
+            if (!configured) return true;
+            applyRotateOperation(interactiveOperation, configured.radians * 180 / Math.PI, interactiveOperation.basePoint);
+            return true;
+        }
+        if (interactiveOperation.stage === 'scale-xy') {
+            const [scaleX, scaleY] = values;
+            if (![scaleX, scaleY].every(value => Number.isFinite(value) && value > 0)) {
+                setMessage(t('messages.scaleXYPositive'));
+                return true;
+            }
+            applyScaleOperation(interactiveOperation, { scaleX, scaleY }, interactiveOperation.basePoint);
+            return true;
+        }
+        if (interactiveOperation.stage === 'factor') {
+            const factor = values[0] ?? interactiveOperation.requestedValue ?? lastOperationValuesRef.current.scale;
+            if (!Number.isFinite(factor) || factor <= 0) {
+                setMessage(t('messages.scalePositive'));
+                return true;
+            }
+            lastOperationValuesRef.current.scale = factor;
+            handleInteractiveOperation({
+                point: { x: interactiveOperation.basePoint.x + factor, y: interactiveOperation.basePoint.y },
+            });
+            return true;
+        }
+        if (empty) setMessage(t('messages.pointRequired'));
+        return true;
+    };
+
+    const submitCommand = async rawValue => {
+        if (isNumericDrawingInput(rawValue) && canvasRef.current?.applyNumericInput(rawValue)) {
+            setCommandValue('');
+            setMessage(t('messages.objectCreatedFromValue'));
+            return;
+        }
+        if (submitOperationValue(rawValue)) {
+            setCommandValue('');
+            return;
+        }
+        if (interactiveOperation) {
+            setCommandValue('');
+            setMessage(t('messages.continueActiveCommand'));
+            return;
+        }
+        if (workspaceMode === 'model' && activeTool !== 'select') {
+            if (canvasRef.current?.submitCreationInput(rawValue)) {
+                setCommandValue('');
+                return;
+            }
+            setCommandValue('');
+            setMessage(t('messages.continueActiveCommand'));
+            return;
+        }
+        const parsed = parseDrawingCommand(rawValue);
+        if (parsed?.command === 'unknown' && canvasRef.current?.submitCreationInput(rawValue)) {
+            setCommandValue('');
+            return;
+        }
+        setCommandValue('');
+        if (!parsed) return;
+        setInteractiveOperation(null);
+        canvasRef.current?.cancel();
+        if (parsed.command === 'viewport') {
+            if (!activeLayout) addLayout();
+            else {
+                openLayoutWorkspace(activeLayout.id);
+                setLayoutTool('viewport');
+                setMessage(t('layout.viewportFirstPoint'));
+            }
+            return;
+        }
+        if (['select', 'line', 'rectangle', 'circle', 'polygon', 'arc', 'text', 'pan', 'dimension'].includes(parsed.command)) {
+            openModelWorkspace();
+            if (['rectangle', 'circle', 'polygon', 'arc'].includes(parsed.command)) {
+                canvasRef.current?.submitCreationInputForTool(parsed.command, rawValue);
+            }
+            if (parsed.command === 'dimension') setDimensionMode('auto');
+            setActiveTool(parsed.command);
+            setMessage(parsed.command === 'dimension'
+                ? t('messages.dimensionPrompt')
+                : t('messages.toolActive', { tool: t(`commands.${parsed.command}`) }));
+            return;
+        }
+        if (parsed.command === 'creationPanel') {
+            const valid = selectedEntities.filter(supportsDrawingCreationPanel);
+            if (selectedEntities.length !== 1 || valid.length !== 1) {
+                setCreationPanelEntityId(null);
+                setMessage(t('messages.creationPanelSelectionRequired'));
+                return;
+            }
+            openModelWorkspace();
+            canvasRef.current?.cancel();
+            setInteractiveOperation(null);
+            setActiveTool('select');
+            setCreationPanelEntityId(valid[0].id);
+            setMessage(t('messages.creationPanelOpened', { type: t(`entity.${valid[0].type}`) }));
+            return;
+        }
+        if (parsed.command === 'offset') {
+            beginTransformOperation('offset', parsed.args[0]);
+        } else if (parsed.command === 'trim') {
+            beginTrim();
+        } else if (parsed.command === 'move') {
+            beginTransformOperation('move', parsed.args[0]);
+        } else if (parsed.command === 'scale') {
+            beginTransformOperation('scale', parsed.args[0]);
+        } else if (parsed.command === 'rotate') beginTransformOperation('rotate', parsed.args[0]);
+        else if (parsed.command === 'copy') beginTransformOperation('copy', parsed.args[0]);
+        else if (parsed.command === 'mirror') beginTransformOperation('mirror');
+        else if (parsed.command === 'array') beginArray();
+        else if (parsed.command === 'join') beginCompoundOperation('join');
+        else if (parsed.command === 'explode') beginCompoundOperation('explode');
+        else if (parsed.command === 'delete') workspaceMode === 'layout' ? deleteSelectedViewport() : deleteSelection();
+        else if (parsed.command === 'undo') history.undo();
+        else if (parsed.command === 'redo') history.redo();
+        else if (parsed.command === 'radiusDimension' || parsed.command === 'diameterDimension') {
+            setDimensionMode(parsed.command === 'diameterDimension' ? 'diameter' : 'radius');
+            setActiveTool('dimension');
+            setMessage(t('messages.dimensionPrompt'));
+        }
+        else if (parsed.command === 'saveAs') await saveDrawingAs();
+        else if (parsed.command === 'new') await createNewDrawing();
+        else if (parsed.command === 'open') await openDrawing();
+        else if (parsed.command === 'pdf') await exportPdf(activeLayout ? [activeLayout.id] : []);
+        else if (parsed.command === 'pdfAll') await exportPdf(layouts.map(layout => layout.id));
+        else if (parsed.command === 'fit') canvasRef.current?.fit();
+        else if (parsed.command === 'zoom' && parsed.args[0]) canvasRef.current?.zoom(1 / parsed.args[0]);
+        else setMessage(t('messages.unknownCommand', { command: parsed.alias }));
+    };
+
+    const toggleAllSnaps = () => {
+        const snaps = history.content.settings.snaps;
+        const shouldEnable = !Object.values(snaps).some(Boolean);
+        history.commit({
+            ...history.content,
+            settings: {
+                ...history.content.settings,
+                snaps: Object.fromEntries(Object.keys(snaps).map(key => [key, shouldEnable])),
+            },
+        });
+        setMessage(t(shouldEnable ? 'messages.snapsEnabled' : 'messages.snapsDisabled'));
+    };
+
+    const cancelCommand = () => {
+        if (workspaceMode === 'layout') {
+            layoutCanvasRef.current?.cancel();
+            setSelectedViewportId(null);
+            setLayoutTool('select');
+        } else canvasRef.current?.cancel();
+        setSelectedIds([]);
+        setCreationPanelEntityId(null);
+        setInteractiveOperation(null);
+        setActiveTool('select');
+        setCommandValue('');
+        setMessage(t('messages.commandCancelled'));
+    };
+
+    useDrawingEditorShortcuts({ commandBarRef, actions: {
+        undo: history.undo,
+        redo: history.redo,
+        copy: copyToClipboard,
+        paste: pasteClipboard,
+        saveAs: saveDrawingAs,
+        newDocument: createNewDrawing,
+        open: openDrawing,
+        delete: () => workspaceMode === 'layout' ? deleteSelectedViewport() : deleteSelection(),
+        toggleSnaps: toggleAllSnaps,
+        enter: () => submitCommand(''),
+        cancel: cancelCommand,
+    } });
+
+    const toolbarActions = {
+        undo: history.undo,
+        redo: history.redo,
+        copy: copyToClipboard,
+        paste: pasteClipboard,
+        delete: deleteSelection,
+        move: () => beginTransformOperation('move'),
+        copyCommand: () => beginTransformOperation('copy'),
+        rotate: () => beginTransformOperation('rotate'),
+        mirror: () => beginTransformOperation('mirror'),
+        array: beginArray,
+        join: () => beginCompoundOperation('join'),
+        explode: () => beginCompoundOperation('explode'),
+        offset: () => beginTransformOperation('offset'),
+        trim: beginTrim,
+        scale: () => beginTransformOperation('scale'),
+        zoomIn: () => canvasRef.current?.zoom(0.8),
+        zoomOut: () => canvasRef.current?.zoom(1.25),
+        fit: () => canvasRef.current?.fit(),
+        importImage: () => imageInputRef.current?.click(),
+    };
+
+    useLumcadMcpBridge({
+        getState: () => ({
+            document,
+            filePath,
+            recovered: Boolean(recovered && !filePath),
+            selection: selectedIds,
+            editor: {
+                activeTool,
+                interactiveOperation,
+                workspaceMode,
+                activeLayoutId: activeLayout?.id || null,
+                layoutTool: workspaceMode === 'layout' ? layoutTool : null,
+                selectedViewportId: workspaceMode === 'layout' ? selectedViewportId : null,
+                message,
+                viewport,
+                canUndo: history.canUndo,
+                canRedo: history.canRedo,
+            },
+        }),
+        executeAction: async action => {
+            if (action.type === 'selection') {
+                const knownIds = new Set(history.content.entities.map(entity => entity.id));
+                const ids = [...new Set(action.ids || [])];
+                const unknownIds = ids.filter(id => !knownIds.has(id));
+                if (unknownIds.length) throw new Error(`Unknown LUMCAD entity IDs: ${unknownIds.join(', ')}`);
+                setSelectedIds(ids);
+                return;
+            }
+            if (action.type === 'command') {
+                const definition = getDrawingCommandDefinition(action.command);
+                if (!definition) throw new Error(`Unknown LUMCAD command: ${String(action.command || '')}`);
+                await submitCommand([definition.name, action.input].filter(value => value !== null && value !== undefined && value !== '').join(' '));
+                return;
+            }
+            if (action.type === 'point') {
+                const activeCanvas = workspaceMode === 'layout' ? layoutCanvasRef : canvasRef;
+                const accepted = activeCanvas.current?.submitPoint(
+                    { x: action.x, y: action.y },
+                    { targetId: action.targetId, shift: action.shift, snap: action.snap },
+                );
+                if (!accepted) throw new Error('The active LUMCAD command cannot accept this point.');
+                return;
+            }
+            if (action.type === 'input') {
+                await submitCommand(action.value);
+                return;
+            }
+            if (action.type === 'enter') {
+                await submitCommand('');
+                return;
+            }
+            if (action.type === 'escape') {
+                cancelCommand();
+                return;
+            }
+            throw new Error(`Unsupported LUMCAD MCP action: ${String(action.type || '')}`);
+        },
+        replaceDocument: async replacement => {
+            if (!replacement || typeof replacement !== 'object' || Array.isArray(replacement)) {
+                throw new Error('replace_document requires a LUMCAD document object.');
+            }
+            const normalized = normalizeLcadDocument({ ...document, ...replacement });
+            canvasRef.current?.cancel();
+            history.commit(normalized.content);
+            setName(normalized.name);
+            setAssets(normalized.assets);
+            setLayouts(normalized.layouts);
+            setActiveLayoutId(normalized.layouts[0]?.id || null);
+            setWorkspaceMode('model');
+            setSelectedViewportId(null);
+            setLayoutTool('select');
+            setSelectedIds([]);
+            setInteractiveOperation(null);
+            setActiveTool('select');
+            setMessage('');
+        },
+    });
+
+    return (
+        <>
+            <div className="drawing-editor-shell has-workspace-tabs" onDragStart={event => { if (!isDrawingTextInput(event.target)) event.preventDefault(); }}>
+                <DrawingEditorHeader
+                    name={name}
+                    onNameChange={setName}
+                    filePath={filePath}
+                    saveStatus={autosave.status}
+                    isRecovery={autosave.isRecovery || (recovered && !filePath)}
+                    lastSavedAt={autosave.lastSavedAt}
+                    onNew={() => createNewDrawing().catch(() => {})}
+                    onOpen={() => openDrawing().catch(() => {})}
+                    onSaveAs={() => saveDrawingAs().catch(() => {})}
+                    onOpenSettings={onOpenSettings}
+                />
+                {workspaceMode === 'model' ? (
+                    <DrawingEditorBody
+                        toolbar={{ activeTool, activeOperation: interactiveOperation?.type || null, actions: toolbarActions,
+                            selectionCount: selectedIds.length, canUndo: history.canUndo, canRedo: history.canRedo }}
+                        onToolChange={tool => {
+                            canvasRef.current?.cancel();
+                            setCreationPanelEntityId(null);
+                            if (tool === 'dimension') setDimensionMode('auto');
+                            setActiveTool(tool);
+                            setInteractiveOperation(null);
+                            setMessage(tool === 'dimension'
+                                ? t('messages.dimensionPrompt')
+                                : t('messages.toolActive', { tool: t(`commands.${tool}`) }));
+                        }}
+                        canvasRef={canvasRef}
+                        canvas={{ content: history.content, assets, activeTool, dimensionMode, selectedIds, interactiveOperation,
+                            onSelectionChange: setSelectedIds, onCommit: history.commit, onViewportChange: setViewport,
+                            onStatus: setMessage, onInteractiveOperation: handleInteractiveOperation,
+                            onEntityCreated: entity => {
+                                if (!supportsDrawingCreationPanel(entity)) return;
+                                setCreationPanelEntityId(entity.id);
+                                setInteractiveOperation(null);
+                                setActiveTool('select');
+                                setMessage(t('messages.creationPanelOpened', { type: t(`entity.${entity.type}`) }));
+                            },
+                            editEntity: creationPanelEntity,
+                            onEditEntityChange: creationPanelEntity && canEditEntity(history.content, creationPanelEntity)
+                                ? patch => history.commit(updateSelectedEntities(
+                                    history.content,
+                                    [creationPanelEntityId],
+                                    entity => ({ ...entity, ...patch }),
+                                ), { coalesceKey: `creation-panel-${creationPanelEntityId}` })
+                                : null }}
+                        snap={{ content: history.content, onChange: history.commit,
+                            scaleRatio: getScreenScaleRatio(viewport.worldUnitsPerPixel),
+                            onScaleChange: ratio => canvasRef.current?.setScaleRatio(ratio) }}
+                        commandBarRef={commandBarRef}
+                        command={{ value: commandValue, onChange: setCommandValue,
+                            onSubmit: value => submitCommand(value).catch(() => {}), message,
+                            operation: interactiveOperation, activeTool }}
+                        sidebar={{ content: history.content, selectedIds, onCommit: history.commit }}
+                    />
+                ) : activeLayout && (
+                    <DrawingLayoutEditor
+                        activeTool={layoutTool}
+                        assets={assets}
+                        canvasRef={layoutCanvasRef}
+                        command={{
+                            value: commandValue,
+                            onChange: setCommandValue,
+                            onSubmit: value => submitCommand(value).catch(() => {}),
+                            operation: interactiveOperation,
+                        }}
+                        commandBarRef={commandBarRef}
+                        content={history.content}
+                        currentModelViewport={viewport}
+                        isExporting={isExporting}
+                        layout={activeLayout}
+                        layoutCount={layouts.length}
+                        message={message}
+                        onChange={commitActiveLayout}
+                        onDeleteLayout={deleteActiveLayout}
+                        onDeleteViewport={deleteSelectedViewport}
+                        onExportAll={() => exportPdf(layouts.map(layout => layout.id)).catch(() => {})}
+                        onExportCurrent={() => exportPdf([activeLayout.id]).catch(() => {})}
+                        onSelectedViewportChange={setSelectedViewportId}
+                        onScaleViewport={() => beginViewportScale()}
+                        onStatus={setMessage}
+                        onToolChange={tool => {
+                            layoutCanvasRef.current?.cancel();
+                            setInteractiveOperation(null);
+                            setLayoutTool(tool);
+                            setMessage(t({
+                                viewport: 'layout.viewportFirstPoint',
+                                'pan-view': 'layout.panViewPrompt',
+                                'pan-paper': 'layout.panPaperPrompt',
+                            }[tool] || 'layout.selectPrompt'));
+                        }}
+                        selectedViewportId={selectedViewportId}
+                        operation={interactiveOperation?.scope === 'viewport' ? interactiveOperation : null}
+                        onOperationPoint={point => handleInteractiveOperation({ point })}
+                    />
+                )}
+                <DrawingWorkspaceTabs
+                    activeLayoutId={activeLayout?.id || null}
+                    layouts={layouts}
+                    mode={workspaceMode}
+                    onAddLayout={addLayout}
+                    onOpenLayout={openLayoutWorkspace}
+                    onOpenModel={openModelWorkspace}
+                />
+                <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={handleImageFile} disabled={isUploading} />
+                {isUploading && <div className="drawing-upload-indicator">{t('messages.importingImage')}</div>}
+            </div>
+            {printJob && <div className="lumcad-print-root"><DrawingPrintPage drawing={printJob.drawing} layouts={printJob.layouts} /></div>}
+        </>
+    );
+}
+
+function referenceTransformPrompt(operation, t) {
+    const points = operation?.referencePoints || [];
+    if (operation?.type === 'rotate' && operation.referenceMode === 'sourceTarget') {
+        if (!operation.basePoint) return t('messages.rotateReferenceBasePoint');
+        const pointName = 'ABCD'[points.length] || '?';
+        return t(points.length < 2
+            ? 'messages.rotateReferenceSourcePoint'
+            : 'messages.rotateReferenceTargetPoint', { point: pointName });
+    }
+    const pointName = 'ABCDEF'[points.length] || '?';
+    if (operation?.type === 'scale') {
+        return t(points.length < 2
+            ? 'messages.scaleReferenceSourcePoint'
+            : 'messages.scaleReferenceTargetPoint', { point: pointName });
+    }
+    return t(points.length < 3
+        ? 'messages.rotateReferenceSourcePoint'
+        : 'messages.rotateReferenceTargetPoint', { point: pointName });
+}
+
+function displayRotationAngle(angleDegrees, operation) {
+    const conventionalDegrees = operation?.angleDirection === 'clockwise'
+        ? -Number(angleDegrees)
+        : Number(angleDegrees);
+    return convertAngle(conventionalDegrees, 'degrees', operation?.angleUnit || 'degrees') ?? conventionalDegrees;
+}
+
+function angleUnitSymbol(unit) {
+    if (unit === 'radians') return 'rad';
+    if (unit === 'gradians') return 'gon';
+    return '°';
+}
+
+function operationBasePrompt(type, t) {
+    if (type === 'rotate') return t('messages.rotateBasePrompt');
+    return t(type === 'scale' ? 'messages.operationBaseReferencePrompt' : 'messages.operationBasePrompt', {
+        operation: t(`operations.${type}`),
+    });
+}

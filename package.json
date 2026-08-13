@@ -1,0 +1,41 @@
+{
+  "name": "lumcad",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Open-source, AI-enabled, lightweight 2D CAD software",
+  "author": "Lucas FOUGERAS and DIGITAL CACTUS",
+  "license": "GPL-3.0-only",
+  "homepage": "https://github.com/lucasfoufou/LUMCAD#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lucasfoufou/LUMCAD.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lucasfoufou/LUMCAD/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite --port 1420",
+    "build": "vite build",
+    "test": "node --test src/utils/*.test.js",
+    "test:mcp": "node --test src/utils/mcpBridge.test.js && cargo test --manifest-path src-tauri/Cargo.toml mcp::",
+    "tauri": "tauri",
+    "check": "npm test && npm run build && cargo test --manifest-path src-tauri/Cargo.toml"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.9.1",
+    "@tauri-apps/plugin-dialog": "^2.6.0",
+    "fflate": "^0.8.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.6",
+    "@vitejs/plugin-react": "^5.0.4",
+    "sass": "^1.93.2",
+    "vite": "^7.1.12"
+  }
+}
