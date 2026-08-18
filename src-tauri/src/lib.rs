@@ -1,3 +1,4 @@
+mod clipboard;
 mod mcp;
 mod native_menu;
 mod printing;
@@ -14,6 +15,8 @@ pub fn run() {
         .manage(mcp::McpRuntimeState::default())
         .manage(storage::PendingOpen::default())
         .invoke_handler(tauri::generate_handler![
+            clipboard::write_drawing_clipboard,
+            clipboard::read_drawing_clipboard,
             storage::read_lcad_document,
             storage::write_lcad_document,
             storage::autosave_lcad_document,

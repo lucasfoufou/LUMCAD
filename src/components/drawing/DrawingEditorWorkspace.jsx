@@ -4,8 +4,12 @@ import DrawingEditorHeader from '~components/drawing/DrawingEditorHeader';
 import DrawingLayoutEditor from '~components/drawing/DrawingLayoutEditor';
 import DrawingPrintPage from '~components/drawing/DrawingPrintPage';
 import DrawingWorkspaceTabs from '~components/drawing/DrawingWorkspaceTabs';
+import useDrawingAlignCommand from '~hooks/useDrawingAlignCommand';
 import useDrawingArrayCommand from '~hooks/useDrawingArrayCommand';
+import useDrawingBreakStretchLengthenCommand from '~hooks/useDrawingBreakStretchLengthenCommand';
+import useDrawingClipboard from '~hooks/useDrawingClipboard';
 import useDrawingCompoundCommands from '~hooks/useDrawingCompoundCommands';
+import useDrawingCornerCommand from '~hooks/useDrawingCornerCommand';
 import useDrawingEditorShortcuts from '~hooks/useDrawingEditorShortcuts';
 import useDrawingHistory from '~hooks/useDrawingHistory';
 import useLcadAutosave from '~hooks/useLcadAutosave';
@@ -14,7 +18,7 @@ import useLocalDrawingImageImport from '~hooks/useLocalDrawingImageImport';
 import useLumcadMcpBridge from '~hooks/useLumcadMcpBridge';
 import { useI18n } from '~i18n/I18nProvider';
 import { useAppSettings } from '~settings/AppSettingsProvider';
-import { getDrawingCommandDefinition, isNumericDrawingInput, parseDrawingCommand, parseDrawingNumbers } from '~utils/drawingCommands';
+import { getDrawingCommandDefinition, getDrawingCommandInput, isNumericDrawingInput, parseDrawingCommand, parseDrawingNumbers } from '~utils/drawingCommands';
 import {
     canEditEntity,
     createDrawingId,
@@ -40,11 +44,32 @@ import {
     operationUsesCopy,
 } from '~utils/drawingOperations';
 import { parseDrawingOperationOption, reopenBasicDrawingOperationOption } from '~utils/drawingOperationOptions';
-import { replaceTrimScope, trimDrawingFence, trimDrawingTarget } from '~utils/drawingTrimOperations';
+import {
+    extendDrawingTarget,
+    replaceTrimScope,
+    trimDrawingFence,
+    trimDrawingTarget,
+} from '~utils/drawingTrimOperations';
 import { isDrawingTextInput } from '~utils/drawingInteraction';
 import { createDrawingLayout, removeDrawingViewport, scaleDrawingViewport, updateDrawingLayout } from '~utils/drawingLayouts';
 import { normalizeLcadDocument } from '~utils/lcadDocument';
 import { supportsDrawingCreationPanel } from '~utils/drawingCreation';
+import { normalizePolarAngles } from '~utils/drawingDraftingSettings';
+import {
+    evaluateDrawingCalculation,
+    evaluateDrawingExpression,
+    hasDrawingPointSyntax,
+    isDrawingExpressionInput,
+    resolveDrawingPointInput,
+} from '~utils/drawingPrecisionInput';
+
+const draftingCommands = new Set([
+    'ortho',
+    'polar',
+    'objectTracking',
+    'draftingSettings',
+    'temporaryTrackingPoint',
+]);
 
 export default function DrawingEditorWorkspace({
     initialDocument,
@@ -53,13 +78,13 @@ export default function DrawingEditorWorkspace({
     onReplaceSession,
     onOpenSettings,
 }) {
-    const { locale, t } = useI18n();
+    const { formatNumber, locale, t } = useI18n();
     const { settings } = useAppSettings();
     const canvasRef = useRef(null);
     const layoutCanvasRef = useRef(null);
     const commandBarRef = useRef(null);
     const imageInputRef = useRef(null);
-    const clipboardRef = useRef([]);
+    const inputVariablesRef = useRef({});
     const previousLocaleRef = useRef(locale);
     const hasAppliedRotationRef = useRef(false);
     const lastOperationValuesRef = useRef({
@@ -70,6 +95,9 @@ export default function DrawingEditorWorkspace({
         scale: 1,
         arrayColumns: 2,
         arrayRows: 2,
+        filletRadius: 0,
+        chamferDistance1: 0,
+        chamferDistance2: 0,
     });
     const [name, setName] = useState(initialDocument.name);
     const [assets, setAssets] = useState(initialDocument.assets || []);
@@ -87,6 +115,8 @@ export default function DrawingEditorWorkspace({
     const [activeLayoutId, setActiveLayoutId] = useState(initialDocument.layouts?.[0]?.id || null);
     const [selectedViewportId, setSelectedViewportId] = useState(null);
     const [layoutTool, setLayoutTool] = useState('select');
+    const [draftingSettingsOpen, setDraftingSettingsOpen] = useState(false);
+    const [calculatorMode, setCalculatorMode] = useState(false);
     const history = useDrawingHistory(normalizeDrawingContent(initialDocument.content));
     const document = useMemo(() => ({
         ...initialDocument,
@@ -189,9 +219,17 @@ export default function DrawingEditorWorkspace({
         setSelectedViewportId(null);
         setMessage(t('layout.viewportDeleted'));
     };
-    const { beginCompoundOperation, completeMirrorChoice, executeCompoundOperation, handleMirrorPoint } = useDrawingCompoundCommands({
+    const {
+        activateCompoundSelection,
+        beginCompoundOperation,
+        completeMirrorChoice,
+        handleMirrorPoint,
+        submitCompoundValue,
+    } = useDrawingCompoundCommands({
         canvasRef,
+        commandBarRef,
         history,
+        interactiveOperation,
         selectedIds,
         selectedEntities,
         setActiveTool,
@@ -199,12 +237,79 @@ export default function DrawingEditorWorkspace({
         setMessage,
         setSelectedIds,
     });
+    const { activateAlignSelection, beginAlign, handleAlignPoint, submitAlignValue } = useDrawingAlignCommand({
+        canvasRef,
+        commandBarRef,
+        history,
+        selectedEntities,
+        selectedIds,
+        interactiveOperation,
+        setActiveTool,
+        setInteractiveOperation,
+        setMessage,
+        setSelectedIds,
+        t,
+    });
     const { activateArraySelection, beginArray, handleArrayPoint, submitArrayValue } = useDrawingArrayCommand({
         canvasRef, commandBarRef, history, lastOperationValuesRef, selectedEntities,
         setActiveTool, setInteractiveOperation, setMessage, setSelectedIds,
     });
     const { handleImageFile, isUploading } = useLocalDrawingImageImport({
         history, viewport, setActiveTool, setAssets, setMessage, setSelectedIds,
+    });
+    const {
+        beginCopyBase,
+        beginPasteBlock,
+        beginPasteClip,
+        copyClip,
+        cutClip,
+        handleClipboardPoint,
+        pasteOriginal,
+        submitClipboardValue,
+    } = useDrawingClipboard({
+        assets,
+        canvasRef,
+        document,
+        history,
+        interactiveOperation,
+        selectedIds,
+        setActiveTool,
+        setAssets,
+        setInteractiveOperation,
+        setMessage,
+        setSelectedIds,
+        t,
+    });
+    const { beginCornerOperation, handleCornerPoint, submitCornerValue } = useDrawingCornerCommand({
+        canvasRef,
+        commandBarRef,
+        history,
+        interactiveOperation,
+        lastOperationValuesRef,
+        locale,
+        setActiveTool,
+        setInteractiveOperation,
+        setMessage,
+        setSelectedIds,
+        t,
+    });
+    const {
+        beginBreakCommand,
+        beginLengthenCommand,
+        beginStretchCommand,
+        handleModificationPoint,
+        submitModificationValue,
+    } = useDrawingBreakStretchLengthenCommand({
+        canvasRef,
+        commandBarRef,
+        history,
+        interactiveOperation,
+        selectedEntities,
+        selectedIds,
+        setActiveTool,
+        setInteractiveOperation,
+        setMessage,
+        setSelectedIds,
     });
 
     useEffect(() => {
@@ -245,23 +350,6 @@ export default function DrawingEditorWorkspace({
         history.commit(deleteSelectedEntities(history.content, selectedIds));
         setSelectedIds([]);
         setMessage(t('messages.selectionDeleted'));
-    };
-
-    const copyToClipboard = () => {
-        clipboardRef.current = selectedEntities.map(entity => JSON.parse(JSON.stringify(entity)));
-        setMessage(t('messages.objectsCopied', { count: clipboardRef.current.length }));
-    };
-
-    const pasteClipboard = () => {
-        if (!clipboardRef.current.length) {
-            setMessage(t('messages.clipboardEmpty'));
-            return;
-        }
-        const result = pasteDrawingEntities(history.content, clipboardRef.current);
-        history.commit(result.content);
-        setSelectedIds(result.selectedIds);
-        clipboardRef.current = result.entities.map(entity => JSON.parse(JSON.stringify(entity)));
-        setMessage(t('messages.objectsPasted', { count: result.entities.length }));
     };
 
     const activateOperationSelection = (operation, editable, reportInvalid = true) => {
@@ -356,15 +444,26 @@ export default function DrawingEditorWorkspace({
             : t('layout.scaleSelectionPrompt'));
     };
 
-    const beginTrim = () => {
+    const beginTrimExtend = type => {
         canvasRef.current?.cancel();
-        const scopeIds = selectedEntities.filter(entity => canEditEntity(history.content, entity)).map(entity => entity.id);
-        setInteractiveOperation({ type: 'trim', stage: 'pick', scopeIds: scopeIds.length ? scopeIds : null });
-        setActiveTool('trim');
-        setMessage(scopeIds.length
-            ? t('messages.trimPreselected', { count: scopeIds.length })
-            : t('messages.trimStart'));
+        const boundaryIds = selectedEntities
+            .filter(entity => canEditEntity(history.content, entity))
+            .map(entity => entity.id);
+        setInteractiveOperation({
+            type,
+            stage: 'pick',
+            boundaryIds: boundaryIds.length ? boundaryIds : null,
+            extendEdges: false,
+            projection: '2d',
+        });
+        setActiveTool(type);
+        setMessage(boundaryIds.length
+            ? t(`messages.${type}Preselected`, { count: boundaryIds.length })
+            : t(`messages.${type}Start`));
     };
+
+    const beginTrim = () => beginTrimExtend('trim');
+    const beginExtend = () => beginTrimExtend('extend');
 
     const confirmOperationSelection = () => {
         if (!interactiveOperation || interactiveOperation.stage !== 'select') return false;
@@ -380,12 +479,9 @@ export default function DrawingEditorWorkspace({
             return true;
         }
         if (interactiveOperation.type === 'array') return activateArraySelection(interactiveOperation, selectedEntities);
-        if (['join', 'explode'].includes(interactiveOperation.type)) {
-            executeCompoundOperation(
-                interactiveOperation.type,
-                selectedEntities.filter(entity => canEditEntity(history.content, entity)).map(entity => entity.id),
-            );
-            return true;
+        if (interactiveOperation.type === 'align') return activateAlignSelection(interactiveOperation, selectedEntities);
+        if (['join', 'explode', 'xplode'].includes(interactiveOperation.type)) {
+            return activateCompoundSelection(interactiveOperation, selectedEntities);
         }
         activateOperationSelection(
             interactiveOperation,
@@ -484,13 +580,20 @@ export default function DrawingEditorWorkspace({
         return true;
     };
 
-    const handleInteractiveOperation = ({ point, targetId, fence, arrayHandle }) => {
+    const handleInteractiveOperation = ({ point, targetId, fence, arrayHandle, shift = false }) => {
+        if (['copyBase', 'pasteClip', 'pasteBlock'].includes(interactiveOperation?.type)) {
+            void handleClipboardPoint(interactiveOperation, point);
+            return;
+        }
         if (interactiveOperation?.stage === 'reference') {
             handleReferencePoint(interactiveOperation, point);
             return;
         }
         if (handleArrayPoint(interactiveOperation, point, arrayHandle)) return;
         if (handleMirrorPoint(interactiveOperation, point)) return;
+        if (handleAlignPoint(interactiveOperation, point)) return;
+        if (handleCornerPoint(interactiveOperation, point, targetId)) return;
+        if (handleModificationPoint(interactiveOperation, point, targetId)) return;
         if (interactiveOperation?.type === 'offset') {
             if (interactiveOperation.stage !== 'side') return;
             const sources = history.content.entities.filter(entity => (
@@ -560,7 +663,7 @@ export default function DrawingEditorWorkspace({
             return;
         }
 
-        if (interactiveOperation?.type !== 'trim') {
+        if (!['trim', 'extend'].includes(interactiveOperation?.type)) {
             if (!interactiveOperation || interactiveOperation.stage === 'select') return;
             if (interactiveOperation.stage === 'base') {
                 const nextStage = ({ move: 'destination', copy: 'destination', rotate: 'angle', scale: 'factor', mirror: 'mirror-axis' })[interactiveOperation.type];
@@ -618,12 +721,31 @@ export default function DrawingEditorWorkspace({
             return;
         }
 
+        const operationType = shift
+            ? interactiveOperation.type === 'trim' ? 'extend' : 'trim'
+            : interactiveOperation.type;
+        const trimExtendOptions = {
+            boundaryIds: interactiveOperation.boundaryIds,
+            extendEdges: interactiveOperation.extendEdges,
+            projection: interactiveOperation.projection,
+        };
+
         if (fence) {
-            const result = trimDrawingFence(history.content, fence, { scopeIds: interactiveOperation.scopeIds });
+            if (operationType !== 'trim') {
+                setMessage(t('messages.extendClickEndpoint'));
+                return;
+            }
+            const result = trimDrawingFence(history.content, fence, trimExtendOptions);
             if (result.changedCount) history.commit(result.content);
-            const nextScope = replaceTrimScope(interactiveOperation.scopeIds, result.affectedIds, result.replacementIds);
-            if (interactiveOperation.scopeIds) setInteractiveOperation({ ...interactiveOperation, scopeIds: nextScope });
-            setSelectedIds(interactiveOperation.scopeIds ? nextScope : result.replacementIds);
+            const nextBoundaryIds = replaceTrimScope(
+                interactiveOperation.boundaryIds,
+                result.affectedIds,
+                result.replacementIds,
+            );
+            if (interactiveOperation.boundaryIds) {
+                setInteractiveOperation({ ...interactiveOperation, boundaryIds: nextBoundaryIds });
+            }
+            setSelectedIds(result.replacementIds);
             setMessage(result.changedCount
                 ? t('messages.trimFenceChanged', { count: result.changedCount })
                 : t('messages.trimFenceMiss'));
@@ -632,43 +754,85 @@ export default function DrawingEditorWorkspace({
 
         const target = history.content.entities.find(entity => entity.id === targetId);
         if (!target) {
-            setMessage(t('messages.trimClickPortion'));
-            return;
-        }
-        if (interactiveOperation.scopeIds && !interactiveOperation.scopeIds.includes(target.id)) {
-            setMessage(t('messages.trimOutsideSelection'));
+            setMessage(t(operationType === 'trim' ? 'messages.trimClickPortion' : 'messages.extendClickEndpoint'));
             return;
         }
         if (!canEditEntity(history.content, target)) {
-            setMessage(t('messages.trimLocked'));
+            setMessage(t('messages.trimExtendLocked'));
             return;
         }
-        if (target.type === 'circle') {
-            setMessage(t('messages.trimCircleUnsupported'));
-            return;
-        }
-        if (!['line', 'rectangle', 'arc'].includes(target.type)) {
-            setMessage(t('messages.trimTargetTypes'));
-            return;
-        }
-        const result = trimDrawingTarget(history.content, target, point, { boundaryIds: interactiveOperation.scopeIds });
+        const result = operationType === 'trim'
+            ? trimDrawingTarget(history.content, target, point, trimExtendOptions)
+            : extendDrawingTarget(history.content, target, point, trimExtendOptions);
         if (!result.changed) {
-            setMessage(t('messages.trimCannot'));
+            setMessage(t(operationType === 'trim' ? 'messages.trimCannot' : 'messages.extendCannot'));
             return;
         }
         history.commit(result.content);
-        const replacementIds = result.replacements.map(entity => entity.id);
-        const nextScope = replaceTrimScope(interactiveOperation.scopeIds, [target.id], replacementIds);
-        if (interactiveOperation.scopeIds) setInteractiveOperation({ ...interactiveOperation, scopeIds: nextScope });
-        setSelectedIds(interactiveOperation.scopeIds ? nextScope : replacementIds);
-        setMessage(result.replacements.length
-            ? t('messages.trimFragments', { count: result.replacements.length })
-            : t('messages.trimSegmentDeleted'));
+        const replacementIds = result.replacementIds || result.replacements.map(entity => entity.id);
+        const nextBoundaryIds = replaceTrimScope(interactiveOperation.boundaryIds, [target.id], replacementIds);
+        if (interactiveOperation.boundaryIds) {
+            setInteractiveOperation({ ...interactiveOperation, boundaryIds: nextBoundaryIds });
+        }
+        setSelectedIds(replacementIds);
+        setMessage(operationType === 'extend'
+            ? t('messages.extendApplied')
+            : result.replacements.length
+                ? t('messages.trimFragments', { count: result.replacements.length })
+                : t('messages.trimSegmentDeleted'));
+    };
+
+    const submitPrecisionPoint = (rawValue, { allowDirectDistance = true } = {}) => {
+        const activeCanvas = workspaceMode === 'layout' ? layoutCanvasRef : canvasRef;
+        const context = activeCanvas.current?.getPrecisionInputContext?.() || {};
+        const result = resolveDrawingPointInput(rawValue, {
+            ...context,
+            allowDirectDistance,
+            decimalComma: locale === 'fr',
+            lengthUnit: workspaceMode === 'layout' ? 'mm' : 'm',
+            angleUnit: settings.drawingDefaults.angleUnit,
+            variables: inputVariablesRef.current,
+        });
+        if (!result.matched) return false;
+        if (!result.valid) {
+            setMessage(t(`precisionInput.error.${result.error}`));
+            return true;
+        }
+        const accepted = activeCanvas.current?.submitPoint(result.point, { precision: true });
+        if (!accepted) setMessage(t('messages.pointRequired'));
+        return true;
     };
 
     const submitOperationValue = rawValue => {
         if (!interactiveOperation) return false;
         const empty = !String(rawValue).trim();
+        if (submitClipboardValue(rawValue, interactiveOperation)) return true;
+        if (submitCompoundValue(rawValue, interactiveOperation)) return true;
+        if (submitAlignValue(rawValue, interactiveOperation)) return true;
+        if (submitCornerValue(rawValue, interactiveOperation)) return true;
+        if (submitModificationValue(rawValue, interactiveOperation)) return true;
+        if (['trim', 'extend'].includes(interactiveOperation.type)) {
+            if (empty) {
+                finishInteractiveOperation(selectedIds, t(`messages.${interactiveOperation.type}Complete`));
+                return true;
+            }
+            const trimExtendOption = parseDrawingOperationOption(interactiveOperation, rawValue);
+            if (['edgeExtend', 'edgeFinite', 'projectNone'].includes(trimExtendOption?.option)) {
+                const nextOperation = {
+                    ...interactiveOperation,
+                    ...(trimExtendOption.option === 'edgeExtend' ? { extendEdges: true } : {}),
+                    ...(trimExtendOption.option === 'edgeFinite' ? { extendEdges: false } : {}),
+                    ...(trimExtendOption.option === 'projectNone' ? { projection: 'none' } : {}),
+                };
+                setInteractiveOperation(nextOperation);
+                setMessage(t('messages.trimExtendOptionSet', {
+                    option: t(`operationOptions.${interactiveOperation.type}.${trimExtendOption.option === 'edgeExtend'
+                        ? 'extendEdge'
+                        : trimExtendOption.option === 'edgeFinite' ? 'finiteEdge' : 'projectNone'}`),
+                }));
+                return true;
+            }
+        }
         if (interactiveOperation.stage === 'mirror-choice') {
             completeMirrorChoice(interactiveOperation, rawValue);
             return true;
@@ -678,12 +842,15 @@ export default function DrawingEditorWorkspace({
                 completeMirrorChoice(interactiveOperation, rawValue);
                 return true;
             }
+            if (submitPrecisionPoint(rawValue)) return true;
             const values = parseDrawingNumbers(rawValue);
             if (values.length >= 2) handleMirrorPoint(interactiveOperation, { x: values[0], y: values[1] });
             else setMessage(t('messages.mirrorPointOrCoordinates'));
             return true;
         }
         if (interactiveOperation.type === 'array') {
+            const pointMode = operationPrecisionPointMode(interactiveOperation);
+            if (pointMode && submitPrecisionPoint(rawValue, { allowDirectDistance: pointMode === 'direct' })) return true;
             return submitArrayValue(interactiveOperation, rawValue);
         }
         const parsedOption = parseDrawingOperationOption(interactiveOperation, rawValue);
@@ -712,8 +879,24 @@ export default function DrawingEditorWorkspace({
             if (reopened.focus) commandBarRef.current?.focus('');
             return true;
         }
-        if (!empty && !isNumericDrawingInput(rawValue)) return false;
-        const values = empty ? (interactiveOperation.requestedValues || []) : parseDrawingNumbers(rawValue);
+        const pointMode = operationPrecisionPointMode(interactiveOperation);
+        if (pointMode && submitPrecisionPoint(rawValue, { allowDirectDistance: pointMode === 'direct' })) return true;
+        let values = empty ? (interactiveOperation.requestedValues || []) : parseDrawingNumbers(rawValue);
+        if (!empty && !isNumericDrawingInput(rawValue)) {
+            if (!isDrawingExpressionInput(rawValue, inputVariablesRef.current)) return false;
+            try {
+                values = [evaluateDrawingExpression(rawValue, {
+                    decimalComma: locale === 'fr',
+                    unitType: interactiveOperation.stage === 'angle' ? 'angle' : 'length',
+                    angleUnit: interactiveOperation.angleUnit,
+                    lengthUnit: workspaceMode === 'layout' ? 'mm' : 'm',
+                    variables: inputVariablesRef.current,
+                })];
+            } catch (error) {
+                setMessage(t(`precisionInput.error.${error?.precisionInputCode || 'invalidExpression'}`));
+                return true;
+            }
+        }
         if (interactiveOperation.stage === 'select') return confirmOperationSelection();
         if (interactiveOperation.stage === 'reference') {
             if (values.length >= 2) handleReferencePoint(interactiveOperation, { x: values[0], y: values[1] });
@@ -781,7 +964,137 @@ export default function DrawingEditorWorkspace({
         return true;
     };
 
+    const setOrthoMode = enabled => {
+        const nextEnabled = Boolean(enabled);
+        history.commit(current => ({
+            ...current,
+            settings: {
+                ...current.settings,
+                ortho: nextEnabled,
+                ...(nextEnabled ? { polarTracking: false } : {}),
+            },
+        }));
+        setMessage(t(nextEnabled ? 'messages.orthoEnabled' : 'messages.orthoDisabled'));
+    };
+
+    const setPolarMode = enabled => {
+        const nextEnabled = Boolean(enabled);
+        history.commit(current => ({
+            ...current,
+            settings: {
+                ...current.settings,
+                polarTracking: nextEnabled,
+                ...(nextEnabled ? { ortho: false } : {}),
+            },
+        }));
+        setMessage(t(nextEnabled ? 'messages.polarEnabled' : 'messages.polarDisabled'));
+    };
+
+    const setObjectTrackingMode = enabled => {
+        const nextEnabled = Boolean(enabled);
+        history.commit(current => ({
+            ...current,
+            settings: { ...current.settings, tracking: nextEnabled },
+        }));
+        setMessage(t(nextEnabled ? 'messages.objectTrackingEnabled' : 'messages.objectTrackingDisabled'));
+    };
+
+    const executeDraftingCommand = parsed => {
+        if (!draftingCommands.has(parsed?.command)) return false;
+        if (parsed.command === 'ortho') {
+            setOrthoMode(parsed.args.length ? parsed.args[0] !== 0 : !history.content.settings.ortho);
+        } else if (parsed.command === 'polar') {
+            if (parsed.args.length) {
+                const [increment, ...additionalAngles] = parsed.args;
+                if (increment === 0 && !additionalAngles.length) {
+                    setPolarMode(false);
+                } else if (Number.isFinite(increment) && increment >= 1 && increment <= 180) {
+                    history.commit(current => ({
+                        ...current,
+                        settings: {
+                            ...current.settings,
+                            ortho: false,
+                            polarTracking: true,
+                            polarIncrement: increment,
+                            polarAngles: normalizePolarAngles(additionalAngles),
+                        },
+                    }));
+                    setMessage(t('messages.polarConfigured', { increment }));
+                } else setMessage(t('messages.polarIncrementInvalid'));
+            } else setPolarMode(!history.content.settings.polarTracking);
+        } else if (parsed.command === 'objectTracking') {
+            setObjectTrackingMode(parsed.args.length ? parsed.args[0] !== 0 : !history.content.settings.tracking);
+        } else if (parsed.command === 'draftingSettings') {
+            setDraftingSettingsOpen(true);
+            setMessage(t('messages.draftingSettingsOpened'));
+        } else if (parsed.command === 'temporaryTrackingPoint') {
+            canvasRef.current?.beginTemporaryTrackingPoint();
+        }
+        return true;
+    };
+
+    const runCalculation = rawExpression => {
+        const expression = String(rawExpression || '').trim();
+        if (!expression) {
+            setCalculatorMode(true);
+            setMessage(t('messages.calculatorPrompt'));
+            commandBarRef.current?.focus('');
+            return true;
+        }
+        try {
+            const result = evaluateDrawingCalculation(expression, inputVariablesRef.current, {
+                decimalComma: locale === 'fr',
+            });
+            inputVariablesRef.current = result.variables;
+            setCalculatorMode(false);
+            const value = formatNumber(result.value, { maximumFractionDigits: 10 });
+            setMessage(t(result.variable
+                ? 'messages.calculatorVariableSet'
+                : 'messages.calculatorResult', { name: result.variable, value }));
+        } catch (error) {
+            setCalculatorMode(true);
+            setMessage(t(`precisionInput.error.${error?.precisionInputCode || 'invalidExpression'}`));
+        }
+        return true;
+    };
+
+    const executePrecisionCommand = (parsed, rawValue) => {
+        if (parsed?.command === 'quickCalc') return runCalculation(getDrawingCommandInput(rawValue));
+        if (parsed?.command !== 'dynamicInput') return false;
+        const requested = resolveBooleanModeInput(getDrawingCommandInput(rawValue), history.content.settings.dynamicInput);
+        if (requested === null) {
+            setMessage(t('messages.dynamicInputChoice'));
+            return true;
+        }
+        history.commit(current => ({
+            ...current,
+            settings: { ...current.settings, dynamicInput: requested },
+        }));
+        setMessage(t(requested ? 'messages.dynamicInputEnabled' : 'messages.dynamicInputDisabled'));
+        return true;
+    };
+
     const submitCommand = async rawValue => {
+        const immediateCommand = parseDrawingCommand(rawValue);
+        if (executeDraftingCommand(immediateCommand)) {
+            setCommandValue('');
+            return;
+        }
+        if (executePrecisionCommand(immediateCommand, rawValue)) {
+            setCommandValue('');
+            return;
+        }
+        if (calculatorMode) {
+            runCalculation(rawValue);
+            setCommandValue('');
+            return;
+        }
+        if (!interactiveOperation && (!immediateCommand || immediateCommand.command === 'unknown')
+            && hasDrawingPointSyntax(rawValue, { decimalComma: locale === 'fr' })
+            && submitPrecisionPoint(rawValue)) {
+            setCommandValue('');
+            return;
+        }
         if (isNumericDrawingInput(rawValue) && canvasRef.current?.applyNumericInput(rawValue)) {
             setCommandValue('');
             setMessage(t('messages.objectCreatedFromValue'));
@@ -801,8 +1114,16 @@ export default function DrawingEditorWorkspace({
                 setCommandValue('');
                 return;
             }
+            if (submitPrecisionPoint(rawValue)) {
+                setCommandValue('');
+                return;
+            }
             setCommandValue('');
             setMessage(t('messages.continueActiveCommand'));
+            return;
+        }
+        if (workspaceMode === 'layout' && layoutTool === 'viewport' && submitPrecisionPoint(rawValue)) {
+            setCommandValue('');
             return;
         }
         const parsed = parseDrawingCommand(rawValue);
@@ -854,6 +1175,28 @@ export default function DrawingEditorWorkspace({
             beginTransformOperation('offset', parsed.args[0]);
         } else if (parsed.command === 'trim') {
             beginTrim();
+        } else if (parsed.command === 'extend') {
+            beginExtend();
+        } else if (parsed.command === 'break') {
+            beginBreakCommand(false);
+        } else if (parsed.command === 'breakAtPoint') {
+            beginBreakCommand(true);
+        } else if (parsed.command === 'stretch') {
+            beginStretchCommand();
+        } else if (parsed.command === 'lengthen') {
+            beginLengthenCommand(parsed.args[0]);
+        } else if (parsed.command === 'copyBase') {
+            beginCopyBase();
+        } else if (parsed.command === 'copyClip') {
+            await copyClip();
+        } else if (parsed.command === 'cutClip') {
+            await cutClip();
+        } else if (parsed.command === 'pasteClip') {
+            await beginPasteClip();
+        } else if (parsed.command === 'pasteOriginal') {
+            await pasteOriginal();
+        } else if (parsed.command === 'pasteBlock') {
+            await beginPasteBlock();
         } else if (parsed.command === 'move') {
             beginTransformOperation('move', parsed.args[0]);
         } else if (parsed.command === 'scale') {
@@ -862,8 +1205,11 @@ export default function DrawingEditorWorkspace({
         else if (parsed.command === 'copy') beginTransformOperation('copy', parsed.args[0]);
         else if (parsed.command === 'mirror') beginTransformOperation('mirror');
         else if (parsed.command === 'array') beginArray();
+        else if (parsed.command === 'align') beginAlign();
+        else if (['fillet', 'chamfer', 'blend'].includes(parsed.command)) beginCornerOperation(parsed.command, parsed.args);
         else if (parsed.command === 'join') beginCompoundOperation('join');
         else if (parsed.command === 'explode') beginCompoundOperation('explode');
+        else if (parsed.command === 'xplode') beginCompoundOperation('xplode');
         else if (parsed.command === 'delete') workspaceMode === 'layout' ? deleteSelectedViewport() : deleteSelection();
         else if (parsed.command === 'undo') history.undo();
         else if (parsed.command === 'redo') history.redo();
@@ -904,6 +1250,7 @@ export default function DrawingEditorWorkspace({
         setSelectedIds([]);
         setCreationPanelEntityId(null);
         setInteractiveOperation(null);
+        setCalculatorMode(false);
         setActiveTool('select');
         setCommandValue('');
         setMessage(t('messages.commandCancelled'));
@@ -912,13 +1259,17 @@ export default function DrawingEditorWorkspace({
     useDrawingEditorShortcuts({ commandBarRef, actions: {
         undo: history.undo,
         redo: history.redo,
-        copy: copyToClipboard,
-        paste: pasteClipboard,
+        copy: copyClip,
+        cut: cutClip,
+        paste: beginPasteClip,
         saveAs: saveDrawingAs,
         newDocument: createNewDrawing,
         open: openDrawing,
         delete: () => workspaceMode === 'layout' ? deleteSelectedViewport() : deleteSelection(),
         toggleSnaps: toggleAllSnaps,
+        toggleOrtho: () => setOrthoMode(!history.content.settings.ortho),
+        togglePolar: () => setPolarMode(!history.content.settings.polarTracking),
+        toggleObjectTracking: () => setObjectTrackingMode(!history.content.settings.tracking),
         enter: () => submitCommand(''),
         cancel: cancelCommand,
     } });
@@ -926,18 +1277,28 @@ export default function DrawingEditorWorkspace({
     const toolbarActions = {
         undo: history.undo,
         redo: history.redo,
-        copy: copyToClipboard,
-        paste: pasteClipboard,
+        copy: () => copyClip().catch(() => {}),
+        cut: () => cutClip().catch(() => {}),
+        paste: () => beginPasteClip().catch(() => {}),
         delete: deleteSelection,
         move: () => beginTransformOperation('move'),
         copyCommand: () => beginTransformOperation('copy'),
         rotate: () => beginTransformOperation('rotate'),
         mirror: () => beginTransformOperation('mirror'),
         array: beginArray,
+        align: beginAlign,
+        fillet: () => beginCornerOperation('fillet'),
+        chamfer: () => beginCornerOperation('chamfer'),
+        blend: () => beginCornerOperation('blend'),
         join: () => beginCompoundOperation('join'),
         explode: () => beginCompoundOperation('explode'),
         offset: () => beginTransformOperation('offset'),
         trim: beginTrim,
+        extend: beginExtend,
+        break: () => beginBreakCommand(false),
+        breakAtPoint: () => beginBreakCommand(true),
+        stretch: beginStretchCommand,
+        lengthen: () => beginLengthenCommand(),
         scale: () => beginTransformOperation('scale'),
         zoomIn: () => canvasRef.current?.zoom(0.8),
         zoomOut: () => canvasRef.current?.zoom(1.25),
@@ -962,6 +1323,8 @@ export default function DrawingEditorWorkspace({
                 viewport,
                 canUndo: history.canUndo,
                 canRedo: history.canRedo,
+                calculatorMode,
+                inputVariables: { ...inputVariablesRef.current },
             },
         }),
         executeAction: async action => {
@@ -1056,6 +1419,8 @@ export default function DrawingEditorWorkspace({
                         canvas={{ content: history.content, assets, activeTool, dimensionMode, selectedIds, interactiveOperation,
                             onSelectionChange: setSelectedIds, onCommit: history.commit, onViewportChange: setViewport,
                             onStatus: setMessage, onInteractiveOperation: handleInteractiveOperation,
+                            dynamicInput: { value: commandValue, onChange: setCommandValue,
+                                onSubmit: value => submitCommand(value).catch(() => {}) },
                             onEntityCreated: entity => {
                                 if (!supportsDrawingCreationPanel(entity)) return;
                                 setCreationPanelEntityId(entity.id);
@@ -1073,7 +1438,10 @@ export default function DrawingEditorWorkspace({
                                 : null }}
                         snap={{ content: history.content, onChange: history.commit,
                             scaleRatio: getScreenScaleRatio(viewport.worldUnitsPerPixel),
-                            onScaleChange: ratio => canvasRef.current?.setScaleRatio(ratio) }}
+                            onScaleChange: ratio => canvasRef.current?.setScaleRatio(ratio),
+                            draftingSettingsOpen,
+                            onDraftingSettingsOpenChange: setDraftingSettingsOpen,
+                            onTemporaryTrackingPoint: () => canvasRef.current?.beginTemporaryTrackingPoint() }}
                         commandBarRef={commandBarRef}
                         command={{ value: commandValue, onChange: setCommandValue,
                             onSubmit: value => submitCommand(value).catch(() => {}), message,
@@ -1175,4 +1543,30 @@ function operationBasePrompt(type, t) {
     return t(type === 'scale' ? 'messages.operationBaseReferencePrompt' : 'messages.operationBasePrompt', {
         operation: t(`operations.${type}`),
     });
+}
+
+function operationPrecisionPointMode(operation) {
+    if (!operation || operation.stage === 'select') return null;
+    if (['angle', 'factor'].includes(operation.stage)) return 'coordinate';
+    if (operation.stage === 'base' || operation.stage === 'destination' || operation.stage === 'reference'
+        || operation.stage === 'side' || operation.stage === 'pick' || operation.stage === 'insertion'
+        || operation.stage === 'corner-first' || operation.stage === 'corner-second'
+        || operation.stage === 'break-first' || operation.stage === 'break-second'
+        || operation.stage === 'break-at-point' || operation.stage.startsWith('stretch-')
+        || operation.stage === 'lengthen-pick' || operation.stage === 'lengthen-dynamic'
+        || operation.stage.startsWith('align-source-') || operation.stage.startsWith('align-destination-')
+        || operation.stage === 'mirror-axis' || operation.stage.startsWith('mirror-option-')
+        || operation.stage === 'array-horizontal' || operation.stage === 'array-vertical'
+        || ['array-option-base', 'array-option-xSpacing', 'array-option-ySpacing'].includes(operation.stage)) {
+        return 'direct';
+    }
+    return null;
+}
+
+function resolveBooleanModeInput(value, current) {
+    const token = String(value || '').trim().toUpperCase();
+    if (!token || token === 'TOGGLE') return !Boolean(current);
+    if (['1', 'ON', 'YES', 'OUI'].includes(token)) return true;
+    if (['0', 'OFF', 'NO', 'NON'].includes(token)) return false;
+    return null;
 }

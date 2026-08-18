@@ -3,9 +3,12 @@ import React from 'react';
 import {
     DRAWING_LINE_TYPE_OPTIONS,
     DRAWING_LINE_WEIGHT_OPTIONS,
+    MAX_DRAWING_TRANSPARENCY,
+    clampDrawingTransparency,
     getEntityColor,
     getEntityLineType,
     getEntityLineWeight,
+    getEntityTransparency,
 } from '~utils/drawingDocument';
 
 export function DrawingLayerAppearanceFields({ layer, onChange, t }) {
@@ -35,6 +38,19 @@ export function DrawingLayerAppearanceFields({ layer, onChange, t }) {
                     <option key={lineType} value={lineType}>{t(`lineType.${lineType}`)}</option>
                 ))}
             </select>
+            <div className="drawing-layer-transparency">
+                <input
+                    type="number"
+                    min="0"
+                    max={MAX_DRAWING_TRANSPARENCY}
+                    step="5"
+                    value={layer.transparency ?? 0}
+                    title={t('sidebar.layerTransparency', { name: layer.name })}
+                    aria-label={t('sidebar.layerTransparency', { name: layer.name })}
+                    onChange={event => onChange({ transparency: clampDrawingTransparency(event.target.value) })}
+                />
+                <span aria-hidden="true">%</span>
+            </div>
         </div>
     );
 }
@@ -42,6 +58,7 @@ export function DrawingLayerAppearanceFields({ layer, onChange, t }) {
 export function DrawingEntityAppearanceFields({ content, disabled, entities, onUpdate, t }) {
     const colorEntities = entities.filter(entity => entity.type !== 'image');
     const strokeEntities = entities.filter(supportsStrokeAppearance);
+    const transparencyEntities = entities;
     return (
         <section className="drawing-appearance-panel">
             <h4>{t('sidebar.appearance')}</h4>
@@ -79,6 +96,15 @@ export function DrawingEntityAppearanceFields({ content, disabled, entities, onU
                         t={t}
                     />
                 </>
+            )}
+            {transparencyEntities.length > 0 && (
+                <ByLayerTransparencyField
+                    content={content}
+                    disabled={disabled}
+                    entities={transparencyEntities}
+                    onUpdate={onUpdate}
+                    t={t}
+                />
             )}
         </section>
     );
@@ -151,6 +177,46 @@ function ByLayerSelectField({ customOptions, disabled, entities, formatOption, g
                     }}>
                         {customOptions.map(option => <option key={option} value={option}>{formatOption(option)}</option>)}
                     </select>
+                </label>
+            )}
+        </div>
+    );
+}
+
+function ByLayerTransparencyField({ content, disabled, entities, onUpdate, t }) {
+    const mode = commonMode(entities, 'transparency');
+    const resolved = commonValue(entities, entity => getEntityTransparency(content, entity))
+        ?? getEntityTransparency(content, entities[0]);
+    return (
+        <div className="drawing-appearance-field">
+            <label className="drawing-sidebar-field">
+                <span>{t('sidebar.transparency')}</span>
+                <select disabled={disabled} value={mode} onChange={event => setMode({
+                    entities,
+                    mode: event.target.value,
+                    onUpdate,
+                    property: 'transparency',
+                    resolvedValue: entity => getEntityTransparency(content, entity),
+                })}>
+                    {mode === 'mixed' && <option value="mixed" disabled>{t('sidebar.mixed')}</option>}
+                    <option value="byLayer">{t('sidebar.byLayer')}</option>
+                    <option value="custom">{t('sidebar.custom')}</option>
+                </select>
+            </label>
+            {mode === 'custom' && (
+                <label className="drawing-sidebar-field drawing-appearance-custom-value">
+                    <span>{t('sidebar.transparencyValue', { value: resolved })}</span>
+                    <input
+                        disabled={disabled}
+                        type="range"
+                        min="0"
+                        max={MAX_DRAWING_TRANSPARENCY}
+                        step="1"
+                        value={resolved}
+                        onChange={event => onUpdate(entity => entities.some(candidate => candidate.id === entity.id)
+                            ? { ...entity, transparency: Number(event.target.value) }
+                            : entity)}
+                    />
                 </label>
             )}
         </div>

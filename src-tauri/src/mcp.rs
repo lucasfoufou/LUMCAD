@@ -686,7 +686,7 @@ mod tests {
     #[test]
     fn shared_command_manifest_is_unique_and_complete() {
         let commands = command_manifest();
-        assert_eq!(commands.len(), 33);
+        assert_eq!(commands.len(), 56);
         assert_eq!(
             commands
                 .iter()
@@ -717,6 +717,10 @@ mod tests {
         assert_eq!(
             find_command("PDFALL").map(|value| value.command.as_str()),
             Some("pdfAll")
+        );
+        assert_eq!(
+            find_command("OTRACK").map(|value| value.command.as_str()),
+            Some("objectTracking")
         );
         assert!(find_command("SAVE").is_none());
     }

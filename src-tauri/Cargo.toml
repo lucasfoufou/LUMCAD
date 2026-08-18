@@ -28,7 +28,7 @@ url = "2"
 zip = { version = "8.6.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSPrintInfo", "NSPrinter"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSPasteboard", "NSPrintInfo", "NSPrinter"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation"] }
 
 [dev-dependencies]

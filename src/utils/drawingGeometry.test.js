@@ -56,7 +56,7 @@ import {
 } from './drawingPrimitives.js';
 import { previewTrimDrawingFence, trimDrawingFence, trimDrawingTarget } from './drawingTrimOperations.js';
 import { constrainLineGripPoint, createSelectionWindow, editEntityGrip, entityMatchesSelectionWindow, getEntityGrips } from './drawingSelection.js';
-import { getDrawingCommandSuggestions, isNumericDrawingInput, parseDrawingCommand, resolveDrawingAutocompleteSubmission } from './drawingCommands.js';
+import { getDrawingCommandInput, getDrawingCommandSuggestions, isNumericDrawingInput, parseDrawingCommand, resolveDrawingAutocompleteSubmission } from './drawingCommands.js';
 import { getDrawingTextLayout } from './drawingText.js';
 import { addTrackingAnchor, constrainOrthogonalPoint, createTrackingAnchor, resolveDrawingSnap } from './drawingTracking.js';
 
@@ -84,10 +84,12 @@ test('CAD aliases and numeric inputs are recognized', () => {
     assert.equal(isNumericDrawingInput('5 3'), true);
     assert.equal(isNumericDrawingInput('5m'), true);
     assert.equal(isNumericDrawingInput('5 m'), true);
+    assert.equal(getDrawingCommandInput('CAL span = 2,5 + 1,25'), 'span = 2,5 + 1,25');
+    assert.equal(getDrawingCommandInput('CAL'), '');
     assert.deepEqual(getDrawingCommandSuggestions('sav').map(item => item.name), ['SAVEAS']);
     assert.deepEqual(getDrawingCommandSuggestions('c').slice(0, 2).map(item => [item.name, item.alias]), [
         ['CIRCLE', 'C'],
-        ['COPY', 'CP'],
+        ['CHAMFER', 'CHA'],
     ]);
     assert.equal(resolveDrawingAutocompleteSubmission('sca', getDrawingCommandSuggestions('sca')), 'SCALE');
     assert.equal(resolveDrawingAutocompleteSubmission('SC', getDrawingCommandSuggestions('SC')), 'SC');
@@ -771,22 +773,26 @@ test('entity appearance inherits layer properties unless an object overrides the
         color: '#123456',
         lineWeight: 5,
         lineType: 'dashed',
+        transparency: 35,
     };
     const inherited = { id: 'by-layer', type: 'line', layerId: 'geometry' };
     assert.deepEqual(getEntityAppearance(content, inherited), {
         color: '#123456',
         lineWeight: 5,
         lineType: 'dashed',
+        transparency: 35,
     });
     assert.deepEqual(getEntityAppearance(content, {
         ...inherited,
         color: '#abcdef',
         lineWeight: 1.5,
         lineType: 'dotted',
+        transparency: 0,
     }), {
         color: '#abcdef',
         lineWeight: 1.5,
         lineType: 'dotted',
+        transparency: 0,
     });
 });
 
@@ -799,11 +805,26 @@ test('invalid custom appearance values normalize back to ByLayer', () => {
         color: 'orange',
         lineWeight: 4,
         lineType: 'zigzag',
+        transparency: 100,
     }];
     const [entity] = normalizeDrawingContent(content).entities;
     assert.equal(Object.hasOwn(entity, 'color'), false);
     assert.equal(Object.hasOwn(entity, 'lineWeight'), false);
     assert.equal(Object.hasOwn(entity, 'lineType'), false);
+    assert.equal(Object.hasOwn(entity, 'transparency'), false);
+});
+
+test('valid zero and maximum transparency overrides survive document normalization', () => {
+    const content = createDefaultDrawingContent();
+    content.layers[0] = { ...content.layers[0], transparency: 90 };
+    content.entities = [
+        { id: 'opaque', type: 'line', layerId: 'geometry', transparency: 0 },
+        { id: 'transparent', type: 'circle', layerId: 'geometry', transparency: 90 },
+    ];
+    const normalized = normalizeDrawingContent(content);
+    assert.equal(normalized.layers[0].transparency, 90);
+    assert.equal(normalized.entities[0].transparency, 0);
+    assert.equal(normalized.entities[1].transparency, 90);
 });
 
 function pointDistanceForTest(first, second) {

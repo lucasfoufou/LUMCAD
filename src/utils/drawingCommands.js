@@ -29,6 +29,12 @@ export function parseDrawingNumbers(value) {
         .filter(Number.isFinite);
 }
 
+export function getDrawingCommandInput(value) {
+    const trimmed = String(value || '').trim();
+    const separator = trimmed.search(/\s/);
+    return separator < 0 ? '' : trimmed.slice(separator).trim();
+}
+
 export function isNumericDrawingInput(value) {
     const trimmed = String(value || '').trim();
     return Boolean(trimmed) && /^[+-]?\d+(?:[.,]\d+)?\s*m?(?:[;\s]+[+-]?\d+(?:[.,]\d+)?\s*m?)*$/i.test(trimmed);

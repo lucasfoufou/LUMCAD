@@ -158,9 +158,9 @@ Use `get_state` first, preserve fields you do not intend to change, and prefer r
 ```
 
 - `x` and `y` are required finite coordinates. Drawing commands use metres; `VIEWPORT` uses millimetres on the active layout sheet.
-- `targetId` identifies an entity when selection, trim, or associative dimensions need a hit target.
+- `targetId` identifies the hit entity for target-based operations such as trim/extend, break, lengthen, fillet/chamfer/blend, selection, and associative dimensions.
 - `snap: true` applies the active LUMCAD object-snap settings to the supplied point.
-- `shift: true` applies the same orthogonal constraint used by the UI whenever the active command has a reference point.
+- `shift: true` temporarily swaps `TRIM` with `EXTEND` during their target/fence stage. For other point stages it temporarily inverts persistent Ortho mode, matching the UI whenever the active command has a reference point. Use `ORTHO`, `POLAR`, and `OTRACK` to change the persisted drafting modes; `POLAR` also accepts an increment followed by optional additional angles.
 
 ### Input
 
@@ -169,6 +169,15 @@ Use `get_state` first, preserve fields you do not intend to change, and prefer r
 ```
 
 Sends text through the same quick command parser as the floating command bar. It can provide distances, angles, factors, coordinates, and operation options.
+
+When the active stage requests a model-space point, the shared precision parser accepts:
+
+- `x,y` for an absolute point (`#x,y` makes the absolute intent explicit);
+- `@x,y` for a Cartesian offset from the preceding reference point;
+- `@distance<angle` for a polar offset;
+- a distance or expression, such as `2500mm` or `span / 2`, along the current pointer direction.
+
+Arithmetic expressions support parentheses, common metric and imperial length suffixes, and case-insensitive variables assigned with `CAL name = expression` or `QUICKCALC name = expression`. Unitless model-space values are metres; unitless layout point values are paper millimetres, and explicit suffixes are converted to the active space. In the French interface, use `;` both between coordinate components containing decimal commas (`12,5;4,25`) and between function arguments (`min(2,5;1,25)`).
 
 ### Enter
 

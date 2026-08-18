@@ -39,17 +39,29 @@ export default function useDrawingEditorShortcuts({ actions, commandBarRef }) {
                 actionsRef.current.redo();
             } else if (modifier && event.key.toLowerCase() === 'c') {
                 event.preventDefault();
-                actionsRef.current.copy();
+                Promise.resolve(actionsRef.current.copy()).catch(() => {});
+            } else if (modifier && event.key.toLowerCase() === 'x') {
+                event.preventDefault();
+                Promise.resolve(actionsRef.current.cut()).catch(() => {});
             } else if (modifier && event.key.toLowerCase() === 'v') {
                 event.preventDefault();
-                actionsRef.current.paste();
+                Promise.resolve(actionsRef.current.paste()).catch(() => {});
             } else if (event.key === 'Delete' || event.key === 'Backspace') {
                 event.preventDefault();
                 actionsRef.current.delete();
             } else if (event.key === 'F3') {
                 event.preventDefault();
                 actionsRef.current.toggleSnaps();
-            } else if (!modifier && !event.altKey && event.key.length === 1 && /[a-zA-Z0-9.,+\-]/.test(event.key)) {
+            } else if (event.key === 'F8') {
+                event.preventDefault();
+                actionsRef.current.toggleOrtho();
+            } else if (event.key === 'F10') {
+                event.preventDefault();
+                actionsRef.current.togglePolar();
+            } else if (event.key === 'F11') {
+                event.preventDefault();
+                actionsRef.current.toggleObjectTracking();
+            } else if (!modifier && !event.altKey && event.key.length === 1 && /[a-zA-Z0-9.,;@#<>()>+\-*\/%^=_'"°]/.test(event.key)) {
                 event.preventDefault();
                 commandBarRef.current?.focus(event.key);
             }

@@ -9,6 +9,19 @@ import {
     getRegularPolygonVertices,
     normalizeRadians,
 } from './drawingCurves.js';
+import {
+    mirrorAffineMatrix,
+    rotationAffineMatrix,
+    scaleAffineMatrix,
+    transformDrawingBlockReference,
+    translationAffineMatrix,
+} from './drawingBlocks.js';
+import {
+    getAdvancedEntitySegments,
+    getHatchBoundaryEntities,
+    transformAdvancedCurveAffine,
+    transformHatchPatternAffine,
+} from './drawingAdvancedEntities.js';
 
 export const DEFAULT_TRANSFORM_OPTIONS = Object.freeze({
     curveSegments: 96,
@@ -86,6 +99,8 @@ export function getRectEntityCorners(entity) {
 
 export function getEntitySegments(entity) {
     if (entity?.type === 'line') return [[{ x: entity.x1, y: entity.y1 }, { x: entity.x2, y: entity.y2 }]];
+    if (entity?.type === 'ellipse' || entity?.type === 'spline') return getAdvancedEntitySegments(entity);
+    if (entity?.type === 'hatch') return getHatchBoundaryEntities(entity).flatMap(getEntitySegments);
     if (entity?.type === 'arc') {
         const points = getArcPoints(entity);
         return points.slice(0, -1).map((point, index) => [point, points[index + 1]]);
@@ -178,6 +193,19 @@ export function transformEntity(entity, transform = {}, options = {}) {
     const point = value => transformPoint(value, resolved);
     const similarity = isSimilarityScale(scaleX, scaleY);
 
+    if (entity.type === 'blockReference') {
+        return transformDrawingBlockReference(entity, scaleAffineMatrix(scaleX, scaleY, origin));
+    }
+
+    if (entity.type === 'ellipse' || entity.type === 'spline') {
+        return transformAdvancedCurveAffine(entity, scaleAffineMatrix(scaleX, scaleY, origin));
+    }
+
+    if (entity.type === 'hatch') {
+        const matrix = scaleAffineMatrix(scaleX, scaleY, origin);
+        return transformHatchEntity(entity, matrix, boundary => transformEntity(boundary, resolved));
+    }
+
     if (entity.type === 'line') {
         return {
             ...entity,
@@ -238,6 +266,16 @@ export function transformEntity(entity, transform = {}, options = {}) {
 }
 
 export function translateEntity(entity, dx, dy) {
+    if (entity.type === 'blockReference') {
+        return transformDrawingBlockReference(entity, translationAffineMatrix(dx, dy));
+    }
+    if (entity.type === 'ellipse' || entity.type === 'spline') {
+        return transformAdvancedCurveAffine(entity, translationAffineMatrix(dx, dy));
+    }
+    if (entity.type === 'hatch') {
+        const matrix = translationAffineMatrix(dx, dy);
+        return transformHatchEntity(entity, matrix, boundary => translateEntity(boundary, dx, dy));
+    }
     if (entity.type === 'line') return { ...entity, x1: entity.x1 + dx, y1: entity.y1 + dy, x2: entity.x2 + dx, y2: entity.y2 + dy };
     if (entity.type === 'rectangle' || entity.type === 'image' || entity.type === 'text') return { ...entity, x: entity.x + dx, y: entity.y + dy };
     if (entity.type === 'circle') return { ...entity, cx: entity.cx + dx, cy: entity.cy + dy };
@@ -261,6 +299,16 @@ export function translateEntity(entity, dx, dy) {
 export function rotateEntity(entity, angleInput, origin) {
     const angleDegrees = angleInputToDegrees(angleInput);
     if (!entity || !origin || !Number.isFinite(angleDegrees)) return entity;
+    if (entity.type === 'blockReference') {
+        return transformDrawingBlockReference(entity, rotationAffineMatrix(angleDegrees, origin));
+    }
+    if (entity.type === 'ellipse' || entity.type === 'spline') {
+        return transformAdvancedCurveAffine(entity, rotationAffineMatrix(angleDegrees, origin));
+    }
+    if (entity.type === 'hatch') {
+        const matrix = rotationAffineMatrix(angleDegrees, origin);
+        return transformHatchEntity(entity, matrix, boundary => rotateEntity(boundary, angleDegrees, origin));
+    }
     if (entity.type === 'line') {
         const first = rotatePoint({ x: entity.x1, y: entity.y1 }, origin, angleDegrees);
         const second = rotatePoint({ x: entity.x2, y: entity.y2 }, origin, angleDegrees);
@@ -312,6 +360,20 @@ export function rotateEntity(entity, angleInput, origin) {
 export function mirrorEntity(entity, axisFirst, axisSecond, options = {}) {
     if (!entity || !axisFirst || !axisSecond || pointDistance(axisFirst, axisSecond) <= EPSILON) return entity;
     const mirrorTextGlyphs = options.mirrorTextGlyphs ?? options.mirrorText ?? true;
+    if (entity.type === 'blockReference') {
+        return transformDrawingBlockReference(entity, mirrorAffineMatrix(axisFirst, axisSecond));
+    }
+    if (entity.type === 'ellipse' || entity.type === 'spline') {
+        return transformAdvancedCurveAffine(entity, mirrorAffineMatrix(axisFirst, axisSecond));
+    }
+    if (entity.type === 'hatch') {
+        const matrix = mirrorAffineMatrix(axisFirst, axisSecond);
+        return transformHatchEntity(
+            entity,
+            matrix,
+            boundary => mirrorEntity(boundary, axisFirst, axisSecond, options),
+        );
+    }
     if (entity.type === 'line') {
         const first = mirrorPoint({ x: entity.x1, y: entity.y1 }, axisFirst, axisSecond);
         const second = mirrorPoint({ x: entity.x2, y: entity.y2 }, axisFirst, axisSecond);
@@ -386,6 +448,14 @@ export function symmetricConstructionTransform(entityOrEntities, axisFirst, axis
 }
 
 export const createSymmetricConstruction = symmetricConstructionTransform;
+
+function transformHatchEntity(entity, matrix, transformBoundary) {
+    return {
+        ...entity,
+        boundaries: getHatchBoundaryEntities(entity).map(transformBoundary),
+        pattern: transformHatchPatternAffine(entity.pattern, matrix),
+    };
+}
 
 function scaleNativeArc(entity, transform) {
     const center = transformPoint({ x: entity.cx, y: entity.cy }, transform);

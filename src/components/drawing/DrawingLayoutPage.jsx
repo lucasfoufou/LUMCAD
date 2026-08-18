@@ -92,6 +92,7 @@ function DrawingLayoutViewport({ assets, content, dimensionPaperTextSize, handle
                     assets={assets}
                     dimensionTextSize={dimensionTextSize}
                     hiddenLayerIds={viewport.hiddenLayerIds}
+                    viewBox={viewBox}
                 />
             </svg>
             {interactive && (

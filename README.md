@@ -21,9 +21,12 @@ The project is now open source so that this foundation can grow into a useful ge
 ## Current capabilities
 
 - lines, rectangles, regular polygons, circles, arcs, polylines, text, reference images, and dimensions;
-- layers and ByLayer/custom colors, line weights, and line types;
+- layers and ByLayer/custom colors, line weights, line types, and transparency;
 - object snaps, tracking helpers, grips, selection windows, and command aliases;
-- move, copy, rotate, scale, offset, trim, mirror, join, explode, and rectangular array operations;
+- move, copy, rotate, scale, offset, exact native-curve trim/extend and break, crossing-window stretch, four-mode lengthen, mirror, exact mixed-curve join, explode/XPLODE, and rectangular array operations;
+- interactive two- or three-pair 2D alignment with optional uniform scaling, branch-aware fillet and chamfer editing with trim and whole-path modes, and endpoint-tangent cubic spline blends;
+- operating-system clipboard copy/cut/paste, including picked base points, original-coordinate paste, anonymous-block paste, and LUMCAD JSON/SVG interchange;
+- persistent exact ellipse, cubic-spline, mixed-path, hatch-boundary, dimension, and anonymous block-reference data used by compound operations and interchange;
 - local `.lcad` files with native Open and Save As dialogs plus continuous autosave;
 - atomic autosave and automatic recovery for drawings that do not yet have a file path;
 - portrait or landscape A4, A3, A2, A1, and A0 layouts with multiple model viewports, exact `1/X` scales, and per-viewport layer visibility;
@@ -54,6 +57,12 @@ drawing.lcad
 The initial `.lcad` format version is version 1 and always uses this ZIP structure. See [LCAD_FORMAT.md](./LCAD_FORMAT.md) for the container contract and safety limits.
 
 Rust writes to a temporary file next to the target, synchronizes it to disk, and then replaces the target atomically. A drawing without a file path is saved as `recovery.lcad` in LUMCAD's application data directory and restored at the next startup.
+
+## Clipboard interoperability
+
+`COPYCLIP`, `COPYBASE`, and `CUTCLIP` write a versioned LUMCAD JSON flavour together with interoperable SVG; the plain-text fallback is the same complete SVG with embedded lossless JSON metadata. On macOS, the desktop build also advertises native `public.svg-image` and UTF-8 text pasteboard types. The payload includes selected-object dependencies plus the referenced layers, embedded assets, and anonymous block definitions. `PASTECLIP`, `PASTEORIG`, and `PASTEBLOCK` remap those resources safely when geometry crosses document boundaries; a cut deletes its source only after the operating-system write succeeds.
+
+The SVG representation keeps exact ellipses, elliptical and circular arcs, cubic splines, hatch boundaries, dimensions, and block transforms. SVG copied from another application can be pasted when it uses bounded basic shapes or absolute/relative `M/L/H/V/C/A/Z` paths with simple translate, rotate, scale, or matrix transforms. Affinity-to-LUMCAD paste requires Affinity's **Copy items as SVG** setting; ordinary Affinity clipboard data that contains only proprietary, PDF, or bitmap flavours is outside this geometry importer. The embedded LUMCAD metadata remains authoritative for lossless LUMCAD-to-LUMCAD copies, while malformed or unbounded external data is rejected as one atomic import.
 
 ## Downloads
 

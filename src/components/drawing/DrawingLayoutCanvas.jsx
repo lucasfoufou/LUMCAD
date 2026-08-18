@@ -109,6 +109,14 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
         zoomPaper(factor) {
             setLayoutViewBox(current => zoomPaperViewBox(current, factor, viewBoxCenter(current), paper));
         },
+        getPrecisionInputContext() {
+            return {
+                referencePoint: gesture?.kind === 'create'
+                    ? gesture.first
+                    : getOperationOrthogonalOrigin(operation),
+                directionPoint: gesture?.kind === 'create' ? gesture.current : operationPoint,
+            };
+        },
         submitPoint(point, options = {}) {
             if (operation?.scope === 'viewport') {
                 if (operation.stage === 'select') {

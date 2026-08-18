@@ -2,10 +2,25 @@ import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, use
 
 import DrawingInteractionOverlay from '~components/drawing/DrawingInteractionOverlay';
 import DrawingCreationControls from '~components/drawing/DrawingCreationControls';
+import DrawingDynamicInput from '~components/drawing/DrawingDynamicInput';
 import DrawingGrid from '~components/drawing/DrawingGrid';
 import DrawingScene from '~components/drawing/DrawingScene';
 import { useI18n } from '~i18n/I18nProvider';
 import { createArrayDraftEntities, createMirrorDraftEntities } from '~utils/drawingCompoundOperations';
+import {
+    createBlendPreviewEntities,
+    createChamferPathPreviewEntities,
+    createChamferPreviewEntities,
+    createFilletPathPreviewEntities,
+    createFilletPreviewEntities,
+} from '~utils/drawingCornerOperations';
+import { createAlignPreviewEntities } from '~utils/drawingAlignOperations';
+import { getAlignPreviewPairs } from '~utils/drawingAlignCommand';
+import {
+    createBreakPreviewEntities,
+    createLengthenPreviewEntities,
+} from '~utils/drawingBreakLengthenOperations';
+import { pasteDrawingClipboardPayload } from '~utils/drawingClipboard';
 import { parseDrawingNumbers } from '~utils/drawingCommands';
 import {
     addEntity,
@@ -31,6 +46,8 @@ import {
 import {
     drawingSelectionCandidates,
     entityIdFromDrawingEvent,
+    getInteractiveOperationPointMode,
+    getTrimExtendPointMode,
     isDimensionableDrawingEntity,
     isDimensionPointSnap,
     isDrawingTextInput,
@@ -54,12 +71,24 @@ import {
     previewTransformContent,
 } from '~utils/drawingOperations';
 import { constrainLineGripPoint, createSelectionWindow, editEntityGrip, getEntityGrips } from '~utils/drawingSelection';
-import { addTrackingAnchor, createTrackingAnchor, resolveDrawingSnap } from '~utils/drawingTracking';
-import { createTrimPreviewEntities } from '~utils/drawingTrimOperations';
+import {
+    addTrackingAnchor,
+    constrainOrthogonalPoint,
+    createTemporaryTrackingAnchor,
+    createTrackingAnchor,
+    resolveDrawingSnap,
+} from '~utils/drawingTracking';
+import { isOrthoTrackingEnabled } from '~utils/drawingDraftingSettings';
+import { createExtendPreviewEntities, createTrimPreviewEntities } from '~utils/drawingTrimOperations';
 import { getOperationOrthogonalOrigin } from '~utils/drawingOperationOptions';
+import { drawingDynamicInputAnchor } from '~utils/drawingPrecisionInput';
+import { createStretchPreviewEntities } from '~utils/drawingStretchOperations';
 import { scaleDrawingViewBox, zoomDrawingViewBox } from '~utils/drawingViewport';
 
 const drawingTools = new Set(['line', 'rectangle', 'circle', 'polygon', 'arc', 'text']);
+const cornerOperationTypes = new Set(['fillet', 'chamfer', 'blend']);
+const trimExtendTypes = new Set(['trim', 'extend']);
+const breakStretchLengthenTypes = new Set(['break', 'breakAtPoint', 'stretch', 'lengthen']);
 const DrawingCanvas = forwardRef(function DrawingCanvas({
     content,
     assets,
@@ -75,6 +104,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     editEntity = null,
     onEditEntityChange = null,
     onEntityCreated = null,
+    dynamicInput = null,
 }, forwardedRef) {
     const { t } = useI18n();
     const svgRef = useRef(null);
@@ -86,7 +116,9 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const [hoverSnap, setHoverSnap] = useState(null);
     const [hoveredEntityId, setHoveredEntityId] = useState(null);
     const [trackingAnchors, setTrackingAnchors] = useState([]);
+    const [temporaryTrackingPointMode, setTemporaryTrackingPointMode] = useState(false);
     const [operationPoint, setOperationPoint] = useState(null);
+    const [operationShift, setOperationShift] = useState(false);
     const [spacePressed, setSpacePressed] = useState(false);
     const initialCreationConfigRef = useRef(createDefaultDrawingCreationConfig(activeTool));
     const [creationMode, setCreationMode] = useState(initialCreationConfigRef.current.mode);
@@ -144,7 +176,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     useEffect(() => {
         if (!drawingTools.has(activeTool) && gesture?.kind === 'draw') setGesture(null);
         if (activeTool !== 'dimension' && gesture?.kind === 'dimension') setGesture(null);
-        if (interactiveOperation?.type !== 'trim' && gesture?.kind === 'trim-fence') setGesture(null);
+        if (!trimExtendTypes.has(interactiveOperation?.type) && gesture?.kind === 'trim-fence') setGesture(null);
+        if (!trimExtendTypes.has(interactiveOperation?.type)) setOperationShift(false);
     }, [activeTool, gesture?.kind, interactiveOperation?.type]);
 
     useEffect(() => {
@@ -165,7 +198,10 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         setHoveredEntityId(null);
     }, [activeTool, interactiveOperation?.stage, interactiveOperation?.type]);
 
-    useEffect(() => { setTrackingAnchors([]); }, [activeTool, interactiveOperation?.type]);
+    useEffect(() => {
+        setTrackingAnchors([]);
+        setTemporaryTrackingPointMode(false);
+    }, [activeTool, interactiveOperation?.type]);
 
     useEffect(() => {
         if (!content.settings?.tracking) setTrackingAnchors([]);
@@ -387,33 +423,58 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         if (!Number.isFinite(rawPoint?.x) || !Number.isFinite(rawPoint?.y)) return false;
         const targetId = typeof options.targetId === 'string' ? options.targetId : null;
         const targetEntity = content.entities.find(entity => entity.id === targetId);
-        const orthogonalOrigin = gesture?.kind === 'draw' && gesture.tool === 'line'
-            ? gesture.first
-            : getOperationOrthogonalOrigin(interactiveOperation);
+        const preserveRawTarget = interactiveOperation
+            && getInteractiveOperationPointMode(interactiveOperation.type, {
+                shift: options.shift,
+                targetId,
+                fence: gesture?.kind === 'trim-fence',
+            }) === 'raw';
+        const orthogonalOrigin = gestureReferenceOrigin(gesture)
+            || getOperationOrthogonalOrigin(interactiveOperation);
         let point = { x: Number(rawPoint.x), y: Number(rawPoint.y) };
-        if (options.snap) {
+        if (options.snap && !preserveRawTarget) {
             point = resolveDrawingSnap(point, content, getViewBoxWorldUnitsPerPixel(viewBox, canvasSize) * 12, {
                 excludeIds: interactiveOperation?.type === 'offset' ? (interactiveOperation.entityIds || []) : [],
                 trackingAnchors,
                 orthogonalOrigin,
-                forceOrthogonal: Boolean(options.shift && orthogonalOrigin),
+                temporaryOrtho: Boolean(options.shift),
             });
-        } else if (options.shift && orthogonalOrigin) {
-            point = constrainRemoteOrthogonalPoint(point, orthogonalOrigin);
+        } else if (!preserveRawTarget && !options.precision && orthogonalOrigin
+            && isOrthoTrackingEnabled(content.settings, options.shift)) {
+            point = constrainOrthogonalPoint(orthogonalOrigin, point);
         }
         setOperationPoint(point);
         showPointerFeedback(point);
 
+        if (temporaryTrackingPointMode) {
+            acquireTemporaryTrackingPoint(point);
+            return true;
+        }
+
         if (interactiveOperation && interactiveOperation.stage !== 'select') {
-            if (interactiveOperation.type === 'trim') {
+            if (trimExtendTypes.has(interactiveOperation.type)) {
+                const operationType = options.shift
+                    ? interactiveOperation.type === 'trim' ? 'extend' : 'trim'
+                    : interactiveOperation.type;
                 if (gesture?.kind === 'trim-fence') {
-                    onInteractiveOperation?.({ fence: { first: gesture.start, second: point } });
+                    onInteractiveOperation?.({
+                        fence: { points: [...(gesture.points || [gesture.start]), point] },
+                        shift: gesture.shift,
+                    });
                     setGesture(null);
                 } else if (targetEntity) {
-                    onInteractiveOperation?.({ point, targetId });
-                } else {
-                    setGesture({ kind: 'trim-fence', start: point, current: point });
+                    onInteractiveOperation?.({ point, targetId, shift: options.shift });
+                } else if (operationType === 'trim') {
+                    setGesture({
+                        kind: 'trim-fence',
+                        start: point,
+                        current: point,
+                        points: [point],
+                        shift: interactiveOperation.type === 'extend',
+                    });
                     onStatus?.(t('canvas.trimFenceSecondPoint'));
+                } else {
+                    onInteractiveOperation?.({ point, targetId: null, shift: options.shift });
                 }
                 return true;
             }
@@ -532,9 +593,22 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             setHoverSnap(null);
             setHoveredEntityId(null);
             setTrackingAnchors([]);
+            setTemporaryTrackingPointMode(false);
+        },
+        beginTemporaryTrackingPoint() {
+            setTemporaryTrackingPointMode(true);
+            onStatus?.(t('canvas.trackingPointPrompt'));
+            return true;
         },
         getOperationPoint() {
             return operationPoint;
+        },
+        getPrecisionInputContext() {
+            return {
+                referencePoint: gestureReferenceOrigin(gesture)
+                    || getOperationOrthogonalOrigin(interactiveOperation),
+                directionPoint: gesture?.current || operationPoint,
+            };
         },
         getViewportCenter() {
             return { x: viewBox.x + viewBox.width / 2, y: viewBox.y + viewBox.height / 2 };
@@ -542,7 +616,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         submitPoint(point, options) {
             return submitRemotePoint(point, options);
         },
-    }), [activeTool, canvasSize, content, creationMode, creationOptions, dimensionMode, gesture, interactiveOperation, operationPoint, selectedIds, submitCreationInput, submitCreationInputForTool, t, trackingAnchors, viewBox]);
+    }), [activeTool, canvasSize, content, creationMode, creationOptions, dimensionMode, gesture, interactiveOperation, operationPoint, selectedIds, submitCreationInput, submitCreationInputForTool, t, temporaryTrackingPointMode, trackingAnchors, viewBox]);
 
     const worldPoint = event => {
         const svg = svgRef.current;
@@ -574,14 +648,24 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             excludeIds,
             trackingAnchors,
             orthogonalOrigin,
-            forceOrthogonal: Boolean(orthogonalOrigin && event.shiftKey),
+            temporaryOrtho: Boolean(event.shiftKey),
         });
     };
 
     const showPointerFeedback = point => {
         setHoverSnap(point?.type ? point : null);
-        const anchor = content.settings?.tracking ? createTrackingAnchor(point) : null;
+        const anchor = content.settings?.tracking ? createTrackingAnchor(point, content.settings) : null;
         if (anchor) setTrackingAnchors(current => addTrackingAnchor(current, anchor));
+    };
+
+    const acquireTemporaryTrackingPoint = point => {
+        const anchor = createTemporaryTrackingAnchor(point, content.settings);
+        if (!anchor) return false;
+        setTrackingAnchors(current => addTrackingAnchor(current, anchor));
+        setTemporaryTrackingPointMode(false);
+        setHoverSnap(point?.type ? point : null);
+        onStatus?.(t('canvas.trackingPointAcquired'));
+        return true;
     };
 
     const interactivePoint = (event, arrayHandle = null) => {
@@ -592,16 +676,16 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             excludeIds,
             trackingAnchors,
             orthogonalOrigin,
-            forceOrthogonal: Boolean(orthogonalOrigin && event.shiftKey),
+            temporaryOrtho: Boolean(event.shiftKey),
         });
     };
 
     const gripPoint = (event, target) => {
         const raw = worldPoint(event);
         const desired = { x: gesture.origin.x + raw.x - gesture.startPointer.x, y: gesture.origin.y + raw.y - gesture.startPointer.y };
-        const orthogonalOrigin = event.shiftKey && target?.type !== 'line' ? gesture.origin : null;
+        const orthogonalOrigin = target?.type !== 'line' ? gesture.origin : null;
         const snapped = resolveDrawingSnap(desired, content, worldUnitsPerPixel * 12, {
-            excludeIds: [gesture.entityId], trackingAnchors, orthogonalOrigin, forceOrthogonal: Boolean(orthogonalOrigin),
+            excludeIds: [gesture.entityId], trackingAnchors, orthogonalOrigin, temporaryOrtho: Boolean(event.shiftKey),
         });
         return event.shiftKey ? constrainLineGripPoint(target, gesture.gripId, snapped) : snapped;
     };
@@ -631,22 +715,68 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             return;
         }
 
+        if (temporaryTrackingPointMode) {
+            event.preventDefault();
+            const point = snapPoint(
+                event,
+                [],
+                gestureReferenceOrigin(gesture) || getOperationOrthogonalOrigin(interactiveOperation),
+            );
+            showPointerFeedback(point);
+            acquireTemporaryTrackingPoint(point);
+            return;
+        }
+
         if (interactiveOperation && interactiveOperation.stage !== 'select') {
             event.preventDefault();
-            if (interactiveOperation.type === 'trim') {
-                const point = gesture?.kind === 'trim-fence' ? snapPoint(event, [], gesture.start) : snapPoint(event);
+            if (trimExtendTypes.has(interactiveOperation.type)) {
+                const pointMode = getTrimExtendPointMode(interactiveOperation.type, {
+                    shift: event.shiftKey,
+                    targetId,
+                    fence: gesture?.kind === 'trim-fence',
+                });
+                const point = pointMode === 'raw'
+                    ? worldPoint(event)
+                    : gesture?.kind === 'trim-fence' ? snapPoint(event, [], gesture.start) : snapPoint(event);
                 showPointerFeedback(point);
                 if (gesture?.kind === 'trim-fence') {
-                    onInteractiveOperation?.({ fence: { first: gesture.start, second: point } });
+                    onInteractiveOperation?.({
+                        fence: { points: [...(gesture.points || [gesture.start]), point] },
+                        shift: gesture.shift,
+                    });
                     setGesture(null);
                     return;
                 }
-                if (!targetEntity) {
-                    setGesture({ kind: 'trim-fence', start: point, current: point });
+                const operationType = event.shiftKey
+                    ? interactiveOperation.type === 'trim' ? 'extend' : 'trim'
+                    : interactiveOperation.type;
+                if (!targetEntity && operationType === 'trim') {
+                    svgRef.current.setPointerCapture(event.pointerId);
+                    setGesture({
+                        kind: 'trim-fence',
+                        start: point,
+                        current: point,
+                        points: [point],
+                        pointerId: event.pointerId,
+                        shift: interactiveOperation.type === 'extend',
+                    });
                     setOperationPoint(point);
                     onStatus?.(t('canvas.trimFenceSecondPoint'));
                     return;
                 }
+                onInteractiveOperation?.({ point, targetId, shift: event.shiftKey });
+                return;
+            }
+            if (cornerOperationTypes.has(interactiveOperation.type)) {
+                const point = worldPoint(event);
+                setOperationPoint(point);
+                setHoverSnap(null);
+                onInteractiveOperation?.({ point, targetId });
+                return;
+            }
+            if (breakStretchLengthenTypes.has(interactiveOperation.type)) {
+                const point = interactivePoint(event);
+                showPointerFeedback(point);
                 onInteractiveOperation?.({ point, targetId });
                 return;
             }
@@ -693,10 +823,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 onStatus?.(t('canvas.activeLayerUnavailable'));
                 return;
             }
-            const snapped = snapPoint(event);
-            const finalPoint = gesture?.kind === 'draw' && activeTool === 'line'
-                ? snapPoint(event, [], gesture.first)
-                : snapped;
+            const finalPoint = snapPoint(event, [], gestureReferenceOrigin(gesture));
             showPointerFeedback(finalPoint);
             handleCreationPoint(finalPoint, targetId);
             return;
@@ -751,18 +878,53 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         }
         if (gesture?.kind === 'trim-fence') {
             const point = snapPoint(event, [], gesture.start);
-            setGesture(current => ({ ...current, current: point }));
+            setGesture(current => {
+                const points = current.points || [current.start];
+                const dragging = Boolean(event.buttons & 1);
+                const last = points[points.length - 1];
+                return {
+                    ...current,
+                    current: point,
+                    points: dragging && pointDistance(last, point) >= worldUnitsPerPixel * 3
+                        ? points.length < 4096 ? [...points, point] : points
+                        : points,
+                };
+            });
             setOperationPoint(point);
             showPointerFeedback(point);
             setHoveredEntityId(null);
             return;
         }
         if (interactiveOperation && interactiveOperation.stage !== 'select') {
-            if (interactiveOperation.type === 'trim') {
+            if (trimExtendTypes.has(interactiveOperation.type)) {
                 const targetId = entityIdFromDrawingEvent(event);
-                setHoveredEntityId(!interactiveOperation.scopeIds || interactiveOperation.scopeIds.includes(targetId) ? targetId : null);
-                setOperationPoint(worldPoint(event));
+                const pointMode = getTrimExtendPointMode(interactiveOperation.type, {
+                    shift: event.shiftKey,
+                    targetId,
+                });
+                const point = pointMode === 'raw' ? worldPoint(event) : snapPoint(event);
+                setHoveredEntityId(targetId || null);
+                setOperationPoint(point);
+                setOperationShift(event.shiftKey);
+                if (pointMode === 'raw') setHoverSnap(null);
+                else showPointerFeedback(point);
+                return;
+            }
+            if (cornerOperationTypes.has(interactiveOperation.type)) {
+                const point = worldPoint(event);
+                const targetId = entityIdFromDrawingEvent(event);
+                setHoveredEntityId(targetId || null);
+                setOperationPoint(point);
                 setHoverSnap(null);
+                return;
+            }
+            if (breakStretchLengthenTypes.has(interactiveOperation.type)) {
+                const point = interactivePoint(event);
+                const targetId = entityIdFromDrawingEvent(event);
+                const targetStage = ['break-first', 'break-at-point', 'lengthen-pick'].includes(interactiveOperation.stage);
+                setHoveredEntityId(targetStage ? targetId || null : null);
+                setOperationPoint(point);
+                showPointerFeedback(point);
                 return;
             }
             const point = interactivePoint(event);
@@ -771,13 +933,13 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             return;
         }
         if (gesture?.kind === 'draw') {
-            const snapped = snapPoint(event, [], gesture.tool === 'line' ? gesture.first : null);
+            const snapped = snapPoint(event, [], gestureReferenceOrigin(gesture));
             setGesture(current => ({ ...current, current: snapped }));
             showPointerFeedback(snapped);
             return;
         }
         if (gesture?.kind === 'dimension') {
-            const snapped = snapPoint(event, [], gesture.first);
+            const snapped = snapPoint(event, [], gestureReferenceOrigin(gesture));
             setGesture(current => ({ ...current, current: snapped }));
             showPointerFeedback(snapped);
             return;
@@ -796,6 +958,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             return;
         }
         const snapped = snapPoint(event);
+        setOperationPoint(snapped);
         showPointerFeedback(snapped);
         const targetId = entityIdFromDrawingEvent(event);
         const target = content.entities.find(entity => entity.id === targetId);
@@ -813,6 +976,17 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         if (gesture?.kind === 'select-window') {
             // Selection windows are confirmed by a second click, not by button
             // release, so pointer-up intentionally leaves the preview active.
+            return;
+        }
+        if (gesture?.kind === 'trim-fence' && (gesture.points?.length || 0) > 1) {
+            const point = snapPoint(event, [], gesture.start);
+            const points = [...gesture.points];
+            if (pointDistance(points[points.length - 1], point) > worldUnitsPerPixel) points.push(point);
+            onInteractiveOperation?.({ fence: { points }, shift: gesture.shift });
+            setGesture(null);
+            setOperationPoint(null);
+            setHoverSnap(null);
+            if (svgRef.current?.hasPointerCapture(event.pointerId)) svgRef.current.releasePointerCapture(event.pointerId);
             return;
         }
         if (gesture?.kind === 'grip') {
@@ -879,6 +1053,118 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         () => createArrayDraftEntities(content, interactiveOperation, operationPoint),
         [content, interactiveOperation, operationPoint],
     );
+    const alignDrafts = useMemo(() => {
+        const pairs = getAlignPreviewPairs(interactiveOperation, operationPoint);
+        return pairs ? createAlignPreviewEntities(content, interactiveOperation.entityIds, pairs) : [];
+    }, [content, interactiveOperation, operationPoint]);
+    const clipboardPreview = useMemo(() => {
+        if (!['pasteClip', 'pasteBlock'].includes(interactiveOperation?.type)
+            || !interactiveOperation.payload || !operationPoint) return null;
+        try {
+            const result = pasteDrawingClipboardPayload({ content, assets }, interactiveOperation.payload, {
+                mode: interactiveOperation.type === 'pasteBlock' ? 'block' : 'insert',
+                insertionPoint: operationPoint,
+            });
+            return {
+                content: {
+                    ...content,
+                    layers: result.content.layers,
+                    blocks: result.content.blocks,
+                },
+                assets: result.assets,
+                entities: result.entities.map(entity => ({ ...entity, previewMode: 'copy' })),
+            };
+        } catch {
+            return null;
+        }
+    }, [assets, content, interactiveOperation, operationPoint]);
+    const cornerDrafts = useMemo(() => {
+        if (!cornerOperationTypes.has(interactiveOperation?.type) || !hoveredEntityId || !operationPoint) return [];
+        const hovered = content.entities.find(entity => entity.id === hoveredEntityId);
+        if (!hovered) return [];
+        const options = {
+            keepSources: interactiveOperation.keepSources,
+            distance1: interactiveOperation.distance1,
+            distance2: interactiveOperation.distance2,
+            ...(Number.isFinite(interactiveOperation.angleDegrees)
+                ? { angleDegrees: interactiveOperation.angleDegrees }
+                : {}),
+        };
+        if (interactiveOperation.pathMode && interactiveOperation.type !== 'blend') {
+            return interactiveOperation.type === 'fillet'
+                ? createFilletPathPreviewEntities(hovered, interactiveOperation.radius, options)
+                : createChamferPathPreviewEntities(hovered, options);
+        }
+        if (!interactiveOperation.firstId || hovered.id === interactiveOperation.firstId) return [];
+        const first = content.entities.find(entity => entity.id === interactiveOperation.firstId);
+        if (!first) return [];
+        if (interactiveOperation.type === 'fillet') {
+            return createFilletPreviewEntities(
+                first,
+                interactiveOperation.firstPick,
+                hovered,
+                operationPoint,
+                interactiveOperation.radius,
+                options,
+            );
+        }
+        if (interactiveOperation.type === 'chamfer') {
+            return createChamferPreviewEntities(
+                first,
+                interactiveOperation.firstPick,
+                hovered,
+                operationPoint,
+                options,
+            );
+        }
+        return createBlendPreviewEntities(first, interactiveOperation.firstPick, hovered, operationPoint, options);
+    }, [content, hoveredEntityId, interactiveOperation, operationPoint]);
+    const breakDrafts = useMemo(() => {
+        if (!['break', 'breakAtPoint'].includes(interactiveOperation?.type) || !operationPoint) return [];
+        if (interactiveOperation.stage === 'break-second') {
+            return createBreakPreviewEntities(content, {
+                targetId: interactiveOperation.targetId,
+                firstPoint: interactiveOperation.firstPoint,
+                secondPoint: operationPoint,
+            });
+        }
+        if (interactiveOperation.stage === 'break-at-point' && hoveredEntityId) {
+            return createBreakPreviewEntities(content, {
+                targetId: hoveredEntityId,
+                point: operationPoint,
+                atPoint: true,
+            });
+        }
+        return [];
+    }, [content, hoveredEntityId, interactiveOperation, operationPoint]);
+    const lengthenDrafts = useMemo(() => {
+        if (interactiveOperation?.type !== 'lengthen' || !operationPoint) return [];
+        if (interactiveOperation.stage === 'lengthen-dynamic') {
+            return createLengthenPreviewEntities(content, {
+                targetId: interactiveOperation.targetId,
+                point: interactiveOperation.pickPoint,
+                mode: 'dynamic',
+                dynamicPoint: operationPoint,
+            });
+        }
+        if (interactiveOperation.stage === 'lengthen-pick'
+            && interactiveOperation.mode !== 'dynamic' && hoveredEntityId) {
+            return createLengthenPreviewEntities(content, {
+                targetId: hoveredEntityId,
+                point: operationPoint,
+                mode: interactiveOperation.mode,
+                value: interactiveOperation.value,
+            });
+        }
+        return [];
+    }, [content, hoveredEntityId, interactiveOperation, operationPoint]);
+    const stretchDrafts = useMemo(() => (
+        interactiveOperation?.type === 'stretch'
+            && interactiveOperation.stage === 'stretch-second'
+            && operationPoint
+            ? createStretchPreviewEntities(content, interactiveOperation, operationPoint)
+            : []
+    ), [content, interactiveOperation, operationPoint]);
     const gestureDraft = gesture?.kind === 'draw'
         ? ['rectangle', 'circle', 'polygon', 'arc'].includes(gesture.tool)
             ? buildCreationEntity(gesture, gesture.current, 'draft')
@@ -889,32 +1175,93 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         : gesture?.kind === 'dimension'
             ? { id: 'dimension-draft', type: 'line', layerId: content.activeLayerId, x1: gesture.first.x, y1: gesture.first.y, x2: gesture.current.x, y2: gesture.current.y }
             : gesture?.kind === 'trim-fence'
-                ? { id: 'trim-fence-draft', type: 'line', layerId: content.activeLayerId, x1: gesture.start.x, y1: gesture.start.y, x2: gesture.current.x, y2: gesture.current.y }
+                ? { id: 'trim-fence-draft', type: 'polyline', layerId: content.activeLayerId,
+                    points: [...(gesture.points || [gesture.start]), gesture.current], closed: false }
                 : null;
+    const trimExtendPreviewType = operationShift
+        ? interactiveOperation?.type === 'trim' ? 'extend' : 'trim'
+        : interactiveOperation?.type;
     const trimPreviewEntities = useMemo(() => createTrimPreviewEntities(content, {
-        fence: gesture?.kind === 'trim-fence' ? { first: gesture.start, second: gesture.current } : null,
-        targetId: interactiveOperation?.type === 'trim' ? hoveredEntityId : null,
+        fence: gesture?.kind === 'trim-fence'
+            ? { points: [...(gesture.points || [gesture.start]), gesture.current] }
+            : null,
+        targetId: trimExtendPreviewType === 'trim' ? hoveredEntityId : null,
         point: operationPoint,
-        scopeIds: interactiveOperation?.scopeIds,
-    }), [content, gesture, hoveredEntityId, interactiveOperation, operationPoint]);
-    const draftEntities = [gestureDraft, ...mirrorDrafts, ...arrayDrafts, ...offsetPreview,
-        ...copyPreview, ...transformCopyPreview, ...trimPreviewEntities].filter(Boolean);
+        boundaryIds: interactiveOperation?.boundaryIds,
+        extendEdges: interactiveOperation?.extendEdges,
+        projection: interactiveOperation?.projection,
+    }), [content, gesture, hoveredEntityId, interactiveOperation, operationPoint, trimExtendPreviewType]);
+    const extendPreviewEntities = useMemo(() => createExtendPreviewEntities(content, {
+        targetId: trimExtendPreviewType === 'extend' ? hoveredEntityId : null,
+        point: operationPoint,
+        boundaryIds: interactiveOperation?.boundaryIds,
+        extendEdges: interactiveOperation?.extendEdges,
+        projection: interactiveOperation?.projection,
+    }), [content, hoveredEntityId, interactiveOperation, operationPoint, trimExtendPreviewType]);
+    const draftEntities = [gestureDraft, ...mirrorDrafts, ...arrayDrafts, ...alignDrafts, ...cornerDrafts,
+        ...breakDrafts, ...stretchDrafts, ...lengthenDrafts,
+        ...(clipboardPreview?.entities || []), ...offsetPreview,
+        ...copyPreview, ...transformCopyPreview, ...trimPreviewEntities, ...extendPreviewEntities].filter(Boolean);
     const markerSize = worldUnitsPerPixel * 12;
     const gripSize = worldUnitsPerPixel * 9;
+    const stretchSelectionWindow = interactiveOperation?.type === 'stretch'
+        && interactiveOperation.stage === 'stretch-window-second'
+        && interactiveOperation.windowStart && operationPoint
+        ? { ...createSelectionWindow(interactiveOperation.windowStart, operationPoint), mode: 'crossing' }
+        : null;
     const selectionWindow = gesture?.kind === 'select-window'
         ? createSelectionWindow(gesture.start, gesture.current)
-        : null;
+        : stretchSelectionWindow;
     const previewSelectedIds = selectionWindow
-        ? applySelectionOperation(selectedIds, drawingSelectionCandidates(content, selectionWindow), gesture.operation)
+        ? applySelectionOperation(
+            selectedIds,
+            drawingSelectionCandidates(content, selectionWindow).filter(id => (
+                !stretchSelectionWindow || !interactiveOperation.targetIds || interactiveOperation.targetIds.includes(id)
+            )),
+            gesture?.operation,
+        )
         : null;
     const tangentTargetIds = gesture?.kind === 'draw'
         && gesture.tool === 'circle'
         && ['tangentTangentRadius', 'tangentTangentTangent'].includes(gesture.mode)
         ? gesture.targetIds || []
         : [];
-    const highlightedIds = interactiveOperation?.type === 'trim'
+    const highlightedIds = trimExtendTypes.has(interactiveOperation?.type)
         ? []
-        : [...new Set([...tangentTargetIds, ...(hoveredEntityId ? [hoveredEntityId] : [])])];
+        : [...new Set([
+            ...tangentTargetIds,
+            ...(interactiveOperation?.firstId ? [interactiveOperation.firstId] : []),
+            ...(hoveredEntityId ? [hoveredEntityId] : []),
+        ])];
+    const cornerHiddenIds = cornerDrafts.length && !interactiveOperation?.keepSources
+        && ['fillet', 'chamfer'].includes(interactiveOperation?.type)
+        ? interactiveOperation.pathMode
+            ? [hoveredEntityId]
+            : [interactiveOperation.firstId, hoveredEntityId].filter(Boolean)
+        : [];
+    const modificationHiddenIds = [
+        ...(breakDrafts.length && interactiveOperation?.stage === 'break-second'
+            ? [interactiveOperation.targetId].filter(Boolean) : []),
+        ...(lengthenDrafts.length && interactiveOperation?.stage === 'lengthen-dynamic'
+            ? [interactiveOperation.targetId].filter(Boolean) : []),
+        ...stretchDrafts.map(entity => entity.id.replace(/^stretch-preview-/, '')),
+    ];
+    const previewHiddenIds = [...new Set([
+        ...(arrayDrafts.some(entity => entity.id === 'array-preview') || alignDrafts.length
+            ? interactiveOperation?.entityIds || []
+            : []),
+        ...cornerHiddenIds,
+        ...modificationHiddenIds,
+    ])];
+    const dynamicInputVisible = Boolean(content.settings?.dynamicInput && dynamicInput && (
+        drawingTools.has(activeTool)
+        || activeTool === 'dimension'
+        || (interactiveOperation && interactiveOperation.stage !== 'select')
+    ));
+    const dynamicInputPoint = gesture?.current || operationPoint;
+    const dynamicInputPosition = dynamicInputVisible
+        ? drawingDynamicInputAnchor(dynamicInputPoint, viewBox, canvasSize)
+        : null;
 
     const blurCreationControlBeforeDrawing = event => {
         if (!svgRef.current?.contains(event.target)) return;
@@ -951,8 +1298,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             >
                 <DrawingGrid content={content} viewBox={viewBox} worldUnitsPerPixel={worldUnitsPerPixel} />
                 <DrawingScene
-                    content={previewContent}
-                    assets={assets}
+                    content={clipboardPreview ? { ...previewContent, layers: clipboardPreview.content.layers, blocks: clipboardPreview.content.blocks } : previewContent}
+                    assets={clipboardPreview?.assets || assets}
                     selectedIds={selectedIds}
                     previewSelectedIds={previewSelectedIds}
                     highlightedIds={highlightedIds}
@@ -961,20 +1308,29 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                     draftEntities={draftEntities}
                     showGrips={activeTool === 'select' && !interactiveOperation}
                     gripSize={gripSize}
-                    hiddenIds={arrayDrafts.some(entity => entity.id === 'array-preview') ? interactiveOperation?.entityIds : []}
+                    hiddenIds={previewHiddenIds}
+                    hitOnlyIds={cornerHiddenIds}
+                    viewBox={viewBox}
                 />
                 <DrawingInteractionOverlay
                     selectionWindow={selectionWindow}
                     hoverSnap={hoverSnap}
                     trackingGuides={hoverSnap?.guides || (hoverSnap?.guide ? [hoverSnap.guide] : [])}
+                    trackingAnchors={trackingAnchors}
                     markerSize={markerSize}
                     viewBox={viewBox}
                     arrayOperation={interactiveOperation}
+                    alignOperation={interactiveOperation?.type === 'align' ? interactiveOperation : null}
                     referenceOperation={interactiveOperation?.stage === 'reference' ? interactiveOperation : null}
                     referencePoint={operationPoint}
                     onArrayHandleChange={(arrayHandle, event) => { const point = interactivePoint(event, arrayHandle); showPointerFeedback(point); onInteractiveOperation?.({ arrayHandle, point }); }}
                 />
             </svg>
+            <DrawingDynamicInput
+                {...dynamicInput}
+                anchor={dynamicInputPosition}
+                enabled={dynamicInputVisible}
+            />
             <DrawingCreationControls
                 activeTool={activeTool}
                 mode={creationMode}
@@ -987,10 +1343,14 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     );
 });
 
-function constrainRemoteOrthogonalPoint(point, origin) {
-    return Math.abs(point.x - origin.x) >= Math.abs(point.y - origin.y)
-        ? { ...point, y: origin.y }
-        : { ...point, x: origin.x };
+function gestureReferenceOrigin(gesture) {
+    if (!gesture) return null;
+    if (gesture.kind === 'dimension') return gesture.first || null;
+    if (gesture.kind === 'trim-fence') return gesture.start || null;
+    if (gesture.kind !== 'draw') return null;
+    if (['tangentTangentRadius', 'tangentTangentTangent'].includes(gesture.mode)) return null;
+    const points = Array.isArray(gesture.points) ? gesture.points : [];
+    return points[points.length - 1] || gesture.first || null;
 }
 
 function drawingCircleSafety(viewBox) {

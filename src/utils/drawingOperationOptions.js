@@ -55,6 +55,47 @@ const optionDefinitions = {
         option('currentLayer', 'CURRENTLAYER', 'CL', 'operationOptions.offset.currentLayer', ['CALQUECOURANT']),
         option('sourceLayer', 'SOURCELAYER', 'SL', 'operationOptions.offset.sourceLayer', ['CALQUESOURCE']),
     ],
+    trim: [
+        option('edgeExtend', 'EXTENDEDGE', 'E', 'operationOptions.trim.extendEdge', ['EDGE', 'PROLONGEBORD']),
+        option('edgeFinite', 'FINITEEDGE', 'F', 'operationOptions.trim.finiteEdge', ['NOEDGE', 'BORDFINI']),
+        option('projectNone', 'PROJECTNONE', 'PN', 'operationOptions.trim.projectNone', ['NONE', 'AUCUN']),
+    ],
+    extend: [
+        option('edgeExtend', 'EXTENDEDGE', 'E', 'operationOptions.extend.extendEdge', ['EDGE', 'PROLONGEBORD']),
+        option('edgeFinite', 'FINITEEDGE', 'F', 'operationOptions.extend.finiteEdge', ['NOEDGE', 'BORDFINI']),
+        option('projectNone', 'PROJECTNONE', 'PN', 'operationOptions.extend.projectNone', ['NONE', 'AUCUN']),
+    ],
+    align: [
+        option('scaleMode', 'SCALE', 'S', 'operationOptions.align.scale', ['YES', 'OUI']),
+        option('noScaleMode', 'NOSCALE', 'N', 'operationOptions.align.noScale', ['NO', 'NON']),
+        option('thirdPair', 'THIRD', 'T', 'operationOptions.align.third', ['3', 'TROISIEME', 'TROISIÈME']),
+        option('apply', 'APPLY', 'A', 'operationOptions.align.apply', ['DONE', 'TERMINER']),
+    ],
+    lengthen: [
+        option('deltaMode', 'DELTA', 'D', 'operationOptions.lengthen.delta'),
+        option('percentMode', 'PERCENT', 'P', 'operationOptions.lengthen.percent', ['POURCENT']),
+        option('totalMode', 'TOTAL', 'T', 'operationOptions.lengthen.total'),
+        option('dynamicMode', 'DYNAMIC', 'DY', 'operationOptions.lengthen.dynamic', ['DYNAMIQUE']),
+    ],
+    fillet: [
+        option('radius', 'RADIUS', 'R', 'operationOptions.fillet.radius', ['RAYON']),
+        option('multiple', 'MULTIPLE', 'M', 'operationOptions.fillet.multiple'),
+        option('polyline', 'POLYLINE', 'P', 'operationOptions.fillet.polyline'),
+        option('trim', 'TRIM', 'T', 'operationOptions.fillet.trim', ['AJUSTER']),
+        option('noTrim', 'NOTRIM', 'N', 'operationOptions.fillet.noTrim', ['NOADJUST']),
+    ],
+    chamfer: [
+        option('distance', 'DISTANCE', 'D', 'operationOptions.chamfer.distance'),
+        option('angle', 'ANGLE', 'A', 'operationOptions.chamfer.angle'),
+        option('multiple', 'MULTIPLE', 'M', 'operationOptions.chamfer.multiple'),
+        option('polyline', 'POLYLINE', 'P', 'operationOptions.chamfer.polyline'),
+        option('trim', 'TRIM', 'T', 'operationOptions.chamfer.trim', ['AJUSTER']),
+        option('noTrim', 'NOTRIM', 'N', 'operationOptions.chamfer.noTrim', ['NOADJUST']),
+    ],
+    xplode: [
+        option('inheritParent', 'PARENT', 'P', 'operationOptions.xplode.parent', ['INHERIT']),
+        option('keepParts', 'PARTS', 'K', 'operationOptions.xplode.parts', ['KEEP']),
+    ],
 };
 
 export function parseDrawingOperationOption(operation, value) {
@@ -96,6 +137,9 @@ export function getDrawingOperationOptionSuggestions(operation, value, limit = N
 
 export function getOperationOrthogonalOrigin(operation, arrayHandle = null) {
     if (operation?.stage === 'reference') return referenceOrthogonalOrigin(operation);
+    if (operation?.type === 'align' && operation.stage?.startsWith('align-destination-')) {
+        return operation.pendingSource || null;
+    }
     if (!operation?.basePoint) return null;
     if (operation.type === 'array') {
         if (arrayHandle === 'base' || operation.stage === 'array-option-base') {
@@ -104,7 +148,7 @@ export function getOperationOrthogonalOrigin(operation, arrayHandle = null) {
         return operation.stage === 'base' ? null : operation.basePoint;
     }
     if (operation.type === 'mirror') return operation.stage === 'base' ? null : operation.basePoint;
-    if (['move', 'copy', 'rotate', 'scale'].includes(operation.type)) {
+    if (['move', 'copy', 'rotate', 'scale', 'stretch'].includes(operation.type)) {
         return operation.stage === 'base' ? null : operation.basePoint;
     }
     return null;
@@ -230,7 +274,9 @@ function definitionsFor(operation) {
     if (['move', 'copy', 'rotate', 'scale'].includes(operation.type) && operation.stage === 'base') {
         return definitions.filter(definition => ['base', 'reference', 'copyMode', 'replaceMode', 'angleUnit', 'angleDirection'].includes(definition.option));
     }
-    if (operation.type === 'offset') return definitions;
+    if (['offset', 'trim', 'extend', 'align', 'lengthen', 'fillet', 'chamfer', 'xplode'].includes(operation.type)) {
+        return definitions;
+    }
     return definitions;
 }
 

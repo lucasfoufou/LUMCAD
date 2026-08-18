@@ -344,10 +344,18 @@
   &.is-tool-text,
   &.is-tool-offset,
   &.is-tool-trim,
+  &.is-tool-extend,
+  &.is-tool-break,
+  &.is-tool-stretch,
+  &.is-tool-lengthen,
   &.is-tool-dimension,
   &.is-tool-move,
   &.is-tool-copy,
   &.is-tool-rotate,
+  &.is-tool-align,
+  &.is-tool-fillet,
+  &.is-tool-chamfer,
+  &.is-tool-blend,
   &.is-tool-mirror,
   &.is-tool-array,
   &.is-tool-scale {
@@ -355,6 +363,42 @@
   }
 
   &.is-tool-pan { cursor: grab; }
+}
+
+.drawing-dynamic-input {
+  position: absolute;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  width: 190px;
+  min-height: 34px;
+  overflow: hidden;
+  border: 1px solid rgba($lum_orange, 0.72);
+  border-radius: 5px;
+  background: rgba(#172533, 0.96);
+  box-shadow: 0 3px 12px rgba(#000, 0.24);
+  color: #ffc17a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  transform: translateZ(0);
+  z-index: 9;
+
+  > span {
+    padding: 0 0.42rem;
+    color: $lum_orange;
+  }
+
+  input {
+    min-width: 0;
+    padding: 0.35rem 0.42rem 0.35rem 0;
+    border: 0;
+    background: transparent;
+    color: #fff;
+    font: inherit;
+
+    &:focus { outline: none; }
+
+    &::placeholder { color: rgba(#dce5eb, 0.56); }
+  }
 }
 
 .drawing-creation-controls {
@@ -589,8 +633,19 @@
 
 .drawing-canvas.is-tool-select .drawing-entity { cursor: pointer; }
 .drawing-canvas.is-tool-offset .drawing-entity,
-.drawing-canvas.is-tool-trim .drawing-entity {
+.drawing-canvas.is-tool-trim .drawing-entity,
+.drawing-canvas.is-tool-extend .drawing-entity,
+.drawing-canvas.is-tool-break .drawing-entity,
+.drawing-canvas.is-tool-stretch .drawing-entity,
+.drawing-canvas.is-tool-lengthen .drawing-entity,
+.drawing-canvas.is-tool-fillet .drawing-entity,
+.drawing-canvas.is-tool-chamfer .drawing-entity,
+.drawing-canvas.is-tool-blend .drawing-entity {
   cursor: crosshair;
+}
+
+.drawing-entity.is-draft {
+  pointer-events: none;
 }
 
 .drawing-text-content {
@@ -627,6 +682,17 @@
   stroke-width: 1.25;
   stroke-dasharray: 7 5;
   opacity: 0.9;
+}
+
+.drawing-tracking-anchor {
+  stroke: #f7941d;
+  stroke-width: 1.5;
+  opacity: 0.72;
+
+  &.is-temporary {
+    stroke-width: 2.25;
+    opacity: 1;
+  }
 }
 
 .drawing-reference-guide {
@@ -679,6 +745,8 @@
   font-size: 0.67rem;
   backdrop-filter: blur(5px);
 
+  &.has-drafting-settings { width: 230px; }
+
   button {
     display: inline-flex;
     align-items: center;
@@ -717,6 +785,41 @@
     color: #fff;
   }
 
+}
+
+.drawing-drafting-settings {
+  display: grid;
+  gap: 0.38rem;
+  padding: 0.35rem 0;
+  border-top: 1px solid rgba(#fff, 0.14);
+  border-bottom: 1px solid rgba(#fff, 0.14);
+}
+
+.drawing-drafting-angle-list {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.drawing-tracking-relations {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.22rem 0.4rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.32rem;
+  border: 1px solid rgba(#fff, 0.14);
+  border-radius: 4px;
+
+  legend { padding: 0 0.18rem; color: #ffc17a; }
+
+  label {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.22rem;
+  }
+
+  input[type='checkbox'] { width: auto; margin: 0; }
 }
 
 .drawing-snap-buttons {
@@ -905,7 +1008,7 @@
 .drawing-layer-appearance {
   display: grid;
   min-width: 0;
-  grid-template-columns: 32px minmax(54px, 0.72fr) minmax(82px, 1fr);
+  grid-template-columns: 32px minmax(48px, 0.65fr) minmax(72px, 1fr) minmax(44px, 0.55fr);
   gap: 0.25rem;
 
   input[type="color"] {
@@ -913,7 +1016,8 @@
     height: 26px;
   }
 
-  select {
+  select,
+  input[type="number"] {
     min-width: 0;
     height: 26px;
     padding: 0 0.22rem;
@@ -923,6 +1027,18 @@
     color: #40525e;
     font-size: 0.66rem;
   }
+}
+
+.drawing-layer-transparency {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.12rem;
+  color: #60727d;
+  font-size: 0.66rem;
+
+  input[type="number"] { width: 100%; }
 }
 
 .drawing-sidebar-field {
@@ -1271,7 +1387,14 @@
   }
   .drawing-sidebar { display: none; }
   .drawing-canvas { padding-right: 0; }
-  .drawing-snap-controls { top: 8px; right: 8px; width: 142px; opacity: 0.92; }
+  .drawing-snap-controls {
+    top: 8px;
+    right: 8px;
+    width: 142px;
+    opacity: 0.92;
+
+    &.has-drafting-settings { width: min(220px, calc(100% - 16px)); }
+  }
   .drawing-creation-controls {
     top: 8px;
     left: 8px;

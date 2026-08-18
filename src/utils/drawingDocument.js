@@ -6,6 +6,13 @@ import {
     pointToSegmentDistance,
     translateEntity,
 } from './drawingGeometry.js';
+import {
+    drawingBlocksUseLayer,
+    normalizeDrawingBlockReference,
+    normalizeDrawingBlocks,
+} from './drawingBlocks.js';
+import { normalizeAdvancedDrawingEntity } from './drawingAdvancedEntities.js';
+import { normalizeDrawingDraftingSettings } from './drawingDraftingSettings.js';
 
 const DEFAULT_LAYER_IDS = {
     geometry: 'geometry',
@@ -24,12 +31,15 @@ export const DRAWING_LINE_TYPE_OPTIONS = Object.freeze(['continuous', 'dotted', 
 export const DEFAULT_DRAWING_COLOR = '#172033';
 export const DEFAULT_DRAWING_LINE_WEIGHT = 1;
 export const DEFAULT_DRAWING_LINE_TYPE = 'continuous';
+export const DEFAULT_DRAWING_TRANSPARENCY = 0;
+export const MAX_DRAWING_TRANSPARENCY = 90;
 
 export function createDefaultDrawingContent({
     gridSpacing = 0.5,
     tracking = false,
     today = new Date(),
 } = {}) {
+    const draftingSettings = normalizeDrawingDraftingSettings({ tracking });
     return {
         version: 1,
         unit: 'm',
@@ -39,11 +49,13 @@ export function createDefaultDrawingContent({
             createDefaultLayer(DEFAULT_LAYER_IDS.dimensions, PROTECTED_LAYER_NAMES.dimensions, '#d97706'),
             createDefaultLayer(DEFAULT_LAYER_IDS.references, PROTECTED_LAYER_NAMES.references, '#64748b'),
         ],
+        blocks: [],
         entities: [],
         settings: {
             gridSpacing: Math.max(0.0001, Number(gridSpacing) || 0.5),
             snaps: { grid: true, endpoint: true, midpoint: true, center: true, intersection: true, nearest: false },
-            tracking: Boolean(tracking),
+            dynamicInput: true,
+            ...draftingSettings,
         },
         metadata: {
             projectName: '',
@@ -68,18 +80,30 @@ export function normalizeDrawingContent(content) {
         ? sourceLayers
         : [defaults.layers[0], ...sourceLayers])
         .map(layer => normalizeDrawingLayer(layer));
+    const sourceSettings = content.settings || {};
+    const draftingSettings = normalizeDrawingDraftingSettings({ ...defaults.settings, ...sourceSettings });
+    const blocks = normalizeDrawingBlocks(content.blocks, { normalizeEntity: normalizeDrawingEntityAppearance });
+    const blockIds = new Set(blocks.map(block => block.id));
+    const entities = Array.isArray(content.entities)
+        ? content.entities
+            .map(normalizeDrawingEntityAppearance)
+            .filter(entity => entity?.type !== 'blockReference' || blockIds.has(entity.blockId))
+        : [];
     return {
         ...defaults,
         ...content,
         version: 1,
         unit: 'm',
         layers,
-        entities: Array.isArray(content.entities) ? content.entities.map(normalizeDrawingEntityAppearance) : [],
+        blocks,
+        entities,
         activeLayerId: layers.some(layer => layer.id === content.activeLayerId) ? content.activeLayerId : layers[0].id,
         settings: {
             ...defaults.settings,
-            ...(content.settings || {}),
-            snaps: { ...defaults.settings.snaps, ...(content.settings?.snaps || {}) },
+            ...sourceSettings,
+            ...draftingSettings,
+            dynamicInput: sourceSettings.dynamicInput !== false,
+            snaps: { ...defaults.settings.snaps, ...(sourceSettings.snaps || {}) },
         },
         metadata: { ...defaults.metadata, ...(content.metadata || {}) },
     };
@@ -117,11 +141,18 @@ export function getEntityLineType(content, entity) {
         || DEFAULT_DRAWING_LINE_TYPE;
 }
 
+export function getEntityTransparency(content, entity) {
+    return normalizeDrawingTransparency(entity?.transparency)
+        ?? normalizeDrawingTransparency(getLayer(content, entity?.layerId)?.transparency)
+        ?? DEFAULT_DRAWING_TRANSPARENCY;
+}
+
 export function getEntityAppearance(content, entity) {
     return {
         color: getEntityColor(content, entity),
         lineWeight: getEntityLineWeight(content, entity),
         lineType: getEntityLineType(content, entity),
+        transparency: getEntityTransparency(content, entity),
     };
 }
 
@@ -138,6 +169,19 @@ export function normalizeDrawingLineWeight(value) {
 export function normalizeDrawingLineType(value) {
     const lineType = String(value || '').trim().toLowerCase();
     return DRAWING_LINE_TYPE_OPTIONS.includes(lineType) ? lineType : null;
+}
+
+export function normalizeDrawingTransparency(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const transparency = Number(value);
+    if (!Number.isFinite(transparency) || transparency < 0 || transparency > MAX_DRAWING_TRANSPARENCY) return null;
+    return Math.round(transparency);
+}
+
+export function clampDrawingTransparency(value) {
+    const transparency = Number(value);
+    if (!Number.isFinite(transparency)) return DEFAULT_DRAWING_TRANSPARENCY;
+    return Math.round(Math.max(0, Math.min(MAX_DRAWING_TRANSPARENCY, transparency)));
 }
 
 export function getDimensionLayerId(content) {
@@ -403,6 +447,7 @@ export function addLayer(content, name = null) {
         color: '#376176',
         lineWeight: DEFAULT_DRAWING_LINE_WEIGHT,
         lineType: DEFAULT_DRAWING_LINE_TYPE,
+        transparency: DEFAULT_DRAWING_TRANSPARENCY,
         visible: true,
         locked: false,
     };
@@ -424,7 +469,9 @@ export function isProtectedDrawingLayer(layerId) {
 }
 
 export function removeEmptyLayer(content, layerId) {
-    if (isProtectedDrawingLayer(layerId) || content.entities.some(entity => entity.layerId === layerId)) return content;
+    if (isProtectedDrawingLayer(layerId)
+        || content.entities.some(entity => entity.layerId === layerId)
+        || drawingBlocksUseLayer(content.blocks, layerId)) return content;
     const layers = content.layers.filter(layer => layer.id !== layerId);
     return {
         ...content,
@@ -440,6 +487,7 @@ function createDefaultLayer(id, name, color) {
         color,
         lineWeight: DEFAULT_DRAWING_LINE_WEIGHT,
         lineType: DEFAULT_DRAWING_LINE_TYPE,
+        transparency: DEFAULT_DRAWING_TRANSPARENCY,
         visible: true,
         locked: false,
     };
@@ -454,6 +502,7 @@ function normalizeDrawingLayer(layer) {
         color: normalizeDrawingColor(layer?.color) || DEFAULT_DRAWING_COLOR,
         lineWeight: normalizeDrawingLineWeight(layer?.lineWeight) || DEFAULT_DRAWING_LINE_WEIGHT,
         lineType: normalizeDrawingLineType(layer?.lineType) || DEFAULT_DRAWING_LINE_TYPE,
+        transparency: normalizeDrawingTransparency(layer?.transparency) ?? DEFAULT_DRAWING_TRANSPARENCY,
         visible: layer?.visible !== false,
         locked: Boolean(layer?.locked),
     };
@@ -465,20 +514,46 @@ function normalizeDrawingEntityAppearance(entity) {
     const color = normalizeDrawingColor(entity.color);
     const lineWeight = normalizeDrawingLineWeight(entity.lineWeight);
     const lineType = normalizeDrawingLineType(entity.lineType);
+    const transparency = normalizeDrawingTransparency(entity.transparency);
     if (color) normalized.color = color;
     else delete normalized.color;
     if (lineWeight) normalized.lineWeight = lineWeight;
     else delete normalized.lineWeight;
     if (lineType) normalized.lineType = lineType;
     else delete normalized.lineType;
+    if (transparency !== null) normalized.transparency = transparency;
+    else delete normalized.transparency;
     const lineWidth = normalizeDrawingLineWidth(entity.lineWidth);
     if (lineWidth) normalized.lineWidth = lineWidth;
     else delete normalized.lineWidth;
+    if (entity.type === 'polyline' && Array.isArray(entity.parts)) {
+        normalized.parts = entity.parts.map(normalizeDrawingPolylinePartTransparency);
+    }
+    return normalized;
+}
+
+function normalizeDrawingPolylinePartTransparency(part) {
+    if (!part || typeof part !== 'object' || Array.isArray(part)) return part;
+    const normalized = { ...part };
+    const transparency = normalizeDrawingTransparency(part.transparency);
+    if (transparency !== null) normalized.transparency = transparency;
+    else delete normalized.transparency;
+    if (part.type === 'polyline' && Array.isArray(part.parts)) {
+        normalized.parts = part.parts.map(normalizeDrawingPolylinePartTransparency);
+    }
     return normalized;
 }
 
 function normalizeDrawingEntityGeometry(entity) {
     const normalized = { ...entity };
+    if (entity.type === 'blockReference') return normalizeDrawingBlockReference(normalized);
+    if (['ellipse', 'ellipseArc', 'spline', 'cubicSpline', 'cubicBezier', 'bezier', 'hatch'].includes(entity.type)) {
+        return normalizeAdvancedDrawingEntity(normalized);
+    }
+    if (entity.type === 'polyline' && Array.isArray(entity.parts)) {
+        normalized.parts = entity.parts.map(normalizeDrawingEntityGeometry);
+        normalized.closed = Boolean(entity.closed);
+    }
     if (['circle', 'polygon', 'arc'].includes(entity.type)) {
         normalized.cx = finiteOr(entity.cx, 0);
         normalized.cy = finiteOr(entity.cy, 0);

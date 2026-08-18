@@ -1,6 +1,6 @@
 # 2D tool coverage and LUMCAD roadmap
 
-- Last reviewed: 2026-08-13
+- Last reviewed: 2026-08-18
 - Scope: 2D drafting, annotation, organisation, layouts, output, interoperability, and related productivity tools
 - Reference: current working tree
 
@@ -35,10 +35,9 @@ Priorities reflect LUMCAD's goal: lightweight production of 2D plans, particular
 | Drawing lifecycle and local persistence | `NEW`, `OPEN`, `CLOSE`, `QSAVE`, `SAVE`, `SAVEAS`, automatic save/recovery | ✅ **Implemented** |
 | DWG and DXF read/write | `OPEN`, `SAVEAS`, `DXFIN`, `DXFOUT`, `IMPORT`, `EXPORT` when used with DWG/DXF | ❌ **Missing**<br>Details : Requires an import/export boundary for layers, entities, appearance, layouts, and units. |
 | Line | `LINE` | ✅ **Implemented** |
-| Polyline creation and editing | `PLINE`, `PEDIT`, `CONVERTPOLY`, `REVERSE` | 🟡 **Partial**<br>• First-class `PLINE` drawing<br>• Line/arc segment switching<br>• Width and taper<br>• Close/open workflow<br>• Fit and spline modes<br>• Add/remove vertex<br>• Reverse workflow |
 | Rectangle and regular polygon | `RECTANG`, `POLYGON` | ✅ **Implemented** |
 | Circle | `CIRCLE` | ✅ **Implemented** |
-| Oversized-circle performance hardening | Circle creation, preview, rendering, snapping, and selection | ❌ **Missing**<br>Details : Profile very large circles and add end-to-end CPU/RAM guardrails so extreme geometry can never freeze or materially lag the application. |
+| Oversized-circle performance hardening | Circle creation, preview, rendering, snapping, and selection | ✅ **Implemented** |
 | Arc | `ARC` | ✅ **Implemented** |
 | Selection and preselection | `SELECT`; window, crossing, click, add/remove, Previous/Last/All selection modes | ✅ **Implemented** |
 | Grip editing | Drawing grips and multifunction grips | ✅ **Implemented** |
@@ -46,21 +45,21 @@ Priorities reflect LUMCAD's goal: lightweight production of 2D plans, particular
 | View navigation | `PAN`, `ZOOM`, Zoom Extents/All/Window/Previous, view history | ✅ **Implemented** |
 | Object snaps | `OSNAP`, `-OSNAP`; Endpoint, Midpoint, Center, Geometric Center, Node, Quadrant, Intersection, Extension, Insertion, Perpendicular, Tangent, Nearest, Apparent Intersection, Parallel | ✅ **Implemented** |
 | Grid and grid snap | `GRID`, `SNAP`, `DSETTINGS` | ✅ **Implemented** |
-| Ortho, polar, and object-snap tracking | `ORTHO`, `POLAR`, `OTRACK`, `DSETTINGS`, temporary override keys | 🟡 **Partial**<br>• Configurable polar increments and additional angles<br>• Persistent Ortho mode<br>• Explicit parallel, perpendicular, and tangent tracking<br>• Temporary tracking points<br>• Seven-point acquisition<br>• Complete coverage tests for future tools |
-| Coordinate and direct-distance input | Absolute, relative and polar coordinate entry; direct distance entry; `DYNMODE`, `CAL`, `QUICKCALC` | 🟡 **Partial**<br>• General `x,y` input<br>• `@x,y` input<br>• `@distance<angle` input<br>• Expressions<br>• Variables<br>• Unit conversion<br>• In-canvas dynamic input |
-| Layers | `LAYER`, `-LAYER`, `LAYMCUR`, `LAYCUR`, `LAYON`, `LAYOFF`, `LAYFRZ`, `LAYTHW`, `LAYLCK`, `LAYULK`, `LAYDEL`, `RENAME` | 🟡 **Partial**<br>• Transparency |
-| Object properties and ByLayer | `PROPERTIES`, `CHPROP`, `CHANGE`, `COLOR`, `LINETYPE`, `LWEIGHT`, `MATCHPROP` | 🟡 **Partial**<br>• Transparency |
-| Clipboard and copy | `COPY`, `COPYBASE`, `COPYCLIP`, `CUTCLIP`, `PASTECLIP`, `PASTEORIG`, `PASTEBLOCK` | 🟡 **Partial**<br>• Operating-system CAD clipboard format<br>• Cut<br>• Paste to Original Coordinates<br>• Paste as Block<br>• Cross-application geometry interchange |
+| Ortho, polar, and object-snap tracking | `ORTHO`, `POLAR`, `OTRACK`, `DSETTINGS`, temporary override keys | ✅ **Implemented** |
+| Coordinate and direct-distance input | Absolute, relative and polar coordinate entry; direct distance entry; `DYNMODE`, `CAL`, `QUICKCALC` | ✅ **Implemented** |
+| Layers | `LAYER`, `-LAYER`, `LAYMCUR`, `LAYCUR`, `LAYON`, `LAYOFF`, `LAYFRZ`, `LAYTHW`, `LAYLCK`, `LAYULK`, `LAYDEL`, `RENAME` | ✅ **Implemented** |
+| Object properties and ByLayer | `PROPERTIES`, `CHPROP`, `CHANGE`, `COLOR`, `LINETYPE`, `LWEIGHT`, `MATCHPROP` | ✅ **Implemented** |
+| Clipboard and copy | `COPY`, `COPYBASE`, `COPYCLIP`, `CUTCLIP`, `PASTECLIP`, `PASTEORIG`, `PASTEBLOCK` | ✅ **Implemented**<br>Versioned lossless JSON-in-SVG clipboard interchange, native macOS SVG/text flavours, bounded external SVG clipboard paste, dependency-aware cross-document remapping, successful-write-only cut, picked-base/original-coordinate paste, and anonymous-block paste. |
 | Move | `MOVE` | ✅ **Implemented** |
 | Rotate and reference rotation | `ROTATE` with Copy/Reference | ✅ **Implemented** |
 | Scale and reference scale | `SCALE` with Copy/Reference | ✅ **Implemented** |
-| Align | `ALIGN`, `3DALIGN` used in 2D | ❌ **Missing**<br>Details : One-command two- or three-point 2D alignment with optional scaling. |
+| Align | `ALIGN`, `3DALIGN` used in 2D | ✅ **Implemented**<br>Interactive two- or three-pair best-fit rigid alignment with optional uniform scaling, snapped or typed points, live preview, native entity preservation, and one-step undo/redo. |
 | Mirror | `MIRROR`, `MIRRTEXT` | ✅ **Implemented** |
 | Offset | `OFFSET` | ✅ **Implemented** |
-| Trim and extend | `TRIM`, `EXTEND` | 🟡 **Partial**<br>• Circle targets<br>• Polyline targets<br>• Freehand trim<br>• Extend<br>• Shift trim/extend inversion<br>• Projected and extended-edge options<br>• Block and hatch boundaries |
-| Break, stretch, and lengthen | `BREAK`, `BREAKATPOINT`, `STRETCH`, `LENGTHEN` | 🟡 **Partial**<br>• Break<br>• Break at Point<br>• Crossing-window Stretch<br>• Lengthen by delta, percent, total, or dynamic value<br>• Curved-object support |
-| Fillet, chamfer, and blend | `FILLET`, `CHAMFER`, `BLEND` | ❌ **Missing**<br>Details : Radius fillet, zero-radius cleanup, bevel, multiple/polyline modes, and tangent spline blend. |
-| Join and explode | `JOIN`, `EXPLODE`, `XPLODE` | 🟡 **Partial**<br>• Joining arcs, ellipses, and splines<br>• Truly closed mixed paths<br>• Exploding blocks, text, hatches, and dimensions<br>• Per-part XPLODE property control |
+| Trim and extend | `TRIM`, `EXTEND` | ✅ **Implemented**<br>Exact native-curve trim/extend for lines, arcs, circles, rectangles, polygons, and open/closed mixed paths; straight/freehand fences, finite or virtual edges, explicit 2D projection, curve previews, Shift inversion, and block/hatch cutters. |
+| Break, stretch, and lengthen | `BREAK`, `BREAKATPOINT`, `STRETCH`, `LENGTHEN` | ✅ **Implemented**<br>Exact curve/path break and break-at-point; crossing-window vertex/control-point stretch including blocks and hatches; and endpoint lengthen by delta, percent, total, or dynamic value for lines, arcs, ellipses, splines, and open mixed paths. |
+| Fillet, chamfer, and blend | `FILLET`, `CHAMFER`, `BLEND` | ✅ **Implemented**<br>Branch-aware tangent fillets with radius-zero cleanup; two-distance or distance-angle chamfers; trim/no-trim, multiple, and whole-path modes; and endpoint-tangent cubic spline blends for open line, arc, spline, and mixed-path branches. |
+| Join and explode | `JOIN`, `EXPLODE`, `XPLODE` | ✅ **Implemented**<br>Exact ordered line/arc/ellipse/spline paths with true closure, branch rejection, and safe collinear-line coalescing; exact compound, rounded-rectangle, block, text, hatch, and dimension explode; parent/per-part XPLODE appearance. |
 | Dimensioning | `DIM`, `DIMLINEAR`, `DIMALIGNED`, `DIMROTATED`, `DIMANGULAR`, `DIMARC`, `DIMRADIUS`, `DIMDIAMETER`, `DIMJOGGED`, `DIMORDINATE`, `QDIM`, `DIMBASELINE`, `DIMCONTINUE` | 🟡 **Partial**<br>• Horizontal, vertical, and rotated modes independent of the measured segment<br>• Angular, arc-length, jogged-radius, and ordinate dimensions<br>• Quick, baseline, continued/chain, and centre-mark modes<br>• Inspection, tolerance, and alternate units |
 | Text and multiline notes | `TEXT`, `DTEXT`, `MTEXT`, `MTEDIT`, `TEXTEDIT`, `TXT2MTXT`, `STYLE`, `FIND`, `SPELL` | 🟡 **Partial**<br>• Single-line text<br>• In-place canvas editor<br>• Wrapping controls<br>• Text styles and fonts<br>• Rich formatting<br>• Tabs, lists, and stacked fractions<br>• Annotative text<br>• Find/Replace<br>• Spellcheck<br>• Text import<br>• Text-to-MText<br>• Text explode |
 | Layouts and paper setup | `LAYOUT`, `LAYOUTWIZARD`, `PAGESETUP`, `-PAGESETUP`, `PSETUPIN`, `MODEL`, `PSPACE`, `MSPACE` | 🟡 **Partial**<br>• Custom paper sizes<br>• Margins and printable area<br>• Page-setup profiles and import<br>• Layout templates, copy, reorder, and rename polish<br>• Paper-space annotation objects |
@@ -92,7 +91,7 @@ Priorities reflect LUMCAD's goal: lightweight production of 2D plans, particular
 | Named views | `VIEW`, `-VIEW`, `VIEWGO`, `VIEWPLOTDETAILS` | ❌ **Missing**<br>Details : Named model views with save, restore, import, and management. |
 | Units, precision, and 2D UCS | `UNITS`, `-UNITS`, `UCS`, `UCSMAN`, `UCSICON`, `LIMITS` | 🟡 **Partial**<br>• Display precision<br>• Angle format and direction<br>• Alternate units<br>• Insertion units<br>• Custom 2D origin and rotation<br>• Named UCS<br>• UCS icon<br>• Drawing limits |
 | Measurement and inquiry | `MEASUREGEOM`, `DIST`, `AREA`, `ID`, `LIST`, `STATUS`, `MASSPROP` for 2D regions | 🟡 **Partial**<br>• Non-persistent distance, angle, area, perimeter, and radius inquiry<br>• Coordinate ID<br>• Entity listing<br>• Cumulative area<br>• Copy-result workflow |
-| Advanced layer management | `LAYERSTATE`, `LAYERSTATESAVE`, `LAYISO`, `LAYUNISO`, `LAYWALK`, `LAYMRG`, `LAYTRANS`, filters, viewport overrides | 🟡 **Partial**<br>• Layer states<br>• Isolation and walk<br>• Merge<br>• Translation and mapping<br>• Filters<br>• Freeze and new-VP-freeze<br>• Transparency and plot state<br>• Per-viewport appearance overrides |
+| Advanced layer management | `LAYERSTATE`, `LAYERSTATESAVE`, `LAYISO`, `LAYUNISO`, `LAYWALK`, `LAYMRG`, `LAYTRANS`, filters, viewport overrides | 🟡 **Partial**<br>• Layer states<br>• Isolation and walk<br>• Merge<br>• Translation and mapping<br>• Filters<br>• Freeze and new-VP-freeze<br>• Plot/no-plot state<br>• Per-viewport appearance overrides |
 | External drawing references | `XREF`, `-XREF`, `XATTACH`, `ATTACH`, `EXTERNALREFERENCES`, `XBIND`, `REFEDIT`, `XCLIP`, `XCOMPARE` | ❌ **Missing**<br>Details : Live references with path/reload, overlay/nest, clip, bind, edit-in-place, and compare workflows. |
 | PDF underlay and vector PDF import | `PDFATTACH`, `PDFCLIP`, `PDFLAYERS`, `PDFIMPORT`, `PDFSHXTEXT`, underlay snaps | ❌ **Missing**<br>Details : PDF page attachment, layer control, vector snaps/extraction, clipping, and SHX text conversion. |
 | Plot styles and page-setup profiles | `STYLESMANAGER`, `PLOTSTYLE`, `CONVERTCTB`, `CONVERTPSTYLES`, `PAGESETUP`, `PSETUPIN` | ❌ **Missing**<br>Details : Named/colour-dependent plot styles, CTB/STB-like mapping, plot-device profiles, reusable page setups, and plot stamps. |
@@ -144,10 +143,11 @@ Priorities reflect LUMCAD's goal: lightweight production of 2D plans, particular
 
 ## P5 — Optional / ideas
 
-These remaining gaps are intentionally deferred; the P0 rows above retain the core workflows already available.
+These remaining gaps are intentionally deferred and do not block the core workflows already available.
 
 | Capability | Grouped command references | LUMCAD status |
 | --- | --- | --- |
+| Remaining polyline creation and editing | `PLINE`, `PEDIT`, `CONVERTPOLY`, `REVERSE` | 🟡 **Partial**<br>• First-class `PLINE` drawing<br>• Line/arc segment switching<br>• Width and taper<br>• Close/open workflow<br>• Fit and spline modes<br>• Add/remove vertex<br>• Reverse workflow |
 | Remaining grip types | Drawing grips and multifunction grips | 🟡 **Partial**<br>• Circle quadrant grips<br>• Hatch grips<br>• Block grips<br>• Leader grips<br>• Polygonal viewport grips<br>• Multifunction grips |
 | Remaining selection modes | `SELECT`; window, crossing, click, add/remove, Previous/Last/All selection modes | 🟡 **Partial**<br>• Fence selection<br>• Crossing-polygon and window-polygon selection<br>• Lasso/freehand selection<br>• Previous, Last, and All modes<br>• Nested selection<br>• Selection cycling<br>• Saved selection sets |
 | Remaining zoom variants and history | `PAN`, `ZOOM`, Zoom Extents/All/Window/Previous, view history | 🟡 **Partial**<br>• Zoom Window<br>• Zoom Previous<br>• Saved view history<br>• Typed zoom suffixes (`X`, `XP`) |
@@ -160,13 +160,12 @@ These remaining gaps are intentionally deferred; the P0 rows above retain the co
 
 The roadmap is best approached in this order:
 
-1. Introduce a robust 2D curve/path kernel: true polyline, ellipse, closed paths, and consistent intersections.
+1. Finish first-class polyline creation and editing on the existing exact curve/path kernel.
 2. Add DWG/DXF import/export behind a tested conversion boundary that preserves layers, entity appearance, blocks, dimensions, layouts, and units where supported.
-3. Complete core modification tools: Extend, Break, Stretch, Lengthen, Fillet, Chamfer, Align, and curved-object Trim/Join.
-4. Complete precision input and drafting modes: coordinate syntaxes, configurable polar tracking, and one-shot overrides.
-5. Build hatch/region support, reusable blocks, leaders, dimension styles, and annotation scaling.
-6. Harden layouts and deterministic PDF generation with page setups, preview, plot styles, and direct file output.
-7. Add references/PDF underlays, tables/fields, constraints, cleanup, content libraries, and project-wide sheet workflows.
+3. Extend precision drafting with one-shot snap overrides, display/angle precision controls, coordinate inquiry, and a configurable 2D UCS.
+4. Add user-facing hatch/region and reusable-block creation and editing, leaders, dimension styles, and annotation scaling.
+5. Harden layouts and deterministic PDF generation with page setups, preview, plot styles, and direct file output.
+6. Add references/PDF underlays, tables/fields, constraints, cleanup, content libraries, and project-wide sheet workflows.
 
 The first two items should be designed together so the geometry model and interchange boundary can evolve consistently.
 

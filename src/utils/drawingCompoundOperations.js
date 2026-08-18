@@ -1,55 +1,114 @@
 import { canEditEntity, createDrawingId } from './drawingDocument.js';
-import { getEntitySegments, mirrorEntity, pointDistance, segmentsIntersect, translateEntity } from './drawingGeometry.js';
+import {
+    formatDrawingLength,
+    getDimensionGeometry,
+    mirrorEntity,
+    pointDistance,
+    translateEntity,
+} from './drawingGeometry.js';
+import {
+    extractEntityPaths,
+    getCurveEnd,
+    getCurveStart,
+    reversePath,
+} from './drawingCurveKernel.js';
+import { materializeDrawingBlockReference } from './drawingBlocks.js';
+import { getDrawingTextLayout } from './drawingText.js';
 
 const DEFAULT_JOIN_TOLERANCE = 1e-6;
 
 export function joinDrawingEntities(content, entityIds, tolerance = DEFAULT_JOIN_TOLERANCE) {
     const selected = new Set(entityIds || []);
     const sources = content.entities.filter(entity => selected.has(entity.id) && canEditEntity(content, entity));
-    if (sources.length < 2 || sources.some(entity => !['line', 'polyline'].includes(entity.type))) {
+    if (sources.length < 2) {
         return { changed: false, content, selectedIds: entityIds || [], reason: 'unsupported' };
     }
-    const segments = sources.flatMap(entity => getEntitySegments(entity))
-        .filter(([first, second]) => pointDistance(first, second) > tolerance);
-    const chain = orderConnectedSegments(segments, tolerance);
-    if (!chain && !segmentsFormConnectedNetwork(segments, tolerance)) {
-        return { changed: false, content, selectedIds: entityIds || [], reason: 'disconnected' };
+
+    const paths = [];
+    for (const source of sources) {
+        const extracted = extractEntityPaths(source, { joinTolerance: tolerance });
+        if (extracted.length !== 1 || !extracted[0].parts.length) {
+            return { changed: false, content, selectedIds: entityIds || [], reason: 'unsupported' };
+        }
+        if (extracted[0].closed) {
+            return { changed: false, content, selectedIds: entityIds || [], reason: 'closed' };
+        }
+        paths.push(extracted[0]);
+    }
+    const ordered = orderConnectedPaths(paths, tolerance);
+    if (!ordered.path) {
+        return { changed: false, content, selectedIds: entityIds || [], reason: ordered.reason };
     }
 
     const sourceIds = new Set(sources.map(entity => entity.id));
     const first = sources[0];
-    const polyline = {
-        id: createDrawingId('polyline'),
-        type: 'polyline',
-        layerId: first.layerId,
-        ...(first.color ? { color: first.color } : {}),
-        ...(first.lineWeight ? { lineWeight: first.lineWeight } : {}),
-        ...(first.lineWidth ? { lineWidth: first.lineWidth } : {}),
-        ...(first.lineType ? { lineType: first.lineType } : {}),
-        ...(chain
-            ? { points: chain.points, closed: chain.closed }
-            : { parts: segments.map(([firstPoint, secondPoint]) => ({
-                type: 'line', x1: firstPoint.x, y1: firstPoint.y, x2: secondPoint.x, y2: secondPoint.y,
-            })) }),
-    };
+    const joinedParts = coalesceJoinedLineParts(ordered.path.parts, tolerance).map(compoundPart);
+    const appearance = drawingAppearance(first);
+    const nativeLineAppearance = joinedParts.length === 1
+        ? { ...appearance, ...drawingAppearance(joinedParts[0]) }
+        : appearance;
+    const joinedEntity = joinedParts.length === 1 && joinedParts[0].type === 'line' && !ordered.path.closed
+        ? {
+            id: createDrawingId('line'),
+            type: 'line',
+            ...nativeLineAppearance,
+            x1: joinedParts[0].x1,
+            y1: joinedParts[0].y1,
+            x2: joinedParts[0].x2,
+            y2: joinedParts[0].y2,
+        }
+        : {
+            id: createDrawingId('polyline'),
+            type: 'polyline',
+            ...appearance,
+            parts: joinedParts,
+            closed: ordered.path.closed,
+        };
     const entities = content.entities.filter(entity => !sourceIds.has(entity.id) && !sourceIds.has(entity.sourceId));
     return {
         changed: true,
-        content: { ...content, entities: [...entities, polyline] },
-        selectedIds: [polyline.id],
-        entity: polyline,
+        content: { ...content, entities: [...entities, joinedEntity] },
+        selectedIds: [joinedEntity.id],
+        entity: joinedEntity,
     };
 }
 
-export function explodeDrawingEntities(content, entityIds) {
+export function explodeDrawingEntities(content, entityIds, options = {}) {
+    return explodeDrawingEntitiesWithAppearance(content, entityIds, {
+        ...options,
+        appearanceMode: 'parent',
+    });
+}
+
+export function xplodeDrawingEntities(content, entityIds, {
+    appearanceMode = 'parts',
+    inheritParent = false,
+    propertyMode = null,
+    ...options
+} = {}) {
+    const resolvedAppearance = inheritParent || propertyMode === 'parent' || appearanceMode === 'parent'
+        ? 'parent'
+        : 'parts';
+    return explodeDrawingEntitiesWithAppearance(content, entityIds, {
+        ...options,
+        appearanceMode: resolvedAppearance,
+    });
+}
+
+function explodeDrawingEntitiesWithAppearance(content, entityIds, options) {
     const selected = new Set(entityIds || []);
-    const sources = content.entities.filter(entity => (
-        selected.has(entity.id) && canEditEntity(content, entity) && ['rectangle', 'polygon', 'polyline'].includes(entity.type)
-    ));
+    const candidates = content.entities.filter(entity => selected.has(entity.id) && canEditEntity(content, entity));
+    const exploded = candidates.map(source => ({
+        source,
+        replacements: explodeDrawingSource(source, content, options),
+    })).filter(result => result.replacements.length);
+    const sources = exploded.map(result => result.source);
     if (!sources.length) return { changed: false, content, selectedIds: entityIds || [], explodedCount: 0 };
 
     const sourceIds = new Set(sources.map(entity => entity.id));
-    const replacements = sources.flatMap(explodeDrawingSource);
+    const replacements = exploded.flatMap(({ source, replacements: raw }) => (
+        assignExplodedEntityIds(raw.map(part => applyExplodedAppearance(part, source, options.appearanceMode)))
+    ));
     const entities = content.entities.filter(entity => !sourceIds.has(entity.id) && !sourceIds.has(entity.sourceId));
     return {
         changed: true,
@@ -292,6 +351,7 @@ function buildArrayPolyline(sources, horizontal, vertical, columns, rows, { prev
         ...(sources[0].lineWeight ? { lineWeight: sources[0].lineWeight } : {}),
         ...(sources[0].lineWidth ? { lineWidth: sources[0].lineWidth } : {}),
         ...(sources[0].lineType ? { lineType: sources[0].lineType } : {}),
+        ...(Object.hasOwn(sources[0], 'transparency') ? { transparency: sources[0].transparency } : {}),
         parts,
         ...(preview ? { previewMode: 'array' } : { array: { columns, rows, horizontal, vertical } }),
     };
@@ -332,93 +392,278 @@ function arrayGuide(id, layerId, first, second) {
     };
 }
 
-function explodeDrawingSource(source) {
-    if (source.type === 'polyline' && Array.isArray(source.parts)) {
-        return source.parts.flatMap(part => explodePolylinePart(part, source));
+function explodeDrawingSource(source, content, options) {
+    if (source.type === 'blockReference') {
+        return materializeDrawingBlockReference(source, content.blocks || [], {
+            recursive: Boolean(options.recursiveBlocks),
+            maxDepth: Math.max(1, Math.min(64, Number(options.maxBlockDepth) || 16)),
+        });
     }
-    return getEntitySegments(source).map(([first, second]) => ({
-        id: createDrawingId('line'), type: 'line', layerId: source.layerId,
-        ...(source.color ? { color: source.color } : {}),
-        ...(source.lineWeight ? { lineWeight: source.lineWeight } : {}),
-        ...(source.lineWidth ? { lineWidth: source.lineWidth } : {}),
-        ...(source.lineType ? { lineType: source.lineType } : {}),
-        x1: first.x, y1: first.y, x2: second.x, y2: second.y,
+    if (source.type === 'text') return explodeTextEntity(source);
+    if (source.type === 'linearDimension' || source.type === 'radialDimension') {
+        const dimensionSource = content.entities.find(entity => entity.id === source.sourceId);
+        return explodeDimensionEntity(source, dimensionSource, options);
+    }
+    if (!['path', 'polyline', 'rectangle', 'polygon', 'hatch', 'block'].includes(source.type)) return [];
+    const paths = extractEntityPaths(source, {
+        boundaryExtractor: entity => {
+            if (!['hatch', 'block'].includes(entity?.type)) return undefined;
+            return entity.boundaries || entity.loops;
+        },
+    });
+    return paths.flatMap(path => path.parts.map(compoundPart));
+}
+
+function applyExplodedAppearance(part, parent, appearanceMode) {
+    const next = { ...part };
+    delete next.locked;
+    delete next.previewMode;
+    delete next.array;
+    const parentAppearance = drawingAppearance(parent);
+    if (appearanceMode === 'parent') {
+        APPEARANCE_PROPERTIES.forEach(property => delete next[property]);
+        return { ...next, ...parentAppearance };
+    }
+    APPEARANCE_PROPERTIES.forEach(property => {
+        if (!Object.hasOwn(next, property) && Object.hasOwn(parentAppearance, property)) {
+            next[property] = parentAppearance[property];
+        }
+    });
+    return next;
+}
+
+function assignExplodedEntityIds(parts) {
+    const idMap = new Map();
+    parts.forEach(part => {
+        if (typeof part.id === 'string' && part.id && !idMap.has(part.id)) {
+            idMap.set(part.id, createDrawingId(part.type || 'entity'));
+        }
+    });
+    return parts.map(part => ({
+        ...part,
+        id: idMap.get(part.id) || createDrawingId(part.type || 'entity'),
+        ...(part.sourceId && idMap.has(part.sourceId) ? { sourceId: idMap.get(part.sourceId) } : {}),
     }));
 }
 
-function explodePolylinePart(part, source) {
-    if (part.type === 'polyline' && Array.isArray(part.parts)) {
-        return part.parts.flatMap(child => explodePolylinePart(child, source));
+function explodeDimensionEntity(entity, source, { locale = 'en', dimensionTextSize = 0.35 } = {}) {
+    const geometry = getDimensionGeometry(entity, source);
+    if (!geometry) return [];
+    const textSize = Math.max(0.01, Number(entity.textSize) || Number(dimensionTextSize) || 0.35);
+    if (geometry.kind === 'linear') {
+        const degrees = readableTextAngle(geometry.angle * 180 / Math.PI);
+        return [
+            linePart(geometry.sourceFirst, geometry.first),
+            linePart(geometry.sourceSecond, geometry.second),
+            linePart(geometry.first, geometry.second),
+            dimensionTick(geometry.first, geometry.angle, textSize * 0.7),
+            dimensionTick(geometry.second, geometry.angle, textSize * 0.7),
+            dimensionText(formatDrawingLength(geometry.value, 4, locale), geometry.text, degrees, textSize, 'middle'),
+        ];
     }
-    return [{
-        ...part,
-        id: createDrawingId(part.type),
-        layerId: source.layerId,
-        ...(part.color || source.color ? { color: part.color || source.color } : {}),
-        ...(part.lineWeight || source.lineWeight ? { lineWeight: part.lineWeight || source.lineWeight } : {}),
-        ...(part.lineWidth || source.lineWidth ? { lineWidth: part.lineWidth || source.lineWidth } : {}),
-        ...(part.lineType || source.lineType ? { lineType: part.lineType || source.lineType } : {}),
-    }];
+    const prefix = geometry.mode === 'diameter' ? 'Ø ' : 'R ';
+    return [
+        linePart(geometry.center, geometry.text),
+        dimensionTick(geometry.edge, geometry.angle, textSize * 0.7),
+        dimensionText(`${prefix}${formatDrawingLength(geometry.value, 4, locale)}`, geometry.text, 0, textSize, 'start'),
+    ];
 }
 
-function segmentsFormConnectedNetwork(segments, tolerance) {
-    if (!segments.length) return false;
-    const visited = new Set([0]);
-    let progressed = true;
-    while (progressed && visited.size < segments.length) {
-        progressed = false;
-        segments.forEach((segment, index) => {
-            if (visited.has(index)) return;
-            const connected = [...visited].some(visitedIndex => segmentsConnect(segment, segments[visitedIndex], tolerance));
-            if (connected) {
-                visited.add(index);
-                progressed = true;
-            }
+function explodeTextEntity(entity) {
+    const layout = getDrawingTextLayout(entity);
+    const characterWidth = layout.fontSize * 0.56;
+    const glyphs = layout.lines.flatMap((line, lineIndex) => {
+        const lineWidth = line.length * characterWidth;
+        const startX = layout.textAnchor === 'middle'
+            ? layout.textX - lineWidth / 2
+            : layout.textAnchor === 'end' ? layout.textX - lineWidth : layout.textX;
+        return [...line].flatMap((character, characterIndex) => {
+            if (/\s/.test(character)) return [];
+            const center = transformTextPoint({
+                x: startX + (characterIndex + 0.5) * characterWidth,
+                y: layout.blockTop + (lineIndex + 0.5) * layout.lineHeight,
+            }, entity, layout);
+            const {
+                id: _id,
+                sourceId: _sourceId,
+                text: _text,
+                x: _x,
+                y: _y,
+                width: _width,
+                height: _height,
+                horizontalAlign: _horizontalAlign,
+                verticalAlign: _verticalAlign,
+                ...properties
+            } = entity;
+            return [{
+                ...properties,
+                type: 'text',
+                text: character,
+                x: center.x - characterWidth / 2,
+                y: center.y - layout.lineHeight / 2,
+                width: characterWidth,
+                height: layout.lineHeight,
+                horizontalAlign: 'left',
+                verticalAlign: 'top',
+            }];
         });
-    }
-    return visited.size === segments.length;
+    });
+    return glyphs.length > 1 ? glyphs : [];
 }
 
-function segmentsConnect(left, right, tolerance) {
-    return segmentsIntersect(left[0], left[1], right[0], right[1], tolerance);
+function transformTextPoint(point, entity, layout) {
+    const center = { x: layout.x + layout.width / 2, y: layout.y + layout.height / 2 };
+    const angle = (Number(entity.rotation) || 0) * Math.PI / 180;
+    const dx = point.x - center.x;
+    const dy = (point.y - center.y) * (entity.mirrored ? -1 : 1);
+    return {
+        x: center.x + dx * Math.cos(angle) - dy * Math.sin(angle),
+        y: center.y + dx * Math.sin(angle) + dy * Math.cos(angle),
+    };
 }
 
-function orderConnectedSegments(segments, tolerance) {
-    if (!segments.length) return null;
+function dimensionTick(point, angle, size) {
+    const tickAngle = angle + Math.PI / 4;
+    const offset = { x: Math.cos(tickAngle) * size / 2, y: Math.sin(tickAngle) * size / 2 };
+    return linePart(
+        { x: point.x - offset.x, y: point.y - offset.y },
+        { x: point.x + offset.x, y: point.y + offset.y },
+    );
+}
+
+function dimensionText(text, point, rotation, fontSize, anchor) {
+    const width = Math.max(fontSize, [...text].length * fontSize * 0.56);
+    return {
+        type: 'text',
+        text,
+        x: anchor === 'start' ? point.x : point.x - width / 2,
+        y: point.y - fontSize,
+        width,
+        height: fontSize * 1.2,
+        fontSize,
+        rotation,
+        horizontalAlign: anchor === 'start' ? 'left' : 'center',
+        verticalAlign: 'top',
+    };
+}
+
+function linePart(first, second) {
+    return { type: 'line', x1: first.x, y1: first.y, x2: second.x, y2: second.y };
+}
+
+function readableTextAngle(degrees) {
+    return degrees > 90 || degrees < -90 ? degrees + 180 : degrees;
+}
+
+function compoundPart(part) {
+    const {
+        id: _id,
+        sourceId: _sourceId,
+        locked: _locked,
+        previewMode: _previewMode,
+        array: _array,
+        ...geometry
+    } = part;
+    return geometry;
+}
+
+function coalesceJoinedLineParts(parts, tolerance) {
+    const maximumDistance = Number.isFinite(Number(tolerance))
+        ? Math.max(0, Number(tolerance))
+        : DEFAULT_JOIN_TOLERANCE;
+    const coalesced = [];
+    (parts || []).forEach(part => {
+        const previous = coalesced.at(-1);
+        if (!canCoalesceLineParts(previous, part, maximumDistance)) {
+            coalesced.push(part);
+            return;
+        }
+        coalesced[coalesced.length - 1] = {
+            ...previous,
+            x2: part.x2,
+            y2: part.y2,
+        };
+    });
+    return coalesced;
+}
+
+function canCoalesceLineParts(first, second, tolerance) {
+    if (first?.type !== 'line' || second?.type !== 'line') return false;
+    if (pointDistance({ x: first.x2, y: first.y2 }, { x: second.x1, y: second.y1 }) > tolerance) return false;
+    if (!samePartAppearance(first, second)) return false;
+    const firstVector = { x: first.x2 - first.x1, y: first.y2 - first.y1 };
+    const secondVector = { x: second.x2 - second.x1, y: second.y2 - second.y1 };
+    const firstLength = Math.hypot(firstVector.x, firstVector.y);
+    const secondLength = Math.hypot(secondVector.x, secondVector.y);
+    if (firstLength <= tolerance || secondLength <= tolerance) return false;
+    const cross = Math.abs(firstVector.x * secondVector.y - firstVector.y * secondVector.x);
+    const maximumPerpendicularDeviation = cross / Math.min(firstLength, secondLength);
+    const dot = firstVector.x * secondVector.x + firstVector.y * secondVector.y;
+    return maximumPerpendicularDeviation <= tolerance && dot > 0;
+}
+
+function samePartAppearance(first, second) {
+    return APPEARANCE_PROPERTIES.every(property => (
+        Object.hasOwn(first, property) === Object.hasOwn(second, property)
+        && first[property] === second[property]
+    ));
+}
+
+function drawingAppearance(entity) {
+    return Object.fromEntries(APPEARANCE_PROPERTIES.flatMap(property => (
+        Object.hasOwn(entity || {}, property) ? [[property, entity[property]]] : []
+    )));
+}
+
+function orderConnectedPaths(paths, tolerance) {
+    if (!paths.length) return { path: null, reason: 'unsupported' };
+    const maximumDistance = Number.isFinite(Number(tolerance)) ? Math.max(0, Number(tolerance)) : DEFAULT_JOIN_TOLERANCE;
     const nodes = [];
     const nodeIndex = point => {
-        const existing = nodes.findIndex(node => pointDistance(node.point, point) <= tolerance);
+        const existing = nodes.findIndex(node => pointDistance(node.point, point) <= maximumDistance);
         if (existing >= 0) return existing;
-        nodes.push({ point: { ...point }, degree: 0 });
+        nodes.push({ point: { ...point }, edges: [] });
         return nodes.length - 1;
     };
-    const indexed = segments.map(([first, second]) => {
-        const firstNode = nodeIndex(first);
-        const secondNode = nodeIndex(second);
-        nodes[firstNode].degree += 1;
-        nodes[secondNode].degree += 1;
-        return { first, second, firstNode, secondNode };
+    const edges = paths.map((path, index) => {
+        const firstNode = nodeIndex(getCurveStart(path.parts[0]));
+        const secondNode = nodeIndex(getCurveEnd(path.parts[path.parts.length - 1]));
+        const edge = { index, path, firstNode, secondNode };
+        nodes[firstNode].edges.push(index);
+        nodes[secondNode].edges.push(index);
+        return edge;
     });
-    const endpoints = nodes.filter(node => node.degree === 1);
-    if (nodes.some(node => node.degree > 2) || ![0, 2].includes(endpoints.length)) return null;
+    if (edges.some(edge => edge.firstNode === edge.secondNode)) return { path: null, reason: 'closed' };
+    if (nodes.some(node => node.edges.length > 2)) return { path: null, reason: 'branched' };
+    const endpoints = nodes.map((node, index) => ({ node, index })).filter(({ node }) => node.edges.length === 1);
+    if (![0, 2].includes(endpoints.length)) return { path: null, reason: 'branched' };
 
-    const startNode = endpoints.length ? nodes.indexOf(endpoints[0]) : indexed[0].firstNode;
-    const firstIndex = indexed.findIndex(segment => segment.firstNode === startNode || segment.secondNode === startNode);
-    const first = indexed[firstIndex];
-    const points = first.firstNode === startNode
-        ? [{ ...first.first }, { ...first.second }]
-        : [{ ...first.second }, { ...first.first }];
-    const used = new Set([firstIndex]);
-    while (used.size < indexed.length) {
-        const end = points[points.length - 1];
-        const nextIndex = indexed.findIndex((segment, index) => !used.has(index)
-            && (pointDistance(segment.first, end) <= tolerance || pointDistance(segment.second, end) <= tolerance));
-        if (nextIndex < 0) return null;
-        const next = indexed[nextIndex];
-        points.push(pointDistance(next.first, end) <= tolerance ? { ...next.second } : { ...next.first });
-        used.add(nextIndex);
+    const startNode = endpoints[0]?.index ?? edges[0].firstNode;
+    let currentNode = startNode;
+    const used = new Set();
+    const parts = [];
+    while (used.size < edges.length) {
+        const edgeIndex = nodes[currentNode].edges.find(index => !used.has(index));
+        if (edgeIndex === undefined) return { path: null, reason: 'disconnected' };
+        const edge = edges[edgeIndex];
+        const forward = edge.firstNode === currentNode;
+        const oriented = forward ? edge.path : reversePath(edge.path, { joinTolerance: maximumDistance });
+        if (!oriented) return { path: null, reason: 'unsupported' };
+        parts.push(...oriented.parts);
+        used.add(edgeIndex);
+        currentNode = forward ? edge.secondNode : edge.firstNode;
     }
-    const closed = points.length > 2 && pointDistance(points[0], points[points.length - 1]) <= tolerance;
-    if (closed) points.pop();
-    return { points, closed };
+    return {
+        path: { type: 'path', parts, closed: currentNode === startNode },
+        reason: null,
+    };
 }
+
+const APPEARANCE_PROPERTIES = [
+    'layerId',
+    'color',
+    'lineWeight',
+    'lineWidth',
+    'lineType',
+    'transparency',
+];

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { TRANSLATIONS } from '../i18n/translator.js';
+
 import {
     applyDrawingOperationOption,
     getOperationAngleConfig,
@@ -81,11 +83,48 @@ test('contextual autocomplete only proposes options valid at the current stage',
     assert.deepEqual(getDrawingOperationOptionSuggestions({ type: 'rotate', stage: 'angle' }, 'LINE'), []);
 });
 
+test('core modification tools expose only their relevant command options', () => {
+    assert.equal(getDrawingOperationOptionSuggestions({ type: 'align', stage: 'confirm' }, 'T')[0].name, 'THIRD');
+    assert.equal(parseDrawingOperationOption({ type: 'lengthen', stage: 'pick' }, 'PERCENT 125').option, 'percentMode');
+    assert.deepEqual(parseDrawingOperationOption({ type: 'fillet', stage: 'pick-first' }, 'RADIUS 0.75'), {
+        option: 'radius', name: 'RADIUS', args: [0.75],
+    });
+    assert.equal(parseDrawingOperationOption({ type: 'chamfer', stage: 'pick-first' }, 'ANGLE 30').option, 'angle');
+    assert.equal(parseDrawingOperationOption({ type: 'trim', stage: 'pick' }, 'EXTENDEDGE').option, 'edgeExtend');
+    assert.equal(parseDrawingOperationOption({ type: 'extend', stage: 'pick' }, 'FINITEEDGE').option, 'edgeFinite');
+    assert.deepEqual(getDrawingOperationOptionSuggestions({ type: 'break', stage: 'pick' }, ''), []);
+});
+
+test('requested tool option suggestions have complete localized contracts', () => {
+    const operations = [
+        [{ type: 'trim', stage: 'pick' }, ['EXTENDEDGE', 'FINITEEDGE', 'PROJECTNONE']],
+        [{ type: 'extend', stage: 'pick' }, ['EXTENDEDGE', 'FINITEEDGE', 'PROJECTNONE']],
+        [{ type: 'align', stage: 'align-choice' }, ['APPLY', 'NOSCALE', 'SCALE', 'THIRD']],
+        [{ type: 'lengthen', stage: 'pick' }, ['DELTA', 'DYNAMIC', 'PERCENT', 'TOTAL']],
+        [{ type: 'fillet', stage: 'corner-first' }, ['MULTIPLE', 'NOTRIM', 'POLYLINE', 'RADIUS', 'TRIM']],
+        [{ type: 'chamfer', stage: 'corner-first' }, ['ANGLE', 'DISTANCE', 'MULTIPLE', 'NOTRIM', 'POLYLINE', 'TRIM']],
+        [{ type: 'xplode', stage: 'xplode-choice' }, ['PARENT', 'PARTS']],
+    ];
+    for (const [operation, expectedNames] of operations) {
+        const suggestions = getDrawingOperationOptionSuggestions(operation, '');
+        assert.deepEqual(suggestions.map(suggestion => suggestion.name), expectedNames);
+        for (const suggestion of suggestions) {
+            assert.ok(TRANSLATIONS.en[suggestion.labelKey], `${suggestion.labelKey} needs an English label`);
+            assert.ok(TRANSLATIONS.fr[suggestion.labelKey], `${suggestion.labelKey} needs a French label`);
+            assert.equal(parseDrawingOperationOption(operation, suggestion.name)?.name, suggestion.name);
+            assert.equal(parseDrawingOperationOption(operation, suggestion.alias)?.name, suggestion.name);
+        }
+    }
+});
+
 test('each point-based operation exposes the correct origin for Shift orthogonality', () => {
     const basePoint = { x: 4, y: 3 };
     assert.equal(getOperationOrthogonalOrigin({ type: 'mirror', stage: 'base', basePoint }), null);
     assert.deepEqual(getOperationOrthogonalOrigin({ type: 'mirror', stage: 'mirror-axis', basePoint }), basePoint);
     assert.deepEqual(getOperationOrthogonalOrigin({ type: 'move', stage: 'destination', basePoint }), basePoint);
+    assert.deepEqual(getOperationOrthogonalOrigin({
+        type: 'align', stage: 'align-destination-1', pendingSource: basePoint,
+    }), basePoint);
     assert.deepEqual(getOperationOrthogonalOrigin({ type: 'rotate', stage: 'angle', basePoint }), basePoint);
     assert.deepEqual(getOperationOrthogonalOrigin({
         type: 'array', stage: 'array-edit', basePoint, sourceBasePoint: { x: 1, y: 2 },

@@ -65,9 +65,48 @@ Each layout uses one ISO A-series format (`A4`, `A3`, `A2`, `A1`, or `A0`) and a
 
 The viewport display scale is derived rather than stored: its exact `1/X` denominator is `modelViewBox.width × 1000 / viewport.width`, converting model metres to paper millimetres.
 
+## Exact curves and compound geometry
+
+Drawing coordinates and distances are stored in metres. Circular and elliptical `startAngle` / `endAngle` values are radians; entity `rotation` values are degrees. Exact curve operations use these persistent primitives:
+
+```json
+[
+  {
+    "id": "ellipse-…",
+    "type": "ellipse",
+    "layerId": "geometry",
+    "cx": 8,
+    "cy": 4,
+    "rx": 3,
+    "ry": 1.5,
+    "rotation": 25,
+    "startAngle": 0,
+    "endAngle": 3.141592653589793,
+    "counterClockwise": true,
+    "fullEllipse": false
+  },
+  {
+    "id": "spline-…",
+    "type": "spline",
+    "layerId": "geometry",
+    "degree": 3,
+    "controlPoints": [
+      { "x": 0, "y": 0 },
+      { "x": 1, "y": 2 },
+      { "x": 3, "y": 2 },
+      { "x": 4, "y": 0 }
+    ]
+  }
+]
+```
+
+An ellipse with `fullEllipse: true` ignores its angular interval. A spline is one exact cubic Bézier span and therefore has four control points. Ordered mixed curves are stored as a `polyline` with `parts`; each part retains its native `line`, `arc`, `circle`, `ellipse`, or `spline` geometry instead of being sampled into chords. `closed: true` means the final endpoint meets the first endpoint. A compound object may retain appearance properties on individual parts for `XPLODE`; normal `EXPLODE` applies the parent appearance.
+
+Hatch-like boundary data uses bounded `boundaries` (or legacy `loops`) containing point loops, exact path objects, or supported curve entities. These boundaries remain exact when used by clipboard interchange and compound operations. Associative dimensions continue to reference their source through `sourceId`; block-local dimensions reference child IDs inside their own definition.
+
 ## Layer and object appearance
 
-Every layer stores a color, line weight, and line type:
+Every layer stores a color, line weight, line type, and transparency:
 
 ```json
 {
@@ -76,14 +115,45 @@ Every layer stores a color, line weight, and line type:
   "color": "#172033",
   "lineWeight": 1,
   "lineType": "continuous",
+  "transparency": 0,
   "visible": true,
   "locked": false
 }
 ```
 
-Supported line weights are `1`, `1.5`, `2`, `3`, `5`, and `10`. Supported line types are `continuous`, `dotted`, and `dashed`.
+Supported line weights are `1`, `1.5`, `2`, `3`, `5`, and `10`. Supported line types are `continuous`, `dotted`, and `dashed`. Transparency is an integer percentage from `0` (opaque) through `90`; layers default to `0`.
 
-An entity uses its layer appearance by default. A custom `color`, `lineWeight`, or `lineType` is stored directly on the entity only when that property overrides the layer. Removing the entity property restores ByLayer behavior, so later layer changes immediately affect every inheriting object.
+An entity uses its layer appearance by default. A custom `color`, `lineWeight`, `lineType`, or `transparency` is stored directly on the entity only when that property overrides the layer. Removing the entity property restores ByLayer behavior, so later layer changes immediately affect every inheriting object. A custom transparency of `0` is preserved because it is a valid opaque override for an otherwise transparent layer.
+
+## Anonymous block definitions and references
+
+`document.content.blocks` stores reusable block definitions. Each definition has a stable ID, a display name, a local base point, local child entities, and derived local bounds. A `blockReference` entity points to one definition and applies an affine matrix to its local geometry:
+
+```json
+{
+  "blocks": [
+    {
+      "id": "block-…",
+      "name": "*U1234",
+      "basePoint": { "x": 0, "y": 0 },
+      "bounds": { "minX": 0, "minY": 0, "maxX": 4, "maxY": 2 },
+      "entities": []
+    }
+  ],
+  "entities": [
+    {
+      "id": "blockReference-…",
+      "type": "blockReference",
+      "layerId": "geometry",
+      "blockId": "block-…",
+      "transform": { "a": 1, "b": 0, "c": 0, "d": 1, "e": 10, "f": 5 },
+      "definitionBounds": { "minX": 0, "minY": 0, "maxX": 4, "maxY": 2 }
+    }
+  ]
+}
+```
+
+The matrix maps a local point `(x, y)` to `(a×x + c×y + e, b×x + d×y + f)`. Definitions may contain nested references, but recursive cycles are ignored by rendering and geometry traversal. Child entity IDs are local to their definition; associative child dimensions use those local IDs. `definitionBounds` is copied onto an anonymous reference so selection and recovery remain safe even if a referenced definition is unavailable, while a valid definition remains authoritative.
 
 An embedded image descriptor contains its stable application ID, display metadata, and archive path:
 
@@ -99,6 +169,16 @@ An embedded image descriptor contains its stable application ID, display metadat
 ```
 
 The manifest never stores the image as a data URL. LUMCAD hydrates archive assets into in-memory data URLs only after validating the container, preserving the current renderer API without coupling the on-disk format to base64.
+
+## Clipboard interchange
+
+Clipboard data is not an `.lcad` archive. LUMCAD creates a versioned, bounded JSON payload as `application/x-lumcad-clipboard+json` and a complete XML/SVG representation as both `image/svg+xml` and `text/plain`. The SVG contains the JSON metadata, so the text fallback remains lossless between LUMCAD windows while applications that recognize SVG text receive vector geometry instead of raw JSON. The payload records metre units, a base point, original bounds, selected IDs, dependency-complete entities, referenced layers, embedded assets, and recursively referenced anonymous block definitions. IDs and cross-references are remapped when pasting into another drawing.
+
+The SVG flavour contains `<metadata id="lumcad-clipboard">` with the escaped JSON payload. This clipboard rendering covers exact circular and elliptical arcs, cubic splines, compound paths, hatch boundaries, dimensions, images, and block-reference transforms; it is not an SVG file export command. External SVG paste accepts an optional XML declaration and simple SVG doctype, bounded `line`, `rect`, `circle`, `ellipse`, `polyline`, `polygon`, and path geometry using absolute or relative `M`, `L`, `H`, `V`, `C`, `A`, and `Z` commands, plus simple `translate`, `rotate`, `scale`, and affine `matrix` transforms.
+
+Clipboard payloads inherit the 8 MiB JSON limit and additionally cap entity counts, block definitions and children, nesting, SVG path parts, transform depth, string size, and coordinate magnitude. Malformed, unsupported, cyclic, dangling, or unbounded input is rejected atomically. The macOS Tauri build writes the native types `com.lumcad.drawing-clipboard`, `public.svg-image`, `image/svg+xml`, and `public.utf8-plain-text`; it reads the custom type, both SVG identifiers, and UTF-8/plain-text variants. Browser builds only request formats reported by `ClipboardItem.supports()` and fall back to SVG text if a multi-format write is rejected as unsupported. Process memory is used only when no operating-system clipboard API exists, never as a fallback for a denied permission.
+
+Affinity interoperability is SVG-specific: LUMCAD copy advertises native SVG and complete SVG text on macOS. In the other direction, Affinity's **Copy items as SVG** setting must be enabled so its clipboard contains SVG text (or a native SVG flavour). A normal Affinity copy that exposes only Serif-private, PDF, or bitmap flavours is not imported as editable LUMCAD geometry.
 
 ## Supported embedded images
 

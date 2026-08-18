@@ -4,6 +4,9 @@ const MAX_OFFSET_INTERSECTION_CHECKS = 250_000;
 const MAX_OFFSET_COORDINATE = 1e12;
 const MAX_OFFSET_MITER_RATIO = 1_000;
 const CSS_MILLIMETRES_PER_PIXEL = 25.4 / 96;
+const MAX_SNAP_INTERSECTION_ENTITIES = 256;
+const MAX_SNAP_INTERSECTION_CHECKS = 16_384;
+const MAX_SNAP_INTERSECTION_CANDIDATES = 2_048;
 
 import {
     arcContainsAngle,
@@ -23,11 +26,13 @@ import {
     getArcBounds,
     getArcPath,
     getArcPoints,
+    getCircleViewportGeometry,
     getRectangleOutlinePath,
     getRectangleOutlinePoints,
     getRegularPolygonApothem,
     getRegularPolygonVertexRadius,
     getRegularPolygonVertices,
+    isFiniteBoundedCircle,
     normalizePolygonMode,
     normalizePolygonSides,
     pointAngle,
@@ -42,6 +47,8 @@ import {
     segmentsIntersect,
 } from './drawingPrimitives.js';
 import { baseSnapCandidates, nearestSnapCandidate } from './drawingSnapGeometry.js';
+import { getAdvancedEntityBounds, getHatchBoundaryEntities } from './drawingAdvancedEntities.js';
+import { extractEntityPaths, intersectPaths } from './drawingCurveKernel.js';
 
 export {
     getEntitySegments,
@@ -75,11 +82,13 @@ export {
     getArcBounds,
     getArcPath,
     getArcPoints,
+    getCircleViewportGeometry,
     getRectangleOutlinePath,
     getRectangleOutlinePoints,
     getRegularPolygonApothem,
     getRegularPolygonVertexRadius,
     getRegularPolygonVertices,
+    isFiniteBoundedCircle,
     normalizePolygonMode,
     normalizePolygonSides,
     tangentRadiusAtPoint,
@@ -156,6 +165,13 @@ export function resizeViewBoxForCanvas(viewBox, previousSize, nextSize) {
 export function getEntityBounds(entity, entityMap = new Map()) {
     if (!entity) return null;
     if (entity.type === 'line') return boundsFromPoints([{ x: entity.x1, y: entity.y1 }, { x: entity.x2, y: entity.y2 }]);
+    if (entity.type === 'ellipse' || entity.type === 'spline') return getAdvancedEntityBounds(entity);
+    if (entity.type === 'hatch') {
+        return getHatchBoundaryEntities(entity)
+            .map(boundary => getEntityBounds(boundary, entityMap))
+            .filter(Boolean)
+            .reduce(combineBounds, null);
+    }
     if (entity.type === 'polyline') {
         if (Array.isArray(entity.parts)) {
             return entity.parts.map(part => getEntityBounds(part, entityMap)).filter(Boolean).reduce(combineBounds, null);
@@ -164,9 +180,10 @@ export function getEntityBounds(entity, entityMap = new Map()) {
     }
     if (entity.type === 'rectangle') return boundsFromPoints(getRectangleOutlinePoints(entity));
     if (entity.type === 'polygon') return boundsFromPoints(getRegularPolygonVertices(entity));
-    if (entity.type === 'arc') return getArcBounds(entity);
+    if (entity.type === 'arc') return isFiniteBoundedCircle(entity) ? getArcBounds(entity) : null;
     if (entity.type === 'image' || entity.type === 'text') return boundsFromPoints(getRectEntityCorners(entity));
     if (entity.type === 'circle') {
+        if (!isFiniteBoundedCircle(entity)) return null;
         const radius = Math.abs(Number(entity.r) || 0);
         return normalizeBounds(entity.cx - radius, entity.cy - radius, entity.cx + radius, entity.cy + radius);
     }
@@ -1021,6 +1038,7 @@ export function getDimensionGeometry(dimension, source) {
         };
     }
     if (dimension?.type === 'radialDimension' && ['circle', 'arc'].includes(source?.type)) {
+        if (!isFiniteBoundedCircle(source)) return null;
         const angle = Number.isFinite(dimension.angle) ? dimension.angle : -Math.PI / 4;
         const leaderScale = Math.max(1.05, Number(dimension.leaderScale) || 1.45);
         const radius = Math.abs(Number(source.r) || 0);
@@ -1045,21 +1063,27 @@ export function formatDrawingLength(value, precision = 4, locale = 'en') {
 export function snapDrawingPoint(point, content, threshold, { excludeIds = [] } = {}) {
     const excluded = new Set(excludeIds);
     const layerMap = new Map(content.layers.map(layer => [layer.id, layer]));
-    const entities = content.entities.filter(entity => layerMap.get(entity.layerId)?.visible && !excluded.has(entity.id));
+    const entities = content.entities.filter(entity => (
+        layerMap.get(entity.layerId)?.visible && !excluded.has(entity.id) && isSafeSnappingEntity(entity)
+    ));
     const snaps = content.settings?.snaps || {};
-    const candidates = entities.flatMap(entity => baseSnapCandidates(entity, snaps));
+    const aperture = Number.isFinite(Number(threshold)) ? Math.max(0, Number(threshold)) : 0;
+    const candidates = [];
+    entities.forEach(entity => baseSnapCandidates(entity, snaps).forEach(candidate => {
+        if (isFinitePoint(candidate) && pointDistance(point, candidate) <= aperture) candidates.push(candidate);
+    }));
     if (snaps.nearest) entities.forEach(entity => {
         const candidate = nearestSnapCandidate(point, entity);
-        if (candidate) candidates.push(candidate);
+        if (candidate && isFinitePoint(candidate) && pointDistance(point, candidate) <= aperture) candidates.push(candidate);
     });
-    if (snaps.intersection) candidates.push(...intersectionCandidates(entities));
+    if (snaps.intersection) candidates.push(...intersectionCandidates(entities, point, aperture));
     const priority = { intersection: 5, endpoint: 4, midpoint: 3, center: 2, nearest: 1 };
     const geometrySnap = candidates.reduce((best, candidate) => {
         const distance = pointDistance(point, candidate);
         const isCloser = !best || distance < best.distance - EPSILON;
         const winsTie = best && Math.abs(distance - best.distance) <= EPSILON
             && (priority[candidate.type] || 0) > (priority[best.type] || 0);
-        return distance <= threshold && (isCloser || winsTie) ? { ...candidate, distance } : best;
+        return distance <= aperture && (isCloser || winsTie) ? { ...candidate, distance } : best;
     }, null);
     // A fine grid point is almost always mathematically closer than an object
     // snap. Object geometry therefore wins inside the acquisition aperture and
@@ -1073,28 +1097,70 @@ export function snapDrawingPoint(point, content, threshold, { excludeIds = [] } 
             type: 'grid',
         };
         const distance = pointDistance(point, grid);
-        if (distance <= threshold) return { ...grid, distance };
+        if (distance <= aperture) return { ...grid, distance };
     }
     return { x: point.x, y: point.y, type: null, distance: Infinity };
 }
 
-function intersectionCandidates(entities) {
+function intersectionCandidates(entities, point, threshold) {
     const candidates = [];
-    for (let leftIndex = 0; leftIndex < entities.length; leftIndex += 1) {
-        for (let rightIndex = leftIndex + 1; rightIndex < entities.length; rightIndex += 1) {
-            const left = entities[leftIndex];
-            const right = entities[rightIndex];
+    const nearby = entities
+        .map((entity, index) => ({ entity, index, distance: distanceToSnappableEntity(point, entity) }))
+        .filter(candidate => candidate.distance <= threshold + EPSILON)
+        .sort((left, right) => left.distance - right.distance || left.index - right.index)
+        .slice(0, MAX_SNAP_INTERSECTION_ENTITIES);
+    let pairChecks = 0;
+    outer: for (let leftIndex = 0; leftIndex < nearby.length; leftIndex += 1) {
+        for (let rightIndex = leftIndex + 1; rightIndex < nearby.length; rightIndex += 1) {
+            if (pairChecks >= MAX_SNAP_INTERSECTION_CHECKS
+                || candidates.length >= MAX_SNAP_INTERSECTION_CANDIDATES) break outer;
+            pairChecks += 1;
+            const left = nearby[leftIndex].entity;
+            const right = nearby[rightIndex].entity;
             const intersections = intersectEntities(left, right);
-            intersections.forEach(point => candidates.push({ ...point, type: 'intersection', entityIds: [left.id, right.id] }));
+            intersections.forEach(intersection => {
+                if (candidates.length >= MAX_SNAP_INTERSECTION_CANDIDATES
+                    || !isFinitePoint(intersection)
+                    || pointDistance(point, intersection) > threshold) return;
+                candidates.push({ ...intersection, type: 'intersection', entityIds: [left.id, right.id] });
+            });
         }
     }
     return candidates;
 }
 
+function isSafeSnappingEntity(entity) {
+    if (entity?.type === 'circle') return isFiniteBoundedCircle(entity);
+    if (entity?.type === 'arc') {
+        return isFiniteBoundedCircle(entity)
+            && Number.isFinite(Number(entity.startAngle)) && Number.isFinite(Number(entity.endAngle));
+    }
+    return Boolean(entity);
+}
+
+function distanceToSnappableEntity(point, entity) {
+    if (entity.type === 'circle') {
+        return Math.abs(Math.hypot(point.x - entity.cx, point.y - entity.cy) - Math.abs(entity.r));
+    }
+    const candidate = nearestSnapCandidate(point, entity);
+    return candidate && isFinitePoint(candidate) ? pointDistance(point, candidate) : Infinity;
+}
+
 function intersectEntities(left, right) {
+    const exact = intersectEntityPaths(left, right);
+    if (exact) return exact;
     const leftParts = geometryParts(left);
     const rightParts = geometryParts(right);
     return leftParts.flatMap(leftPart => rightParts.flatMap(rightPart => intersectPrimitiveEntities(leftPart, rightPart)));
+}
+
+function intersectEntityPaths(left, right) {
+    const leftPaths = extractEntityPaths(left);
+    const rightPaths = extractEntityPaths(right);
+    if (!leftPaths.length || !rightPaths.length) return null;
+    return leftPaths.flatMap(leftPath => rightPaths.flatMap(rightPath => (
+        intersectPaths(leftPath, rightPath).points.map(intersection => intersection.point)
+    )));
 }
 
 function geometryParts(entity) {

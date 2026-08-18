@@ -5,12 +5,15 @@ import {
     formatDrawingLength,
     getDimensionGeometry,
     getArcPath,
+    getCircleViewportGeometry,
     getRectangleOutlinePath,
     getRegularPolygonVertices,
 } from '~utils/drawingGeometry';
 import { getEntityGrips } from '~utils/drawingSelection';
 import { canEditEntity, getEntityAppearance } from '~utils/drawingDocument';
 import { getDrawingTextLayout } from '~utils/drawingText';
+import { affineMatrixToSvg, getDrawingBlockReferenceBounds } from '~utils/drawingBlocks';
+import { getDrawingEntityRenderMode } from '~utils/drawingInteraction';
 
 export default function DrawingScene({
     content,
@@ -25,24 +28,38 @@ export default function DrawingScene({
     showGrips = false,
     gripSize = 0.2,
     hiddenIds = [],
+    hitOnlyIds = [],
     hiddenLayerIds = [],
+    viewBox = null,
 }) {
     const { locale, t } = useI18n();
     const draftList = useMemo(() => [...(draftEntity ? [draftEntity] : []), ...draftEntities], [draftEntities, draftEntity]);
     const layerMap = useMemo(() => new Map(content.layers.map(layer => [layer.id, layer])), [content.layers]);
     const entityMap = useMemo(() => new Map(content.entities.map(entity => [entity.id, entity])), [content.entities]);
+    const blockMap = useMemo(() => new Map((content.blocks || []).map(block => [block.id, block])), [content.blocks]);
     const renderEntityMap = useMemo(() => new Map([...entityMap, ...draftList.map(entity => [entity.id, entity])]), [draftList, entityMap]);
     const assetMap = useMemo(() => new Map(assets.map(asset => [asset.id, asset])), [assets]);
     const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
     const previewSelected = useMemo(() => previewSelectedIds ? new Set(previewSelectedIds) : null, [previewSelectedIds]);
     const highlighted = useMemo(() => new Set(highlightedIds), [highlightedIds]);
     const hidden = useMemo(() => new Set(hiddenIds), [hiddenIds]);
+    const hitOnly = useMemo(() => new Set(hitOnlyIds), [hitOnlyIds]);
     const hiddenLayers = useMemo(() => new Set(hiddenLayerIds), [hiddenLayerIds]);
+    const circleGeometryCache = useMemo(() => new WeakMap(), [
+        content.entities,
+        draftList,
+        viewBox?.x,
+        viewBox?.y,
+        viewBox?.width,
+        viewBox?.height,
+    ]);
 
     return (
         <g className="drawing-scene">
             {content.entities.map(entity => {
-                if (hidden.has(entity.id)) return null;
+                const renderMode = getDrawingEntityRenderMode(entity.id, hidden, hitOnly);
+                if (renderMode === 'hidden') return null;
+                const visualHidden = renderMode === 'hit-only';
                 const layer = layerMap.get(entity.layerId);
                 if (!layer?.visible || hiddenLayers.has(entity.layerId)) return null;
                 return (
@@ -61,6 +78,14 @@ export default function DrawingScene({
                         gripSize={gripSize}
                         locale={locale}
                         t={t}
+                        viewBox={viewBox}
+                        circleGeometryCache={circleGeometryCache}
+                        block={entity.blockId ? blockMap.get(entity.blockId) : null}
+                        blockMap={blockMap}
+                        assetMap={assetMap}
+                        layerMap={layerMap}
+                        hiddenLayers={hiddenLayers}
+                        visualHidden={visualHidden}
                     />
                 );
             })}
@@ -77,6 +102,13 @@ export default function DrawingScene({
                     dimensionTextSize={dimensionTextSize}
                     locale={locale}
                     t={t}
+                    viewBox={viewBox}
+                    circleGeometryCache={circleGeometryCache}
+                    block={entity.blockId ? blockMap.get(entity.blockId) : null}
+                    blockMap={blockMap}
+                    assetMap={assetMap}
+                    layerMap={layerMap}
+                    hiddenLayers={hiddenLayers}
                 />
             ))}
         </g>
@@ -98,8 +130,19 @@ function DrawingEntity({
     gripSize,
     locale,
     t,
+    viewBox,
+    circleGeometryCache,
+    block = null,
+    blockMap = new Map(),
+    assetMap = new Map(),
+    layerMap = new Map(),
+    hiddenLayers = new Set(),
+    nested = false,
+    visitedBlockIds = new Set(),
+    visualHidden = false,
 }) {
     const isTrimPreview = draft && entity.previewMode === 'trim';
+    const appearanceOpacity = draft ? 1 : transparencyToOpacity(appearance.transparency);
     const strokeWidth = isTrimPreview ? 4 : draft ? 1.5 : appearance.lineWeight;
     const lineTypeProps = draft && !isTrimPreview
         ? { strokeDasharray: '6 4' }
@@ -110,10 +153,10 @@ function DrawingEntity({
         vectorEffect: 'non-scaling-stroke',
         fill: 'none',
         ...lineTypeProps,
-        opacity: isTrimPreview ? 0.92 : undefined,
+        opacity: isTrimPreview ? 0.92 : appearanceOpacity,
     };
     const groupProps = {
-        'data-entity-id': draft ? undefined : entity.id,
+        'data-entity-id': draft || nested ? undefined : entity.id,
         className: ['drawing-entity', entity.locked && 'is-locked', editable && 'is-editable', selected && 'is-selected', highlighted && 'is-highlighted', draft && 'is-draft'].filter(Boolean).join(' '),
     };
 
@@ -124,23 +167,31 @@ function DrawingEntity({
         shape = <PolylineGeometry
             entity={entity}
             shapeProps={shapeProps}
-            usePartAppearance={!draft && !entity.color && !entity.lineWeight && !entity.lineWidth && !entity.lineType}
+            usePartAppearance={!draft && !entity.color && !entity.lineWeight && !entity.lineWidth && !entity.lineType && !Object.hasOwn(entity, 'transparency')}
+            viewBox={viewBox}
+            circleGeometryCache={circleGeometryCache}
         />;
     } else if (entity.type === 'rectangle') {
         shape = <RectangleGeometry entity={entity} shapeProps={shapeProps} />;
     } else if (entity.type === 'circle') {
-        shape = <circle cx={entity.cx} cy={entity.cy} r={Math.abs(entity.r)} {...shapeProps} />;
+        shape = circleViewportShape(entity, viewBox, shapeProps, undefined, circleGeometryCache);
     } else if (entity.type === 'polygon') {
         shape = <polygon points={polygonPoints(entity)} {...shapeProps} />;
     } else if (entity.type === 'arc') {
         shape = <path d={getArcPath(entity)} {...shapeProps} />;
+    } else if (entity.type === 'ellipse') {
+        shape = <EllipseGeometry entity={entity} shapeProps={shapeProps} />;
+    } else if (entity.type === 'spline') {
+        shape = <SplineGeometry entity={entity} shapeProps={shapeProps} />;
+    } else if (entity.type === 'hatch') {
+        shape = <HatchGeometry entity={entity} shapeProps={shapeProps} />;
     } else if (entity.type === 'image') {
         const rect = normalizedRect(entity);
         shape = asset?.link ? (
             <image
                 href={asset.link}
                 {...rect}
-                opacity={entity.opacity ?? 0.55}
+                opacity={(entity.opacity ?? 0.55) * appearanceOpacity}
                 preserveAspectRatio="none"
                 transform={rectTransform(entity)}
             />
@@ -149,19 +200,86 @@ function DrawingEntity({
         const rect = normalizedRect(entity);
         shape = draft && entity.previewMode !== 'copy' ? (
             <rect {...rect} {...shapeProps} transform={rectTransform(entity)} />
-        ) : <DrawingTextShape entity={entity} color={appearance.color} opacity={entity.previewMode === 'copy' ? 0.72 : undefined} />;
+        ) : <DrawingTextShape entity={entity} color={appearance.color} opacity={entity.previewMode === 'copy' ? 0.72 : appearanceOpacity} />;
     } else if (entity.type === 'linearDimension' || entity.type === 'radialDimension') {
-        shape = <DimensionShape entity={entity} source={source} appearance={appearance} textSize={dimensionTextSize} locale={locale} />;
+        shape = <DimensionShape entity={entity} source={source} appearance={appearance} opacity={appearanceOpacity} textSize={dimensionTextSize} locale={locale} />;
+    } else if (entity.type === 'blockReference') {
+        shape = <BlockReferenceGeometry
+            reference={entity}
+            block={block}
+            blockMap={blockMap}
+            assetMap={assetMap}
+            layerMap={layerMap}
+            hiddenLayers={hiddenLayers}
+            dimensionTextSize={dimensionTextSize}
+            locale={locale}
+            t={t}
+            viewBox={viewBox}
+            circleGeometryCache={circleGeometryCache}
+            visitedBlockIds={visitedBlockIds}
+        />;
     }
 
     if (!shape) return null;
     return (
         <g {...groupProps}>
-            {shape}
-            {interactive && <HitShape entity={entity} source={source} />}
-            {selected && <SelectionShape entity={entity} source={source} />}
-            {highlighted && <SelectionShape entity={entity} source={source} preview />}
-            {selected && editable && showGrips && <GripHandles entity={entity} source={source} size={gripSize} t={t} />}
+            {!visualHidden && shape}
+            {interactive && <HitShape entity={entity} source={source} viewBox={viewBox} circleGeometryCache={circleGeometryCache} />}
+            {!visualHidden && selected && <SelectionShape entity={entity} source={source} viewBox={viewBox} circleGeometryCache={circleGeometryCache} />}
+            {!visualHidden && highlighted && <SelectionShape entity={entity} source={source} viewBox={viewBox} circleGeometryCache={circleGeometryCache} preview />}
+            {!visualHidden && selected && editable && showGrips && <GripHandles entity={entity} source={source} size={gripSize} t={t} />}
+        </g>
+    );
+}
+
+function BlockReferenceGeometry({
+    reference,
+    block,
+    blockMap,
+    assetMap,
+    layerMap,
+    hiddenLayers,
+    dimensionTextSize,
+    locale,
+    t,
+    viewBox,
+    circleGeometryCache,
+    visitedBlockIds,
+}) {
+    if (!block || visitedBlockIds.has(block.id)) return null;
+    const childMap = new Map(block.entities.map(entity => [entity.id, entity]));
+    const nextVisited = new Set(visitedBlockIds);
+    nextVisited.add(block.id);
+    return (
+        <g transform={affineMatrixToSvg(reference.transform)}>
+            {block.entities.map(entity => {
+                const layer = layerMap.get(entity.layerId);
+                if (!layer?.visible || hiddenLayers.has(entity.layerId)) return null;
+                return (
+                    <DrawingEntity
+                        key={entity.id}
+                        entity={entity}
+                        source={entity.sourceId ? childMap.get(entity.sourceId) : null}
+                        asset={entity.assetId ? assetMap.get(entity.assetId) : null}
+                        appearance={getEntityAppearance({ layers: [...layerMap.values()] }, entity)}
+                        interactive={false}
+                        editable={false}
+                        dimensionTextSize={dimensionTextSize}
+                        gripSize={0}
+                        locale={locale}
+                        t={t}
+                        viewBox={viewBox}
+                        circleGeometryCache={circleGeometryCache}
+                        block={entity.blockId ? blockMap.get(entity.blockId) : null}
+                        blockMap={blockMap}
+                        assetMap={assetMap}
+                        layerMap={layerMap}
+                        hiddenLayers={hiddenLayers}
+                        nested
+                        visitedBlockIds={nextVisited}
+                    />
+                );
+            })}
         </g>
     );
 }
@@ -234,6 +352,20 @@ function RectangleGeometry({ entity, shapeProps }) {
     return <rect {...normalizedRect(entity)} {...shapeProps} transform={rectTransform(entity)} />;
 }
 
+function circleViewportShape(entity, viewBox, shapeProps, key = undefined, geometryCache = null) {
+    let geometry;
+    if (geometryCache?.has(entity)) geometry = geometryCache.get(entity);
+    else {
+        geometry = getCircleViewportGeometry(entity, viewBox);
+        geometryCache?.set(entity, geometry);
+    }
+    if (!geometry) return null;
+    if (geometry.kind === 'circle') {
+        return <circle key={key} cx={geometry.cx} cy={geometry.cy} r={geometry.r} {...shapeProps} />;
+    }
+    return <path key={key} d={geometry.d} {...shapeProps} />;
+}
+
 function polygonPoints(entity) {
     return getRegularPolygonVertices(entity).map(point => `${point.x},${point.y}`).join(' ');
 }
@@ -242,7 +374,13 @@ function polylinePoints(entity) {
     return (entity.points || []).map(point => `${point.x},${point.y}`).join(' ');
 }
 
-function PolylineGeometry({ entity, shapeProps, usePartAppearance = false }) {
+function PolylineGeometry({
+    entity,
+    shapeProps,
+    usePartAppearance = false,
+    viewBox = null,
+    circleGeometryCache = null,
+}) {
     if (!Array.isArray(entity.parts)) {
         const Element = entity.closed ? 'polygon' : 'polyline';
         return <Element points={polylinePoints(entity)} {...shapeProps} />;
@@ -254,13 +392,16 @@ function PolylineGeometry({ entity, shapeProps, usePartAppearance = false }) {
             ...(part.color ? { stroke: part.color } : {}),
             ...(part.lineWeight ? { strokeWidth: partWeight } : {}),
             ...(part.lineType ? lineTypeStrokeProps(part.lineType, partWeight) : {}),
+            ...(Object.hasOwn(part, 'transparency') ? { opacity: transparencyToOpacity(part.transparency) } : {}),
         } : shapeProps;
         if (part.type === 'line') return <line key={index} x1={part.x1} y1={part.y1} x2={part.x2} y2={part.y2} {...partProps} />;
         if (part.type === 'rectangle') return <RectangleGeometry key={index} entity={part} shapeProps={partProps} />;
-        if (part.type === 'circle') return <circle key={index} cx={part.cx} cy={part.cy} r={Math.abs(part.r)} {...partProps} />;
+        if (part.type === 'circle') return circleViewportShape(part, viewBox, partProps, index, circleGeometryCache);
         if (part.type === 'polygon') return <polygon key={index} points={polygonPoints(part)} {...partProps} />;
         if (part.type === 'arc') return <path key={index} d={getArcPath(part)} {...partProps} />;
-        if (part.type === 'polyline') return <PolylineGeometry key={index} entity={part} shapeProps={partProps} usePartAppearance={usePartAppearance} />;
+        if (part.type === 'ellipse') return <EllipseGeometry key={index} entity={part} shapeProps={partProps} />;
+        if (part.type === 'spline') return <SplineGeometry key={index} entity={part} shapeProps={partProps} />;
+        if (part.type === 'polyline') return <PolylineGeometry key={index} entity={part} shapeProps={partProps} usePartAppearance={usePartAppearance} viewBox={viewBox} circleGeometryCache={circleGeometryCache} />;
         return null;
     });
 }
@@ -297,7 +438,7 @@ function DrawingTextShape({ entity, color, opacity }) {
     );
 }
 
-function HitShape({ entity, source }) {
+function HitShape({ entity, source, viewBox, circleGeometryCache }) {
     const hitProps = {
         stroke: 'transparent',
         strokeWidth: 12,
@@ -306,21 +447,28 @@ function HitShape({ entity, source }) {
         pointerEvents: 'stroke',
     };
     if (entity.type === 'line') return <line x1={entity.x1} y1={entity.y1} x2={entity.x2} y2={entity.y2} {...hitProps} />;
-    if (entity.type === 'polyline') return <PolylineGeometry entity={entity} shapeProps={hitProps} />;
+    if (entity.type === 'polyline') return <PolylineGeometry entity={entity} shapeProps={hitProps} viewBox={viewBox} circleGeometryCache={circleGeometryCache} />;
     if (entity.type === 'rectangle') return entity.cornerStyle === 'chamfer' || entity.cornerStyle === 'fillet'
         ? <path d={getRectangleOutlinePath(entity)} {...hitProps} transform={rectTransform(entity)} />
         : <rect {...normalizedRect(entity)} {...hitProps} transform={rectTransform(entity)} />;
     if (entity.type === 'image' || entity.type === 'text') return <rect {...normalizedRect(entity)} {...hitProps} transform={rectTransform(entity)} pointerEvents="all" />;
-    if (entity.type === 'circle') return <circle cx={entity.cx} cy={entity.cy} r={Math.abs(entity.r)} {...hitProps} />;
+    if (entity.type === 'circle') return circleViewportShape(entity, viewBox, hitProps, undefined, circleGeometryCache);
     if (entity.type === 'polygon') return <polygon points={polygonPoints(entity)} {...hitProps} />;
     if (entity.type === 'arc') return <path d={getArcPath(entity)} {...hitProps} />;
+    if (entity.type === 'ellipse') return <EllipseGeometry entity={entity} shapeProps={hitProps} />;
+    if (entity.type === 'spline') return <SplineGeometry entity={entity} shapeProps={hitProps} />;
+    if (entity.type === 'hatch') return <path d={hatchPath(entity)} {...hitProps} pointerEvents="all" />;
+    if (entity.type === 'blockReference') {
+        const bounds = getDrawingBlockReferenceBounds(entity);
+        return bounds ? <rect {...rectFromBounds(bounds)} {...hitProps} pointerEvents="all" /> : null;
+    }
     const geometry = getDimensionGeometry(entity, source);
     if (!geometry) return null;
     if (geometry.kind === 'linear') return <line x1={geometry.first.x} y1={geometry.first.y} x2={geometry.second.x} y2={geometry.second.y} {...hitProps} />;
     return <line x1={geometry.center.x} y1={geometry.center.y} x2={geometry.text.x} y2={geometry.text.y} {...hitProps} />;
 }
 
-function SelectionShape({ entity, source, preview = false }) {
+function SelectionShape({ entity, source, preview = false, viewBox, circleGeometryCache }) {
     const props = {
         stroke: '#f7941d',
         strokeWidth: preview ? 4 : 3,
@@ -331,21 +479,202 @@ function SelectionShape({ entity, source, preview = false }) {
         pointerEvents: 'none',
     };
     if (entity.type === 'line') return <line x1={entity.x1} y1={entity.y1} x2={entity.x2} y2={entity.y2} {...props} />;
-    if (entity.type === 'polyline') return <PolylineGeometry entity={entity} shapeProps={props} />;
+    if (entity.type === 'polyline') return <PolylineGeometry entity={entity} shapeProps={props} viewBox={viewBox} circleGeometryCache={circleGeometryCache} />;
     if (entity.type === 'rectangle') return entity.cornerStyle === 'chamfer' || entity.cornerStyle === 'fillet'
         ? <path d={getRectangleOutlinePath(entity)} {...props} transform={rectTransform(entity)} />
         : <rect {...normalizedRect(entity)} {...props} transform={rectTransform(entity)} />;
     if (entity.type === 'image' || entity.type === 'text') return <rect {...normalizedRect(entity)} {...props} transform={rectTransform(entity)} />;
-    if (entity.type === 'circle') return <circle cx={entity.cx} cy={entity.cy} r={Math.abs(entity.r)} {...props} />;
+    if (entity.type === 'circle') return circleViewportShape(entity, viewBox, props, undefined, circleGeometryCache);
     if (entity.type === 'polygon') return <polygon points={polygonPoints(entity)} {...props} />;
     if (entity.type === 'arc') return <path d={getArcPath(entity)} {...props} />;
+    if (entity.type === 'ellipse') return <EllipseGeometry entity={entity} shapeProps={props} />;
+    if (entity.type === 'spline') return <SplineGeometry entity={entity} shapeProps={props} />;
+    if (entity.type === 'hatch') return <path d={hatchPath(entity)} {...props} />;
+    if (entity.type === 'blockReference') {
+        const bounds = getDrawingBlockReferenceBounds(entity);
+        return bounds ? <rect {...rectFromBounds(bounds)} {...props} /> : null;
+    }
     const geometry = getDimensionGeometry(entity, source);
     if (!geometry) return null;
     const points = geometry.points.map(point => `${point.x},${point.y}`).join(' ');
     return <polyline points={points} {...props} />;
 }
 
-function DimensionShape({ entity, source, appearance, textSize, locale }) {
+function rectFromBounds(bounds) {
+    return {
+        x: bounds.minX,
+        y: bounds.minY,
+        width: bounds.maxX - bounds.minX,
+        height: bounds.maxY - bounds.minY,
+    };
+}
+
+function EllipseGeometry({ entity, shapeProps }) {
+    if (entity.fullEllipse !== false) {
+        return (
+            <ellipse
+                cx={entity.cx}
+                cy={entity.cy}
+                rx={Math.abs(Number(entity.rx) || 0)}
+                ry={Math.abs(Number(entity.ry) || 0)}
+                transform={Number(entity.rotation) ? `rotate(${entity.rotation} ${entity.cx} ${entity.cy})` : undefined}
+                {...shapeProps}
+            />
+        );
+    }
+    return <path d={ellipseArcPath(entity)} {...shapeProps} />;
+}
+
+function SplineGeometry({ entity, shapeProps }) {
+    const points = Array.isArray(entity.controlPoints) ? entity.controlPoints : [];
+    if (points.length !== 4) return null;
+    return (
+        <path
+            d={`M ${points[0].x} ${points[0].y} C ${points[1].x} ${points[1].y} ${points[2].x} ${points[2].y} ${points[3].x} ${points[3].y}`}
+            {...shapeProps}
+        />
+    );
+}
+
+function HatchGeometry({ entity, shapeProps }) {
+    const patternId = `drawing-hatch-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
+    const d = hatchPath(entity);
+    if (!d) return null;
+    const pattern = entity.pattern || {};
+    const solid = String(pattern.name || 'solid').toLowerCase() === 'solid';
+    const spacing = Math.max(0.02, Math.abs(Number(pattern.spacing) || Number(pattern.scale) || 0.25));
+    const fill = solid ? shapeProps.stroke : `url(#${patternId})`;
+    return (
+        <>
+            {!solid && (
+                <defs>
+                    <pattern
+                        id={patternId}
+                        patternUnits="userSpaceOnUse"
+                        width={spacing}
+                        height={spacing}
+                        patternTransform={`rotate(${Number(pattern.angle) || 0})`}
+                    >
+                        <line x1="0" y1="0" x2={spacing} y2="0" stroke={shapeProps.stroke} strokeWidth={shapeProps.strokeWidth} vectorEffect="non-scaling-stroke" />
+                    </pattern>
+                </defs>
+            )}
+            <path
+                d={d}
+                {...shapeProps}
+                fill={fill}
+                fillRule="evenodd"
+                fillOpacity={solid ? 0.22 : 0.72}
+            />
+        </>
+    );
+}
+
+function hatchPath(entity) {
+    return (Array.isArray(entity?.boundaries) ? entity.boundaries : [])
+        .map(boundary => entityPath(boundary))
+        .filter(Boolean)
+        .join(' ');
+}
+
+function entityPath(entity) {
+    if (!entity) return '';
+    if (entity.type === 'polyline' && Array.isArray(entity.parts)) {
+        return curvePartsPath(entity.parts, entity.closed !== false);
+    }
+    if (entity.type === 'polyline' && Array.isArray(entity.points) && entity.points.length) {
+        return `${entity.points.map((point, index) => `${index ? 'L' : 'M'} ${point.x} ${point.y}`).join(' ')}${entity.closed === false ? '' : ' Z'}`;
+    }
+    if (entity.type === 'rectangle') return getRectangleOutlinePath(entity);
+    if (entity.type === 'circle') {
+        const radius = Math.abs(Number(entity.r) || 0);
+        return `M ${entity.cx + radius} ${entity.cy} A ${radius} ${radius} 0 1 1 ${entity.cx - radius} ${entity.cy} A ${radius} ${radius} 0 1 1 ${entity.cx + radius} ${entity.cy} Z`;
+    }
+    if (entity.type === 'ellipse') {
+        if (entity.fullEllipse !== false) {
+            const start = ellipsePoint(entity, 0);
+            const opposite = ellipsePoint(entity, Math.PI);
+            return `M ${start.x} ${start.y} A ${entity.rx} ${entity.ry} ${Number(entity.rotation) || 0} 1 1 ${opposite.x} ${opposite.y} A ${entity.rx} ${entity.ry} ${Number(entity.rotation) || 0} 1 1 ${start.x} ${start.y} Z`;
+        }
+        return ellipseArcPath(entity);
+    }
+    if (entity.type === 'polygon') return `${getRegularPolygonVertices(entity).map((point, index) => `${index ? 'L' : 'M'} ${point.x} ${point.y}`).join(' ')} Z`;
+    if (['line', 'arc', 'spline'].includes(entity.type)) return curvePartsPath([entity], false);
+    return '';
+}
+
+function curvePartsPath(parts, closed) {
+    if (!Array.isArray(parts) || !parts.length) return '';
+    let d = '';
+    parts.forEach((part, index) => {
+        const start = curveStart(part);
+        const end = curveEnd(part);
+        if (!start || !end) return;
+        if (!d || index === 0) d += `M ${start.x} ${start.y} `;
+        if (part.type === 'line') d += `L ${end.x} ${end.y} `;
+        else if (part.type === 'arc') {
+            const sweep = angularSweep(part);
+            d += `A ${Math.abs(part.r)} ${Math.abs(part.r)} 0 ${Math.abs(sweep) > Math.PI ? 1 : 0} ${sweep > 0 ? 1 : 0} ${end.x} ${end.y} `;
+        } else if (part.type === 'ellipse') {
+            const sweep = angularSweep(part);
+            d += `A ${Math.abs(part.rx)} ${Math.abs(part.ry)} ${Number(part.rotation) || 0} ${Math.abs(sweep) > Math.PI ? 1 : 0} ${sweep > 0 ? 1 : 0} ${end.x} ${end.y} `;
+        } else if (part.type === 'spline' && part.controlPoints?.length === 4) {
+            const points = part.controlPoints;
+            d += `C ${points[1].x} ${points[1].y} ${points[2].x} ${points[2].y} ${points[3].x} ${points[3].y} `;
+        }
+    });
+    return `${d}${closed ? 'Z' : ''}`.trim();
+}
+
+function curveStart(curve) {
+    if (curve?.type === 'line') return { x: curve.x1, y: curve.y1 };
+    if (curve?.type === 'spline') return curve.controlPoints?.[0] || null;
+    if (curve?.type === 'arc') return {
+        x: curve.cx + Math.cos(curve.startAngle) * curve.r,
+        y: curve.cy + Math.sin(curve.startAngle) * curve.r,
+    };
+    if (curve?.type === 'ellipse') return ellipsePoint(curve, curve.startAngle || 0);
+    return null;
+}
+
+function curveEnd(curve) {
+    if (curve?.type === 'line') return { x: curve.x2, y: curve.y2 };
+    if (curve?.type === 'spline') return curve.controlPoints?.[3] || null;
+    if (curve?.type === 'arc') return {
+        x: curve.cx + Math.cos(curve.endAngle) * curve.r,
+        y: curve.cy + Math.sin(curve.endAngle) * curve.r,
+    };
+    if (curve?.type === 'ellipse') return ellipsePoint(curve, curve.endAngle || 0);
+    return null;
+}
+
+function ellipseArcPath(entity) {
+    const start = curveStart(entity);
+    const end = curveEnd(entity);
+    if (!start || !end) return '';
+    const sweep = angularSweep(entity);
+    return `M ${start.x} ${start.y} A ${Math.abs(Number(entity.rx) || 0)} ${Math.abs(Number(entity.ry) || 0)} ${Number(entity.rotation) || 0} ${Math.abs(sweep) > Math.PI ? 1 : 0} ${sweep > 0 ? 1 : 0} ${end.x} ${end.y}`;
+}
+
+function ellipsePoint(entity, angle) {
+    const rotation = (Number(entity.rotation) || 0) * Math.PI / 180;
+    const x = Math.cos(angle) * Math.abs(Number(entity.rx) || 0);
+    const y = Math.sin(angle) * Math.abs(Number(entity.ry) || 0);
+    return {
+        x: Number(entity.cx) + x * Math.cos(rotation) - y * Math.sin(rotation),
+        y: Number(entity.cy) + x * Math.sin(rotation) + y * Math.cos(rotation),
+    };
+}
+
+function angularSweep(entity) {
+    if (entity.fullCircle || entity.fullEllipse) return entity.counterClockwise === false ? -Math.PI * 2 : Math.PI * 2;
+    const start = Number(entity.startAngle) || 0;
+    const end = Number(entity.endAngle) || 0;
+    const positive = ((end - start) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+    return entity.counterClockwise === false ? positive - Math.PI * 2 : positive;
+}
+
+function DimensionShape({ entity, source, appearance, opacity, textSize, locale }) {
     const geometry = getDimensionGeometry(entity, source);
     if (!geometry) return null;
     const color = appearance.color;
@@ -361,7 +690,7 @@ function DimensionShape({ entity, source, appearance, textSize, locale }) {
         const rawDegrees = geometry.angle * 180 / Math.PI;
         const degrees = rawDegrees > 90 || rawDegrees < -90 ? rawDegrees + 180 : rawDegrees;
         return (
-            <g className="drawing-dimension">
+            <g className="drawing-dimension" opacity={opacity}>
                 <line x1={geometry.sourceFirst.x} y1={geometry.sourceFirst.y} x2={geometry.first.x} y2={geometry.first.y} {...lineProps} />
                 <line x1={geometry.sourceSecond.x} y1={geometry.sourceSecond.y} x2={geometry.second.x} y2={geometry.second.y} {...lineProps} />
                 <line x1={geometry.first.x} y1={geometry.first.y} x2={geometry.second.x} y2={geometry.second.y} {...lineProps} />
@@ -375,7 +704,7 @@ function DimensionShape({ entity, source, appearance, textSize, locale }) {
     }
 
     return (
-        <g className="drawing-dimension">
+        <g className="drawing-dimension" opacity={opacity}>
             <line x1={geometry.center.x} y1={geometry.center.y} x2={geometry.text.x} y2={geometry.text.y} {...lineProps} />
             <DimensionTick point={geometry.edge} angle={geometry.angle} lineProps={lineProps} size={textSize * 0.7} />
             <DimensionText point={geometry.text} angle={0} color={color} textSize={textSize} anchor="start">
@@ -406,6 +735,12 @@ function lineTypeStrokeProps(lineType, lineWeight) {
         return { strokeDasharray: `${weight * 6} ${weight * 3}`, strokeLinecap: 'butt' };
     }
     return { strokeDasharray: undefined, strokeLinecap: 'butt' };
+}
+
+function transparencyToOpacity(transparency) {
+    const value = Number(transparency);
+    if (!Number.isFinite(value)) return 1;
+    return 1 - Math.max(0, Math.min(90, value)) / 100;
 }
 
 function DimensionText({ point, angle, color, textSize, anchor = 'middle', children }) {

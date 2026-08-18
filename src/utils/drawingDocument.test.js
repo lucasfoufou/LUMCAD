@@ -3,9 +3,20 @@ import test from 'node:test';
 
 import {
     createDefaultDrawingContent,
+    normalizeDrawingContent,
     transformSelectedEntities,
 } from './drawingDocument.js';
 import { scaleEntity } from './drawingGeometry.js';
+
+test('dynamic precision input defaults on and preserves an explicit persisted opt-out', () => {
+    const defaults = createDefaultDrawingContent();
+    assert.equal(defaults.settings.dynamicInput, true);
+    assert.equal(normalizeDrawingContent({ ...defaults, settings: {} }).settings.dynamicInput, true);
+    assert.equal(normalizeDrawingContent({
+        ...defaults,
+        settings: { ...defaults.settings, dynamicInput: false },
+    }).settings.dynamicInput, false);
+});
 
 test('transformSelectedEntities replaces editable geometry and keeps its identity', () => {
     const content = createDefaultDrawingContent();

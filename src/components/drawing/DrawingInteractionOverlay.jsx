@@ -7,9 +7,11 @@ export default function DrawingInteractionOverlay({
     selectionWindow,
     hoverSnap,
     trackingGuides = [],
+    trackingAnchors = [],
     markerSize,
     viewBox,
     arrayOperation = null,
+    alignOperation = null,
     referenceOperation = null,
     referencePoint = null,
     onArrayHandleChange,
@@ -41,6 +43,28 @@ export default function DrawingInteractionOverlay({
                     pointerEvents="none"
                 />
             ))}
+            {trackingAnchors.filter(anchor => Number.isFinite(anchor?.x) && Number.isFinite(anchor?.y)).map((anchor, index) => (
+                <g
+                    key={`${anchor.x}-${anchor.y}-${index}`}
+                    className={`drawing-tracking-anchor${anchor.temporary ? ' is-temporary' : ''}`}
+                    pointerEvents="none"
+                >
+                    <line
+                        x1={anchor.x - markerSize * 0.28}
+                        y1={anchor.y - markerSize * 0.28}
+                        x2={anchor.x + markerSize * 0.28}
+                        y2={anchor.y + markerSize * 0.28}
+                        vectorEffect="non-scaling-stroke"
+                    />
+                    <line
+                        x1={anchor.x - markerSize * 0.28}
+                        y1={anchor.y + markerSize * 0.28}
+                        x2={anchor.x + markerSize * 0.28}
+                        y2={anchor.y - markerSize * 0.28}
+                        vectorEffect="non-scaling-stroke"
+                    />
+                </g>
+            ))}
             {hoverSnap && (
                 <g className={`drawing-snap-marker is-${hoverSnap.type}`} pointerEvents="none">
                     <circle cx={hoverSnap.x} cy={hoverSnap.y} r={markerSize * 0.35} fill="white" stroke="#f7941d" strokeWidth="2" vectorEffect="non-scaling-stroke" />
@@ -66,8 +90,54 @@ export default function DrawingInteractionOverlay({
                 onChange={onArrayHandleChange}
                 t={t}
             />
+            <DrawingAlignControls operation={alignOperation} currentPoint={referencePoint} markerSize={markerSize} />
             <DrawingReferenceControls operation={referenceOperation} currentPoint={referencePoint} markerSize={markerSize} />
         </>
+    );
+}
+
+export function DrawingAlignControls({ operation, currentPoint, markerSize }) {
+    if (operation?.type !== 'align') return null;
+    const pairs = (operation.pairs || []).map(pair => ({
+        source: pair.source,
+        destination: pair.destination,
+    }));
+    if (operation.stage?.startsWith('align-destination-') && operation.pendingSource && currentPoint) {
+        pairs.push({ source: operation.pendingSource, destination: currentPoint, preview: true });
+    }
+    const sourcePreview = operation.stage?.startsWith('align-source-') && currentPoint
+        ? currentPoint
+        : null;
+    if (!pairs.length && !sourcePreview) return null;
+    return (
+        <g className="drawing-reference-controls drawing-align-controls" pointerEvents="none">
+            {pairs.map((pair, index) => (
+                <g key={index} opacity={pair.preview ? 0.7 : 1}>
+                    <line
+                        className="drawing-reference-guide"
+                        x1={pair.source.x}
+                        y1={pair.source.y}
+                        x2={pair.destination.x}
+                        y2={pair.destination.y}
+                        vectorEffect="non-scaling-stroke"
+                    />
+                    <AlignPoint point={pair.source} label={`S${index + 1}`} markerSize={markerSize} />
+                    <AlignPoint point={pair.destination} label={`D${index + 1}`} markerSize={markerSize} />
+                </g>
+            ))}
+            {sourcePreview && <AlignPoint point={sourcePreview} label={`S${pairs.length + 1}`} markerSize={markerSize} />}
+        </g>
+    );
+}
+
+function AlignPoint({ point, label, markerSize }) {
+    return (
+        <g>
+            <circle className="drawing-reference-point" cx={point.x} cy={point.y} r={markerSize * 0.24} vectorEffect="non-scaling-stroke" />
+            <text className="drawing-reference-label" x={point.x + markerSize * 0.42} y={point.y - markerSize * 0.36} fontSize={markerSize * 0.62}>
+                {label}
+            </text>
+        </g>
     );
 }
 
@@ -217,8 +287,12 @@ function snapLabel(type, t) {
         intersection: 'snap.intersection',
         nearest: 'snap.onObject',
         orthogonal: 'snap.orthogonal',
+        polar: 'snap.polar',
         tracking: 'snap.tracking',
         trackingIntersection: 'snap.trackingIntersection',
+        parallelTracking: 'snap.parallelTracking',
+        perpendicularTracking: 'snap.perpendicularTracking',
+        tangentTracking: 'snap.tangentTracking',
     })[type];
     return key ? t(key) : '';
 }

@@ -1,11 +1,13 @@
 import { useI18n } from '~i18n/I18nProvider';
 import { canEditEntity } from '~utils/drawingDocument';
-import { explodeDrawingEntities, joinDrawingEntities, mirrorDrawingEntities } from '~utils/drawingCompoundOperations';
+import { explodeDrawingEntities, joinDrawingEntities, mirrorDrawingEntities, xplodeDrawingEntities } from '~utils/drawingCompoundOperations';
 import { parseDrawingOperationOption } from '~utils/drawingOperationOptions';
 
 export default function useDrawingCompoundCommands({
     canvasRef,
+    commandBarRef,
     history,
+    interactiveOperation,
     selectedIds,
     selectedEntities,
     setActiveTool,
@@ -13,11 +15,13 @@ export default function useDrawingCompoundCommands({
     setMessage,
     setSelectedIds,
 }) {
-    const { t } = useI18n();
-    const executeCompoundOperation = (type, entityIds = selectedIds) => {
+    const { locale, t } = useI18n();
+    const executeCompoundOperation = (type, entityIds = selectedIds, options = {}) => {
         const result = type === 'join'
             ? joinDrawingEntities(history.content, entityIds)
-            : explodeDrawingEntities(history.content, entityIds);
+            : type === 'xplode'
+                ? xplodeDrawingEntities(history.content, entityIds, { ...options, locale })
+                : explodeDrawingEntities(history.content, entityIds, { ...options, locale });
         setInteractiveOperation(null);
         setActiveTool('select');
         if (!result.changed) {
@@ -27,12 +31,16 @@ export default function useDrawingCompoundCommands({
         history.commit(result.content);
         setSelectedIds(result.selectedIds);
         if (type === 'join') {
-            const kind = t(result.entity.parts
-                ? 'compound.polylineMultiPath'
-                : result.entity.closed ? 'compound.polylineClosed' : 'compound.polylineOpen');
+            const kind = t(result.entity.closed ? 'compound.polylineClosed' : 'compound.polylineOpen');
             setMessage(t('compound.joined', { count: entityIds.length, kind }));
         } else {
-            setMessage(t('compound.exploded', { count: result.explodedCount, shapes: result.entities.length }));
+            setMessage(t(type === 'xplode' ? 'compound.xploded' : 'compound.exploded', {
+                count: result.explodedCount,
+                shapes: result.entities.length,
+                mode: t(options.appearanceMode === 'parent'
+                    ? 'compound.appearanceParent'
+                    : 'compound.appearanceParts'),
+            }));
         }
         return true;
     };
@@ -41,12 +49,50 @@ export default function useDrawingCompoundCommands({
         canvasRef.current?.cancel();
         const editableIds = selectedEntities.filter(entity => canEditEntity(history.content, entity)).map(entity => entity.id);
         if (editableIds.length) {
+            if (type === 'xplode') {
+                setInteractiveOperation({ type, stage: 'xplode-choice', entityIds: editableIds, appearanceMode: 'parts' });
+                setActiveTool('select');
+                setMessage(t('compound.xplodeOptions'));
+                commandBarRef.current?.focus('');
+                return;
+            }
             executeCompoundOperation(type, editableIds);
             return;
         }
-        setInteractiveOperation({ type, stage: 'select' });
+        setInteractiveOperation({ type, stage: 'select', ...(type === 'xplode' ? { appearanceMode: 'parts' } : {}) });
         setActiveTool('select');
         setMessage(t('compound.select', { operation: t(`operations.${type}`) }));
+    };
+
+    const activateCompoundSelection = (operation = interactiveOperation, entities = selectedEntities) => {
+        if (!['join', 'explode', 'xplode'].includes(operation?.type)) return false;
+        const entityIds = entities.filter(entity => canEditEntity(history.content, entity)).map(entity => entity.id);
+        if (!entityIds.length) {
+            setMessage(t(operation.type === 'join' ? 'compound.joinRequired' : 'compound.explodeRequired'));
+            return true;
+        }
+        if (operation.type !== 'xplode') return executeCompoundOperation(operation.type, entityIds);
+        setInteractiveOperation({ ...operation, stage: 'xplode-choice', entityIds });
+        setActiveTool('select');
+        setMessage(t('compound.xplodeOptions'));
+        commandBarRef.current?.focus('');
+        return true;
+    };
+
+    const submitCompoundValue = (rawValue, operation = interactiveOperation) => {
+        if (operation?.type !== 'xplode') return false;
+        if (operation.stage === 'select') return activateCompoundSelection(operation, selectedEntities);
+        if (operation.stage !== 'xplode-choice') return false;
+        const parsed = parseDrawingOperationOption(operation, rawValue);
+        let appearanceMode = operation.appearanceMode || 'parts';
+        if (parsed?.option === 'inheritParent') appearanceMode = 'parent';
+        else if (parsed?.option === 'keepParts') appearanceMode = 'parts';
+        else if (String(rawValue || '').trim()) {
+            setMessage(t('compound.xplodeChoiceInvalid'));
+            return true;
+        }
+        executeCompoundOperation('xplode', operation.entityIds, { appearanceMode });
+        return true;
     };
 
     const completeMirrorChoice = (operation, rawValue) => {
@@ -116,5 +162,12 @@ export default function useDrawingCompoundCommands({
         return true;
     };
 
-    return { beginCompoundOperation, completeMirrorChoice, executeCompoundOperation, handleMirrorPoint };
+    return {
+        activateCompoundSelection,
+        beginCompoundOperation,
+        completeMirrorChoice,
+        executeCompoundOperation,
+        handleMirrorPoint,
+        submitCompoundValue,
+    };
 }

@@ -76,6 +76,19 @@ test('preserves layouts and their model viewports in the document envelope', () 
     });
 });
 
+test('preserves layer and ByLayer object transparency in the document envelope', () => {
+    const document = createLcadDocument({ name: 'Transparency' });
+    document.content.layers[0].transparency = 45;
+    document.content.entities = [{
+        id: 'opaque-line', type: 'line', layerId: 'geometry',
+        x1: 0, y1: 0, x2: 1, y2: 1, transparency: 0,
+    }];
+
+    const normalized = normalizeLcadEnvelope(createLcadEnvelope(document));
+    assert.equal(normalized.document.content.layers[0].transparency, 45);
+    assert.equal(normalized.document.content.entities[0].transparency, 0);
+});
+
 test('normalizes supported image MIME types and rejects unsupported assets', () => {
     assert.equal(normalizeLcadImageMimeType(' IMAGE/JPG '), 'image/jpeg');
     assert.equal(normalizeLcadImageMimeType('image/tiff'), null);

@@ -3,6 +3,9 @@ const TAU = Math.PI * 2;
 const RELATIVE_NUMERIC_EPSILON = 1e-12;
 const MAX_GEOMETRY_MAGNITUDE = 1e12;
 const MAX_ARC_SEGMENTS = 4096;
+const MAX_CIRCLE_RENDER_SEGMENTS = 256;
+const DEFAULT_NATIVE_CIRCLE_RADIUS_RATIO = 8;
+const DEFAULT_CIRCLE_VIEWPORT_PADDING_RATIO = 0.04;
 
 export const DEFAULT_CIRCLE_SAFETY = Object.freeze({
     relativeCollinearityTolerance: 1e-10,
@@ -14,6 +17,7 @@ export const DEFAULT_CIRCLE_SAFETY = Object.freeze({
 export const DRAWING_GEOMETRY_EPSILON = EPSILON;
 export const DRAWING_GEOMETRY_MAX_MAGNITUDE = MAX_GEOMETRY_MAGNITUDE;
 export const DRAWING_CURVE_MAX_SEGMENTS = MAX_ARC_SEGMENTS;
+export const DRAWING_CIRCLE_MAX_RENDER_SEGMENTS = MAX_CIRCLE_RENDER_SEGMENTS;
 
 export function clamp(value, minimum, maximum) {
     return Math.min(maximum, Math.max(minimum, value));
@@ -42,6 +46,71 @@ export function pointOnCircle(center, radius, angle) {
     return {
         x: center.x + Math.cos(angle) * Math.abs(radius),
         y: center.y + Math.sin(angle) * Math.abs(radius),
+    };
+}
+
+/**
+ * Returns bounded SVG geometry for a circle in a specific viewport.
+ *
+ * Native SVG circles are cheap while their radius remains close to the
+ * viewport size. Very large off-screen circles are different: Chromium can
+ * spend substantial time and memory rasterising the enormous primitive even
+ * though only a tiny arc is visible. Those cases are clipped analytically to
+ * the viewport and emitted as a small, capped polyline path instead.
+ */
+export function getCircleViewportGeometry(circle, viewBox, options = {}) {
+    if (!isFiniteBoundedCircle(circle)) return null;
+    const viewport = normalizeCircleViewport(viewBox);
+    if (!viewport) return null;
+
+    const span = Math.max(viewport.width, viewport.height);
+    const configuredPadding = Number(options.padding);
+    const padding = Number.isFinite(configuredPadding) && configuredPadding >= 0
+        ? Math.min(configuredPadding, span)
+        : span * DEFAULT_CIRCLE_VIEWPORT_PADDING_RATIO;
+    const bounds = {
+        minX: viewport.x - padding,
+        minY: viewport.y - padding,
+        maxX: viewport.x + viewport.width + padding,
+        maxY: viewport.y + viewport.height + padding,
+    };
+    const radius = Math.abs(Number(circle.r));
+    const coordinateTolerance = circleViewportTolerance(circle, bounds, span);
+    if (!circleOutlineIntersectsBounds(circle, radius, bounds, coordinateTolerance)) return null;
+
+    const configuredRatio = Number(options.nativeRadiusRatio);
+    const nativeRadiusRatio = Number.isFinite(configuredRatio) && configuredRatio > 0
+        ? configuredRatio
+        : DEFAULT_NATIVE_CIRCLE_RADIUS_RATIO;
+    if (radius <= span * nativeRadiusRatio) {
+        return {
+            kind: 'circle',
+            cx: Number(circle.cx),
+            cy: Number(circle.cy),
+            r: radius,
+        };
+    }
+
+    const configuredMaximum = Math.floor(Number(options.maxSegments));
+    const maxSegments = Number.isFinite(configuredMaximum) && configuredMaximum > 0
+        ? Math.min(configuredMaximum, MAX_CIRCLE_RENDER_SEGMENTS)
+        : MAX_CIRCLE_RENDER_SEGMENTS;
+    const intersections = circleBoundsIntersectionAngles(circle, radius, bounds, coordinateTolerance);
+    const intervals = visibleCircleIntervals(circle, radius, bounds, intersections, coordinateTolerance);
+    const parts = sampleVisibleCircleIntervals(circle, radius, bounds, intervals, span, maxSegments);
+    if (!parts.length) {
+        const tangentPart = sampleCircleViewportTangent(circle, radius, bounds, intersections, span);
+        if (tangentPart) parts.push(tangentPart);
+    }
+    if (!parts.length) return null;
+
+    return {
+        kind: 'path',
+        d: parts.map(points => points.map((point, index) => (
+            `${index ? 'L' : 'M'} ${point.x} ${point.y}`
+        )).join(' ')).join(' '),
+        parts,
+        segmentCount: parts.reduce((count, points) => count + Math.max(0, points.length - 1), 0),
     };
 }
 
@@ -750,6 +819,158 @@ function solveQuadratic(a, b, c) {
 
 function dot(first, second) {
     return first.reduce((sum, value, index) => sum + value * second[index], 0);
+}
+
+function normalizeCircleViewport(viewBox) {
+    const x = Number(viewBox?.x);
+    const y = Number(viewBox?.y);
+    const width = Number(viewBox?.width);
+    const height = Number(viewBox?.height);
+    if (![x, y, width, height].every(Number.isFinite) || width <= EPSILON || height <= EPSILON) return null;
+    const maxViewportCoordinate = MAX_GEOMETRY_MAGNITUDE * 2;
+    if (Math.max(Math.abs(x), Math.abs(y), Math.abs(x + width), Math.abs(y + height)) > maxViewportCoordinate) return null;
+    return { x, y, width, height };
+}
+
+function circleViewportTolerance(circle, bounds, span) {
+    const magnitude = Math.max(
+        1,
+        Math.abs(Number(circle.cx)),
+        Math.abs(Number(circle.cy)),
+        Math.abs(Number(circle.r)),
+        Math.abs(bounds.minX),
+        Math.abs(bounds.minY),
+        Math.abs(bounds.maxX),
+        Math.abs(bounds.maxY),
+    );
+    return Math.max(EPSILON, span * RELATIVE_NUMERIC_EPSILON, magnitude * Number.EPSILON * 32);
+}
+
+function circleOutlineIntersectsBounds(circle, radius, bounds, tolerance) {
+    const centerX = Number(circle.cx);
+    const centerY = Number(circle.cy);
+    const closestX = clamp(centerX, bounds.minX, bounds.maxX);
+    const closestY = clamp(centerY, bounds.minY, bounds.maxY);
+    const nearestDistance = Math.hypot(centerX - closestX, centerY - closestY);
+    const farthestDistance = Math.max(
+        Math.hypot(centerX - bounds.minX, centerY - bounds.minY),
+        Math.hypot(centerX - bounds.maxX, centerY - bounds.minY),
+        Math.hypot(centerX - bounds.maxX, centerY - bounds.maxY),
+        Math.hypot(centerX - bounds.minX, centerY - bounds.maxY),
+    );
+    return nearestDistance <= radius + tolerance && farthestDistance >= radius - tolerance;
+}
+
+function circleBoundsIntersectionAngles(circle, radius, bounds, tolerance) {
+    const centerX = Number(circle.cx);
+    const centerY = Number(circle.cy);
+    const points = [];
+    const addPoint = (x, y) => {
+        if (!Number.isFinite(x) || !Number.isFinite(y)
+            || x < bounds.minX - tolerance || x > bounds.maxX + tolerance
+            || y < bounds.minY - tolerance || y > bounds.maxY + tolerance) return;
+        const point = {
+            x: clamp(x, bounds.minX, bounds.maxX),
+            y: clamp(y, bounds.minY, bounds.maxY),
+        };
+        if (!points.some(current => Math.hypot(current.x - point.x, current.y - point.y) <= tolerance)) points.push(point);
+    };
+    [bounds.minX, bounds.maxX].forEach(x => {
+        const delta = x - centerX;
+        if (Math.abs(delta) > radius + tolerance) return;
+        const squaredOffset = (radius - Math.abs(delta)) * (radius + Math.abs(delta));
+        const offset = Math.sqrt(Math.max(0, squaredOffset));
+        addPoint(x, centerY - offset);
+        addPoint(x, centerY + offset);
+    });
+    [bounds.minY, bounds.maxY].forEach(y => {
+        const delta = y - centerY;
+        if (Math.abs(delta) > radius + tolerance) return;
+        const squaredOffset = (radius - Math.abs(delta)) * (radius + Math.abs(delta));
+        const offset = Math.sqrt(Math.max(0, squaredOffset));
+        addPoint(centerX - offset, y);
+        addPoint(centerX + offset, y);
+    });
+
+    const angularTolerance = Math.max(Number.EPSILON * 64, tolerance / Math.max(radius, 1));
+    return points
+        .map(point => normalizeRadians(Math.atan2(point.y - centerY, point.x - centerX)))
+        .sort((left, right) => left - right)
+        .filter((angle, index, angles) => index === 0 || angle - angles[index - 1] > angularTolerance)
+        .filter((angle, index, angles) => index > 0 || angles.length < 2
+            || TAU - angles[angles.length - 1] + angle > angularTolerance);
+}
+
+function visibleCircleIntervals(circle, radius, bounds, angles, tolerance) {
+    if (angles.length < 2) return [];
+    const center = { x: Number(circle.cx), y: Number(circle.cy) };
+    const intervals = [];
+    angles.forEach((start, index) => {
+        const end = index + 1 < angles.length ? angles[index + 1] : angles[0] + TAU;
+        const sweep = end - start;
+        if (sweep <= Number.EPSILON * 64) return;
+        const midpoint = pointOnCircle(center, radius, start + sweep / 2);
+        if (pointIsInCircleViewport(midpoint, bounds, tolerance)) intervals.push({ start, sweep });
+    });
+    return intervals;
+}
+
+function sampleVisibleCircleIntervals(circle, radius, bounds, intervals, span, maxSegments) {
+    if (!intervals.length || maxSegments <= 0) return [];
+    const center = { x: Number(circle.cx), y: Number(circle.cy) };
+    const allowedError = Math.max(EPSILON, span / 2048);
+    const errorRatio = Math.min(1, allowedError / radius);
+    const maximumStep = errorRatio < 1e-4
+        ? Math.sqrt(8 * errorRatio)
+        : 2 * Math.acos(Math.max(-1, 1 - errorRatio));
+    const requested = intervals.map(interval => ({
+        ...interval,
+        segments: Math.max(1, Math.ceil(interval.sweep / Math.max(maximumStep, Number.EPSILON * 64))),
+    }));
+    const parts = [];
+    let remainingSegments = maxSegments;
+    requested.forEach((interval, index) => {
+        if (remainingSegments <= 0) return;
+        const remainingIntervals = requested.length - index - 1;
+        const segmentCount = Math.min(
+            interval.segments,
+            Math.max(1, remainingSegments - Math.min(remainingSegments - 1, remainingIntervals)),
+        );
+        const points = Array.from({ length: segmentCount + 1 }, (_, pointIndex) => (
+            clampCircleViewportPoint(
+                pointOnCircle(center, radius, interval.start + interval.sweep * pointIndex / segmentCount),
+                bounds,
+            )
+        ));
+        parts.push(points);
+        remainingSegments -= segmentCount;
+    });
+    return parts;
+}
+
+function sampleCircleViewportTangent(circle, radius, bounds, intersections, span) {
+    const center = { x: Number(circle.cx), y: Number(circle.cy) };
+    const viewportCenter = { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 };
+    const angle = intersections[0] ?? Math.atan2(viewportCenter.y - center.y, viewportCenter.x - center.x);
+    const halfSweep = Math.max(Number.EPSILON * 128, Math.min(span / radius, Math.PI / 64));
+    const points = [angle - halfSweep, angle, angle + halfSweep]
+        .map(value => pointOnCircle(center, radius, value))
+        .filter(point => pointIsInCircleViewport(point, bounds, span * 0.01))
+        .map(point => clampCircleViewportPoint(point, bounds));
+    return points.length >= 2 ? points : null;
+}
+
+function pointIsInCircleViewport(point, bounds, tolerance = 0) {
+    return Number.isFinite(point?.x) && Number.isFinite(point?.y)
+        && point.x >= bounds.minX - tolerance && point.x <= bounds.maxX + tolerance
+        && point.y >= bounds.minY - tolerance && point.y <= bounds.maxY + tolerance;
+}
+
+function clampCircleViewportPoint(point, bounds) {
+    return {
+        x: clamp(point.x, bounds.minX, bounds.maxX),
+        y: clamp(point.y, bounds.minY, bounds.maxY),
+    };
 }
 
 export function isFiniteBoundedCircle(circle, safety = {}) {
