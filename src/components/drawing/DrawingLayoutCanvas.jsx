@@ -2,21 +2,29 @@ import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, use
 
 import { DrawingReferenceControls } from '~components/drawing/DrawingInteractionOverlay';
 import DrawingLayoutPage from '~components/drawing/DrawingLayoutPage';
+import { DrawingTextEditor } from '~components/drawing/DrawingTextEditor';
 import { useI18n } from '~i18n/I18nProvider';
+import { canEditEntity, getEntityColor } from '~utils/drawingDocument';
 import { clientPointToViewBox, fitViewBox } from '~utils/drawingGeometry';
 import {
     MIN_VIEWPORT_SIZE_MM,
     constrainViewportToPaper,
     createDrawingViewport,
+    editDrawingPaperAnnotationGrip,
     getDrawingPaperSize,
     modelViewBoxFromViewport,
+    paperPointToViewportModelPoint,
     paperRectFromPoints,
     resizeDrawingViewportKeepingScale,
     scaleDrawingViewport,
+    setDrawingViewportClipPoint,
+    translateDrawingPaperAnnotation,
+    updateDrawingPaperAnnotation,
     updateDrawingViewport,
 } from '~utils/drawingLayouts';
 import { operationScaleFactor, previewReferenceTransform } from '~utils/drawingOperations';
 import { getOperationOrthogonalOrigin } from '~utils/drawingOperationOptions';
+import { drawingTextFontSizeToPixels, resolveDrawingTextStyle } from '~utils/drawingText';
 
 const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
     activeTool,
@@ -24,22 +32,33 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
     content,
     currentModelViewport,
     layout,
+    maximizedViewportId = null,
     onChange,
     onOperationPoint,
+    onSelectedPaperEntityChange,
     onSelectedViewportChange,
     onStatus,
     operation,
+    selectedPaperEntityId,
     selectedViewportId,
 }, forwardedRef) {
     const { t } = useI18n();
     const svgRef = useRef(null);
     const [gesture, setGesture] = useState(null);
     const [operationPoint, setOperationPoint] = useState(null);
-    const paper = useMemo(
-        () => getDrawingPaperSize(layout.format, layout.orientation),
-        [layout.format, layout.orientation],
-    );
+    const [editingPaperEntityId, setEditingPaperEntityId] = useState(null);
+    const paperSize = getDrawingPaperSize(layout);
+    const paper = useMemo(() => paperSize, [paperSize.height, paperSize.width]);
     const [layoutViewBox, setLayoutViewBox] = useState(() => fitPaperViewBox(paper));
+    const maximizedViewport = layout.viewports.find(viewport => viewport.id === maximizedViewportId) || null;
+    const displayViewBox = maximizedViewport
+        ? {
+            x: maximizedViewport.x,
+            y: maximizedViewport.y,
+            width: maximizedViewport.width,
+            height: maximizedViewport.height,
+        }
+        : layoutViewBox;
 
     useEffect(() => {
         setGesture(null);
@@ -50,10 +69,16 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
         setOperationPoint(null);
     }, [operation?.stage, operation?.type, operation?.referencePoints?.length]);
 
+    useEffect(() => {
+        if (maximizedViewportId || !layout.paperEntities?.some(entity => entity.id === editingPaperEntityId)) {
+            setEditingPaperEntityId(null);
+        }
+    }, [editingPaperEntityId, layout.id, layout.paperEntities, maximizedViewportId]);
+
     const canvasPoint = event => clientPointToViewBox(
         event,
         svgRef.current.getBoundingClientRect(),
-        layoutViewBox,
+        displayViewBox,
     );
 
     const canvasPointForViewBox = (event, viewBox) => clientPointToViewBox(
@@ -79,9 +104,17 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
 
     const targetDetails = event => {
         const target = event.target.closest?.('[data-layout-viewport-id]');
+        const paperRoot = event.target.closest?.('.drawing-layout-paper-annotations');
+        const paperTarget = paperRoot ? event.target.closest?.('[data-entity-id]') : null;
+        const gripTarget = paperRoot ? event.target.closest?.('[data-grip-id]') : null;
         return {
             id: target?.dataset?.layoutViewportId || null,
             handle: target?.dataset?.layoutViewportHandle || null,
+            clipIndex: target?.dataset?.layoutViewportClipIndex === undefined
+                ? null
+                : Number(target.dataset.layoutViewportClipIndex),
+            paperEntityId: paperTarget?.dataset?.entityId || null,
+            paperGripId: gripTarget?.dataset?.gripId || null,
         };
     };
 
@@ -161,6 +194,10 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
     };
 
     const startModelPan = (event, viewport, resume = null) => {
+        if (viewport.locked) {
+            onStatus?.(t('layout.viewportLocked'));
+            return;
+        }
         event.preventDefault();
         onSelectedViewportChange(viewport.id);
         svgRef.current.setPointerCapture(event.pointerId);
@@ -211,8 +248,32 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
             return;
         }
 
+        const paperEntity = layout.paperEntities?.find(entity => entity.id === target.paperEntityId);
+        if (paperEntity && activeTool === 'select') {
+            event.preventDefault();
+            onSelectedViewportChange(null);
+            onSelectedPaperEntityChange?.(paperEntity.id);
+            setEditingPaperEntityId(null);
+            if (!canEditEntity(content, paperEntity)) {
+                setGesture(null);
+                return;
+            }
+            svgRef.current.setPointerCapture(event.pointerId);
+            setGesture({
+                kind: target.paperGripId ? 'paper-grip' : 'paper-move',
+                entityId: paperEntity.id,
+                gripId: target.paperGripId,
+                start: point,
+                initialLayout: layout,
+                previewLayout: layout,
+            });
+            return;
+        }
+
         if (!target.id) {
             onSelectedViewportChange(null);
+            onSelectedPaperEntityChange?.(null);
+            setEditingPaperEntityId(null);
             setGesture(null);
             return;
         }
@@ -225,6 +286,17 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
         }
         if (activeTool === 'pan-view') {
             startModelPan(event, viewport);
+        } else if (target.clipIndex !== null) {
+            event.preventDefault();
+            onSelectedViewportChange(viewport.id);
+            svgRef.current.setPointerCapture(event.pointerId);
+            setGesture({
+                kind: 'clip-resize',
+                viewportId: viewport.id,
+                clipIndex: target.clipIndex,
+                initial: viewport,
+                preview: viewport,
+            });
         } else if (target.handle) {
             event.preventDefault();
             onSelectedViewportChange(viewport.id);
@@ -257,7 +329,31 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
             setGesture(current => ({ ...current, current: point }));
             return;
         }
-        if (!['move', 'resize', 'pan-model'].includes(gesture?.kind)) return;
+        if (gesture?.kind === 'paper-move') {
+            setGesture(current => ({
+                ...current,
+                previewLayout: translateDrawingPaperAnnotation(
+                    current.initialLayout,
+                    current.entityId,
+                    point.x - current.start.x,
+                    point.y - current.start.y,
+                ),
+            }));
+            return;
+        }
+        if (gesture?.kind === 'paper-grip') {
+            setGesture(current => ({
+                ...current,
+                previewLayout: editDrawingPaperAnnotationGrip(
+                    current.initialLayout,
+                    current.entityId,
+                    current.gripId,
+                    point,
+                ),
+            }));
+            return;
+        }
+        if (!['move', 'resize', 'clip-resize', 'pan-model'].includes(gesture?.kind)) return;
         let preview;
         if (gesture.kind === 'move') {
             preview = constrainViewportToPaper({
@@ -267,15 +363,17 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
             }, paper);
         } else if (gesture.kind === 'resize') {
             preview = resizeViewport(gesture.initial, gesture.handle, point, paper);
+        } else if (gesture.kind === 'clip-resize') {
+            preview = setDrawingViewportClipPoint(gesture.initial, gesture.clipIndex, point);
         } else {
-            const scaleX = gesture.initial.modelViewBox.width / gesture.initial.width;
-            const scaleY = gesture.initial.modelViewBox.height / gesture.initial.height;
+            const start = paperPointToViewportModelPoint(gesture.initial, gesture.start);
+            const current = paperPointToViewportModelPoint(gesture.initial, point);
             preview = {
                 ...gesture.initial,
                 modelViewBox: {
                     ...gesture.initial.modelViewBox,
-                    x: gesture.initial.modelViewBox.x - (point.x - gesture.start.x) * scaleX,
-                    y: gesture.initial.modelViewBox.y - (point.y - gesture.start.y) * scaleY,
+                    x: gesture.initial.modelViewBox.x + start.x - current.x,
+                    y: gesture.initial.modelViewBox.y + start.y - current.y,
                 },
             };
         }
@@ -289,7 +387,13 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
             onStatus?.(t('layout.paperPanUpdated'));
             return;
         }
-        if (!['move', 'resize', 'pan-model'].includes(gesture?.kind)) return;
+        if (['paper-move', 'paper-grip'].includes(gesture?.kind)) {
+            if (gesture.previewLayout && gesture.previewLayout !== gesture.initialLayout) onChange(gesture.previewLayout);
+            if (svgRef.current?.hasPointerCapture(event.pointerId)) svgRef.current.releasePointerCapture(event.pointerId);
+            setGesture(null);
+            return;
+        }
+        if (!['move', 'resize', 'clip-resize', 'pan-model'].includes(gesture?.kind)) return;
         if (gesture.preview) onChange(updateDrawingViewport(layout, gesture.viewportId, gesture.preview));
         if (svgRef.current?.hasPointerCapture(event.pointerId)) svgRef.current.releasePointerCapture(event.pointerId);
         setGesture(gesture.resume || null);
@@ -312,12 +416,17 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
             return;
         }
         onSelectedViewportChange(viewport.id);
+        if (viewport.locked) {
+            onStatus?.(t('layout.viewportLocked'));
+            return;
+        }
         const point = paperPoint(event);
-        const ratioX = clamp((point.x - viewport.x) / viewport.width, 0, 1);
-        const ratioY = clamp((point.y - viewport.y) / viewport.height, 0, 1);
         const viewBox = viewport.modelViewBox;
-        const focalX = viewBox.x + viewBox.width * ratioX;
-        const focalY = viewBox.y + viewBox.height * ratioY;
+        const focal = paperPointToViewportModelPoint(viewport, point);
+        const ratioX = clamp((focal.x - viewBox.x) / viewBox.width, 0, 1);
+        const ratioY = clamp((focal.y - viewBox.y) / viewBox.height, 0, 1);
+        const focalX = focal.x;
+        const focalY = focal.y;
         const factor = event.deltaY > 0 ? 1.12 : 0.88;
         const width = clamp(viewBox.width * factor, 0.000001, 1_000_000);
         const height = width * viewport.height / viewport.width;
@@ -331,11 +440,25 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
         onStatus?.(t('layout.zoomUpdated'));
     };
 
+    const handleDoubleClick = event => {
+        if (activeTool !== 'select' || maximizedViewportId) return;
+        const { paperEntityId } = targetDetails(event);
+        const entity = layout.paperEntities?.find(candidate => candidate.id === paperEntityId);
+        if (entity?.type !== 'text' || !canEditEntity(content, entity)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setGesture(null);
+        onSelectedViewportChange(null);
+        onSelectedPaperEntityChange?.(entity.id);
+        setEditingPaperEntityId(entity.id);
+        onStatus?.(t('textEditor.opened'));
+    };
+
     const previewViewport = gesture?.preview || null;
-    let previewLayout = previewViewport ? {
+    let previewLayout = gesture?.previewLayout || (previewViewport ? {
         ...layout,
         viewports: layout.viewports.map(viewport => viewport.id === previewViewport.id ? previewViewport : viewport),
-    } : layout;
+    } : layout);
     if (!previewViewport && operation?.scope === 'viewport' && operationPoint) {
         const reference = previewReferenceTransform(operation, operationPoint);
         const factor = reference?.valid
@@ -350,19 +473,26 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
     }
     const draftViewport = gesture?.kind === 'create' ? paperRectFromPoints(gesture.first, gesture.current) : null;
     const canvasWidth = svgRef.current?.getBoundingClientRect().width || 1000;
-    const markerSize = Math.max(2.5, layoutViewBox.width / canvasWidth * 18);
+    const canvasRect = svgRef.current?.getBoundingClientRect();
+    const markerSize = Math.max(2.5, displayViewBox.width / canvasWidth * 18);
+    const editingPaperEntity = layout.paperEntities?.find(entity => entity.id === editingPaperEntityId) || null;
+    const textEditorStyle = editingPaperEntity && canvasRect
+        ? getPaperTextEditorOverlayStyle(editingPaperEntity, displayViewBox, canvasRect, content.textStyles)
+        : null;
 
     return (
         <div className={`drawing-layout-canvas is-tool-${activeTool} ${['pan-paper', 'pan-model'].includes(gesture?.kind) ? 'is-panning' : ''}`}>
             <DrawingLayoutPage
                 ref={svgRef}
                 assets={assets}
-                canvasViewBox={layoutViewBox}
+                canvasViewBox={displayViewBox}
                 content={content}
                 draftViewport={draftViewport}
                 emptyLabel={t('layout.empty')}
+                editingPaperEntityId={editingPaperEntityId}
                 interactive
                 layout={previewLayout}
+                maximizedViewportId={maximizedViewportId}
                 overlay={(
                     <DrawingReferenceControls
                         currentPoint={operationPoint}
@@ -371,6 +501,8 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
                     />
                 )}
                 selectedViewportId={selectedViewportId}
+                selectedPaperEntityId={selectedPaperEntityId}
+                onDoubleClick={handleDoubleClick}
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
@@ -382,6 +514,28 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
                 role="application"
                 aria-label={t('layout.canvas', { name: layout.name })}
             />
+            {editingPaperEntity && textEditorStyle && (
+                <DrawingTextEditor
+                    entity={editingPaperEntity}
+                    textStyles={content.textStyles}
+                    labels={drawingTextEditorLabels(t)}
+                    fallbackColor={getEntityColor(content, editingPaperEntity)}
+                    toolbarPlacement={textEditorStyle.toolbarPlacement}
+                    style={textEditorStyle.root}
+                    contentStyle={textEditorStyle.content}
+                    onCommit={entity => {
+                        if (JSON.stringify(entity) !== JSON.stringify(editingPaperEntity)) {
+                            onChange(updateDrawingPaperAnnotation(layout, editingPaperEntity.id, entity));
+                        }
+                        setEditingPaperEntityId(null);
+                        onStatus?.(t('textEditor.committed'));
+                    }}
+                    onCancel={() => {
+                        setEditingPaperEntityId(null);
+                        onStatus?.(t('textEditor.cancelled'));
+                    }}
+                />
+            )}
         </div>
     );
 });
@@ -435,6 +589,74 @@ function zoomPaperViewBox(viewBox, factor, focalPoint, paper) {
 
 function viewBoxCenter(viewBox) {
     return { x: viewBox.x + viewBox.width / 2, y: viewBox.y + viewBox.height / 2 };
+}
+
+function getPaperTextEditorOverlayStyle(entity, viewBox, canvasRect, textStyles) {
+    if (!canvasRect.width || !canvasRect.height || !viewBox.width || !viewBox.height) return null;
+    const scale = Math.min(canvasRect.width / viewBox.width, canvasRect.height / viewBox.height);
+    const offsetX = (canvasRect.width - viewBox.width * scale) / 2;
+    const offsetY = (canvasRect.height - viewBox.height * scale) / 2;
+    const left = offsetX + (entity.x - viewBox.x) * scale;
+    const top = offsetY + (entity.y - viewBox.y) * scale;
+    const textStyle = resolveDrawingTextStyle(entity, textStyles);
+    return {
+        toolbarPlacement: top < 110 ? 'below' : 'above',
+        root: {
+            left: `${left}px`,
+            top: `${top}px`,
+            width: `${Math.max(48, Math.abs(entity.width) * scale)}px`,
+            height: `${Math.max(30, Math.abs(entity.height) * scale)}px`,
+        },
+        content: {
+            fontFamily: textStyle.cssFontFamily,
+            fontSize: `${drawingTextFontSizeToPixels(textStyle.fontSize, scale)}px`,
+            lineHeight: textStyle.lineHeight,
+            transform: Number(entity.rotation) ? `rotate(${Number(entity.rotation)}deg)` : undefined,
+            transformOrigin: 'center',
+        },
+    };
+}
+
+function drawingTextEditorLabels(t) {
+    return {
+        editor: t('textEditor.editor'),
+        toolbar: t('textEditor.toolbar'),
+        content: t('textEditor.content'),
+        textStyle: t('textEditor.textStyle'),
+        font: t('textEditor.font'),
+        fontSize: t('textEditor.fontSize'),
+        mixed: t('textEditor.mixed'),
+        bold: t('textEditor.bold'),
+        italic: t('textEditor.italic'),
+        underline: t('textEditor.underline'),
+        strikethrough: t('textEditor.strikethrough'),
+        color: t('textEditor.color'),
+        textMode: t('textEditor.textMode'),
+        wrapMode: t('textEditor.wrapMode'),
+        alignment: t('textEditor.alignment'),
+        commit: t('textEditor.commit'),
+        cancel: t('textEditor.cancel'),
+        fonts: {
+            sans: t('textEditor.fonts.sans'),
+            serif: t('textEditor.fonts.serif'),
+            monospace: t('textEditor.fonts.monospace'),
+            technical: t('textEditor.fonts.technical'),
+        },
+        textModes: {
+            singleLine: t('textEditor.textModes.singleLine'),
+            multiline: t('textEditor.textModes.multiline'),
+        },
+        wrapModes: {
+            word: t('textEditor.wrapModes.word'),
+            character: t('textEditor.wrapModes.character'),
+            none: t('textEditor.wrapModes.none'),
+        },
+        alignments: {
+            left: t('textEditor.alignments.left'),
+            center: t('textEditor.alignments.center'),
+            right: t('textEditor.alignments.right'),
+        },
+    };
 }
 
 export default DrawingLayoutCanvas;

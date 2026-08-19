@@ -1,56 +1,71 @@
 import { invoke } from '@tauri-apps/api/core';
 
 import {
-    DRAWING_ORIENTATION_OPTIONS,
-    DRAWING_PAPER_FORMATS,
+    DRAWING_CUSTOM_PAPER_FORMAT,
     getDrawingPaperSize,
+    normalizePaperFormat,
+    normalizePaperOrientation,
 } from './drawingLayouts.js';
 import { isTauriRuntime } from './lcadStorage.js';
 
 const CSS_PIXELS_PER_MM = 96 / 25.4;
-const WEBKIT_PAGE_CONTENT_INSET_PX = 2;
+const CSS_PIXELS_PER_POINT = 96 / 72;
+const POSTSCRIPT_POINTS_PER_MM = 72 / 25.4;
+// WebKit and native print drivers quantize CSS boxes to device pixels. Large
+// A-series sheets can therefore round a nominally exact box beyond the physical
+// page boundary and create a blank second page. Two PostScript points absorb
+// the additional A1 driver rounding seen in WebKit while remaining below
+// 0.71 mm; @page and the native paper profile retain their exact dimensions.
+export const DRAWING_PRINT_CONTENT_EDGE_GUARD_POINTS = 2;
 
 export function createDrawingPrintPageStyle(layouts) {
     const profiles = new Map((layouts || []).map(layout => {
         const pageName = getDrawingPrintPageName(layout);
-        const pageSize = getDrawingPrintPagePixelSize(layout);
-        return [pageName, pageSize];
+        const paper = getDrawingPaperSize(layout);
+        return [pageName, paper];
     }));
-    return [...profiles].map(([pageName, pageSize]) => (
-        `@page ${pageName} { size: ${pageSize.width}px ${pageSize.height}px; margin: 0; }\n`
+    return [...profiles].map(([pageName, paper]) => (
+        `@page ${pageName} { size: ${paper.width}mm ${paper.height}mm; margin: 0; }\n`
         + `.drawing-layout-print-page[data-print-page="${pageName}"] { page: ${pageName}; }`
     )).join('\n');
 }
 
 export function getDrawingPrintPageName(layout) {
-    const formatValue = String(layout?.format || '').trim().toUpperCase();
-    const format = Object.hasOwn(DRAWING_PAPER_FORMATS, formatValue) ? formatValue : 'A0';
-    const orientationValue = String(layout?.orientation || '').trim().toLowerCase();
-    const orientation = DRAWING_ORIENTATION_OPTIONS.includes(orientationValue)
-        ? orientationValue
-        : 'landscape';
-    return `layout-${format.toLowerCase()}-${orientation}`;
+    const paper = getDrawingPaperSize(layout);
+    const format = normalizePaperFormat(layout?.format);
+    if (format !== DRAWING_CUSTOM_PAPER_FORMAT) {
+        return `layout-${format.toLowerCase()}-${normalizePaperOrientation(layout?.orientation)}`;
+    }
+    return `layout-custom-${dimensionToken(paper.width)}x${dimensionToken(paper.height)}`;
 }
 
 export function getDrawingPrintPagePixelSize(layout) {
-    const paper = getDrawingPaperSize(layout.format, layout.orientation);
+    const paper = getDrawingPaperSize(layout);
     return {
         width: physicalMillimetresToCssPixels(paper.width),
         height: physicalMillimetresToCssPixels(paper.height),
     };
 }
 
-export function getDrawingPrintContentSize(layout) {
-    const pageSize = getDrawingPrintPagePixelSize(layout);
+export function getDrawingPrintPagePointSize(layout) {
+    const paper = getDrawingPaperSize(layout);
     return {
-        width: pageSize.width - WEBKIT_PAGE_CONTENT_INSET_PX,
-        height: pageSize.height - WEBKIT_PAGE_CONTENT_INSET_PX,
+        width: paper.width * POSTSCRIPT_POINTS_PER_MM,
+        height: paper.height * POSTSCRIPT_POINTS_PER_MM,
+    };
+}
+
+export function getDrawingPrintContentSize(layout) {
+    const points = getDrawingPrintPagePointSize(layout);
+    return {
+        width: physicalPointsToCssPixels(Math.max(0, points.width - DRAWING_PRINT_CONTENT_EDGE_GUARD_POINTS)),
+        height: physicalPointsToCssPixels(Math.max(0, points.height - DRAWING_PRINT_CONTENT_EDGE_GUARD_POINTS)),
     };
 }
 
 export function getCommonDrawingPrintPage(layouts) {
     const profiles = new Map((layouts || []).map(layout => {
-        const paper = getDrawingPaperSize(layout.format, layout.orientation);
+        const paper = getDrawingPaperSize(layout);
         return [`${paper.width}x${paper.height}`, paper];
     }));
     return profiles.size === 1 ? profiles.values().next().value : null;
@@ -117,5 +132,13 @@ function nextFrame(targetWindow) {
 }
 
 function physicalMillimetresToCssPixels(millimetres) {
-    return Math.max(1, Math.floor(millimetres * CSS_PIXELS_PER_MM));
+    return Math.max(1, millimetres * CSS_PIXELS_PER_MM);
+}
+
+function physicalPointsToCssPixels(points) {
+    return Math.max(1, points * CSS_PIXELS_PER_POINT);
+}
+
+function dimensionToken(value) {
+    return String(Math.round(Number(value) * 1_000));
 }

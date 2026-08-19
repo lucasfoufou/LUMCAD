@@ -14,6 +14,7 @@ import {
     normalizeCurvePrimitive,
     pathSubpath,
 } from './drawingCurveKernel.js';
+import { getDrawingEntityDependencyIds } from './drawingDimensions.js';
 
 const TAU = Math.PI * 2;
 const EPSILON = 1e-9;
@@ -30,7 +31,7 @@ const GEOMETRY_KEYS = new Set([
 ]);
 const PART_METADATA_KEYS = new Set([
     'id', 'layerId', 'color', 'lineWeight', 'lineWidth', 'lineType', 'transparency', 'locked',
-    'sourceId', 'previewMode',
+    'sourceId', 'sourceIds', 'previewMode',
 ]);
 
 export const DRAWING_TRIM_EXTEND_LIMITS = Object.freeze({
@@ -760,7 +761,7 @@ function replaceDrawingTargets(content, replacementMap) {
         ...content,
         entities: content.entities.flatMap(entity => {
             if (affected.has(entity.id)) return replacementMap.get(entity.id);
-            if (affected.has(entity.sourceId)) return [];
+            if (getDrawingEntityDependencyIds(entity).some(id => affected.has(id))) return [];
             return [entity];
         }),
     };

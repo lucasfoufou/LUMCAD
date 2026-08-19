@@ -16,7 +16,7 @@ test('creates and normalizes a versioned LUMCAD document', () => {
     const normalized = normalizeLcadEnvelope(envelope);
 
     assert.equal(normalized.format, 'lumcad');
-    assert.equal(normalized.formatVersion, 1);
+    assert.equal(normalized.formatVersion, 2);
     assert.equal(normalized.document.name, 'Toiture nord');
     assert.equal(normalized.document.content.unit, 'm');
     assert.equal(normalized.document.layouts.length, 1);
@@ -27,7 +27,17 @@ test('creates and normalizes a versioned LUMCAD document', () => {
 
 test('rejects foreign and future file formats', () => {
     assert.throws(() => normalizeLcadEnvelope({ format: 'other', formatVersion: 1, document: {} }), /LUMCAD/);
-    assert.throws(() => normalizeLcadEnvelope({ format: 'lumcad', formatVersion: 2, document: {} }), /version 2/i);
+    assert.throws(() => normalizeLcadEnvelope({ format: 'lumcad', formatVersion: 3, document: {} }), /version 3/i);
+});
+
+test('migrates readable version 1 envelopes to the current format', () => {
+    const normalized = normalizeLcadEnvelope({
+        format: 'lumcad',
+        formatVersion: 1,
+        document: createLcadDocument({ name: 'Legacy drawing' }),
+    });
+    assert.equal(normalized.formatVersion, 2);
+    assert.equal(normalized.document.name, 'Legacy drawing');
 });
 
 test('keeps portable embedded images and drops external references', () => {
@@ -68,6 +78,12 @@ test('preserves layouts and their model viewports in the document envelope', () 
         id: 'viewport-roof',
         name: '',
         hiddenLayerIds: ['references'],
+        locked: false,
+        viewRotation: 0,
+        clipBoundary: null,
+        visualSettings: { style: 'normal', showLineweights: true },
+        annotationSettings: { showText: true, showDimensions: true, dimensionTextSizeMm: 3 },
+        layerOverrides: [],
         x: 20,
         y: 25,
         width: 210,

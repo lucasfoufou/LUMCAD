@@ -1,6 +1,6 @@
 # LUMCAD `.lcad` file format
 
-This document describes version 1 of the LUMCAD file format.
+This document describes version 2 of the LUMCAD file format. Version 1 archives remain readable and are normalized to the version 2 document model when opened.
 
 ## Container
 
@@ -23,19 +23,48 @@ The manifest is UTF-8 JSON. Its top-level structure is:
 ```json
 {
   "format": "lumcad",
-  "formatVersion": 1,
+  "formatVersion": 2,
   "appVersion": "0.1.0",
   "document": {
     "id": "drawing-…",
     "name": "Drawing",
-    "content": {},
+    "content": {
+      "textStyles": [
+        {
+          "id": "text-style-standard",
+          "name": "Standard",
+          "fontFamily": "sans",
+          "fontSize": 0.35,
+          "fontWeight": 400,
+          "fontStyle": "normal",
+          "underline": false,
+          "strikethrough": false,
+          "lineHeight": 1.2
+        }
+      ],
+      "activeTextStyleId": "text-style-standard"
+    },
     "assets": [],
+    "pageSetups": [
+      {
+        "id": "page-setup-…",
+        "name": "Production",
+        "format": "CUSTOM",
+        "orientation": "landscape",
+        "customPaperSize": { "width": 610, "height": 330 },
+        "margins": { "top": 8, "right": 9, "bottom": 10, "left": 11 }
+      }
+    ],
     "layouts": [
       {
         "id": "layout-…",
         "name": "Layout 1",
-        "format": "A3",
+        "format": "CUSTOM",
         "orientation": "landscape",
+        "customPaperSize": { "width": 610, "height": 330 },
+        "margins": { "top": 8, "right": 9, "bottom": 10, "left": 11 },
+        "pageSetupId": "page-setup-…",
+        "paperEntities": [],
         "viewports": [
           {
             "id": "viewport-…",
@@ -45,6 +74,26 @@ The manifest is UTF-8 JSON. Its top-level structure is:
             "width": 260,
             "height": 180,
             "hiddenLayerIds": ["references"],
+            "locked": true,
+            "viewRotation": 15,
+            "clipBoundary": {
+              "type": "polygon",
+              "points": [
+                { "x": 0, "y": 0 },
+                { "x": 1, "y": 0 },
+                { "x": 0.85, "y": 1 },
+                { "x": 0.1, "y": 0.8 }
+              ]
+            },
+            "visualSettings": { "style": "monochrome", "showLineweights": false },
+            "annotationSettings": {
+              "showText": true,
+              "showDimensions": true,
+              "dimensionTextSizeMm": 3
+            },
+            "layerOverrides": [
+              { "layerId": "geometry", "color": "#000000", "lineType": "dashed", "lineWeight": 3 }
+            ],
             "modelViewBox": {
               "x": -5,
               "y": -3,
@@ -61,7 +110,11 @@ The manifest is UTF-8 JSON. Its top-level structure is:
 }
 ```
 
-Each layout uses one ISO A-series format (`A4`, `A3`, `A2`, `A1`, or `A0`) and an `orientation` of `landscape` or `portrait`. Viewport rectangle coordinates and dimensions are expressed in paper millimetres. `modelViewBox` points to the visible model-space rectangle in metres; its aspect ratio is normalized to the paper viewport so printed geometry is not distorted. `hiddenLayerIds` hides layers only inside that viewport and does not change their model-space visibility.
+Each layout uses one ISO A-series format (`A4`, `A3`, `A2`, `A1`, or `A0`) or `CUSTOM`, plus an `orientation` of `landscape` or `portrait`. `customPaperSize` and `margins` are expressed in paper millimetres. A reusable entry in `pageSetups` stores the same paper properties; `pageSetupId` records which profile supplied a layout's current setup. The layout retains its normalized paper values even if that profile is later removed.
+
+`paperEntities` contains text, line, and rectangle annotations in paper millimetres. They use the same normalized entity/editing primitives as their model-space counterparts while remaining scoped to one layout. Viewport rectangle coordinates and dimensions also use paper millimetres. `modelViewBox` points to the visible model-space rectangle in metres; its aspect ratio is normalized to the paper viewport so printed geometry is not distorted. `hiddenLayerIds` hides layers only inside that viewport and does not change their model-space visibility.
+
+Viewport `viewRotation` is stored in degrees. A polygonal `clipBoundary` uses normalized viewport coordinates from `0` through `1`. `locked` prevents accidental model-view changes. `visualSettings`, `annotationSettings`, and `layerOverrides` control only that viewport and leave model-space entities unchanged. Layer overrides may contain a colour, linetype, and/or lineweight.
 
 The viewport display scale is derived rather than stored: its exact `1/X` denominator is `modelViewBox.width × 1000 / viewport.width`, converting model metres to paper millimetres.
 
@@ -102,7 +155,15 @@ Drawing coordinates and distances are stored in metres. Circular and elliptical 
 
 An ellipse with `fullEllipse: true` ignores its angular interval. A spline is one exact cubic Bézier span and therefore has four control points. Ordered mixed curves are stored as a `polyline` with `parts`; each part retains its native `line`, `arc`, `circle`, `ellipse`, or `spline` geometry instead of being sampled into chords. `closed: true` means the final endpoint meets the first endpoint. A compound object may retain appearance properties on individual parts for `XPLODE`; normal `EXPLODE` applies the parent appearance.
 
-Hatch-like boundary data uses bounded `boundaries` (or legacy `loops`) containing point loops, exact path objects, or supported curve entities. These boundaries remain exact when used by clipboard interchange and compound operations. Associative dimensions continue to reference their source through `sourceId`; block-local dimensions reference child IDs inside their own definition.
+Hatch-like boundary data uses bounded `boundaries` (or legacy `loops`) containing point loops, exact path objects, or supported curve entities. These boundaries remain exact when used by clipboard interchange and compound operations. Associative annotations reference one source through `sourceId` or several sources through `sourceIds`; block-local annotations reference child IDs inside their own definition.
+
+## Rich text and dimensions
+
+Model-space and paper-space text use the same normalized text entity. `text` is the plain compatibility value, while ordered `runs` preserve rich marks such as bold, italic, underline, strikethrough, colour, font family, and font size. `textMode` is `singleLine` or `multiline`; `wrapMode` is `word`, `character`, or `none`. `textStyleId` refers to a named entry in `document.content.textStyles`. Entity-level fields remain optional overrides so later named-style edits can propagate.
+
+The persistent dimension families are `linearDimension`, `radialDimension`, `angularDimension`, `arcLengthDimension`, `ordinateDimension`, and `centerMark`. Their geometry is stored exactly in metres/radians and may be free or associative through `sourceId`/`sourceIds`. `dimensionFormat` stores precision, prefix/suffix, deviation/symmetric/limits tolerance, alternate length units, and inspection label/rate. The formatter is shared by canvas, layout, clipboard SVG, and exploded text so these representations remain consistent.
+
+QDIM linear entities keep an editable series identity through `seriesId`, `seriesMode`, `seriesIndex`, and the normalized `seriesAxis`. `sourcePointReferences` retains the two associative stations used by each member. Baseline series additionally persist `baselineEnd` and `baselineReference`, allowing the shared editor to reverse the baseline between the first and last station without losing source associations or entity appearance.
 
 ## Layer and object appearance
 
@@ -204,7 +265,7 @@ Duplicate paths, missing files, unreferenced entries, unsupported image types, m
 
 ## Versioning
 
-Version 1 archives require `formatVersion: 1` in `manifest.json`. Files with another format version are rejected so future schema changes can be handled explicitly.
+The current writer emits `formatVersion: 2`. Readers accept versions 1 and 2; version 1 documents receive default text-style, page-setup, paper-annotation, and extended viewport fields during normalization. The original IDs and all unaffected geometry are retained. Versions below 1 and future versions above 2 are rejected so later schema changes can be handled explicitly.
 
 ## Atomic writes and recovery
 

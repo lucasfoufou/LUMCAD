@@ -21,6 +21,7 @@ import {
 } from './drawingBlocks.js';
 import { getHatchBoundaryEntities } from './drawingAdvancedEntities.js';
 import { curvePointAt, normalizeCurvePrimitive } from './drawingCurveKernel.js';
+import { DRAWING_QDIM_GRIP_IDS, isDrawingDimensionEntity } from './drawingDimensions.js';
 
 const EPSILON = 1e-9;
 
@@ -117,9 +118,37 @@ export function getEntityGrips(entity, source = null) {
         { id: 'center', x: entity.cx, y: entity.cy },
         { id: 'radius', x: entity.cx + Math.abs(entity.r), y: entity.cy },
     ] : [];
-    if (entity.type === 'linearDimension' || entity.type === 'radialDimension') {
+    if (isDrawingDimensionEntity(entity)) {
         const geometry = getDimensionGeometry(entity, source);
-        return geometry ? [{ id: 'dimension-position', x: geometry.text.x, y: geometry.text.y }] : [];
+        if (!geometry) return [];
+        if (entity.type === 'linearDimension' && entity.seriesId) {
+            const seriesIndex = Math.max(0, Math.trunc(Number(entity.seriesIndex) || 0));
+            if (seriesIndex === 0 && geometry.label) return [
+                { id: DRAWING_QDIM_GRIP_IDS.offset, ...geometry.label.point },
+            ];
+            if (entity.seriesMode === 'baseline' && seriesIndex === 1 && geometry.label) return [
+                { id: DRAWING_QDIM_GRIP_IDS.spacing, ...geometry.label.point },
+            ];
+            return [];
+        }
+        if (geometry.kind === 'ordinate') return [
+            { id: 'ordinate-origin', ...geometry.origin },
+            { id: 'ordinate-feature', ...geometry.feature },
+            { id: 'dimension-position', ...geometry.text },
+        ];
+        if (geometry.kind === 'centerMark') return [
+            { id: 'center-mark-size', x: geometry.center.x + geometry.size, y: geometry.center.y },
+        ];
+        const grips = geometry.label
+            ? [{ id: 'dimension-position', ...geometry.label.point }]
+            : geometry.text ? [{ id: 'dimension-position', ...geometry.text }] : [];
+        if (geometry.kind === 'radial' && geometry.mode === 'joggedRadius') {
+            grips.push(
+                { id: 'jog-center', ...geometry.jogCenter },
+                { id: 'jog-point', ...geometry.jogPoint },
+            );
+        }
+        return grips;
     }
     return [];
 }
@@ -229,24 +258,53 @@ export function editEntityGrip(entity, gripId, point, source = null) {
     if (gripId === 'dimension-position' && entity.type === 'linearDimension') {
         const geometry = getDimensionGeometry(entity, source);
         if (!geometry) return entity;
-        const dx = geometry.sourceSecond.x - geometry.sourceFirst.x;
-        const dy = geometry.sourceSecond.y - geometry.sourceFirst.y;
-        const length = Math.hypot(dx, dy);
-        if (length <= EPSILON) return entity;
-        const normal = { x: -dy / length, y: dx / length };
+        const normal = { x: -Math.sin(geometry.angle), y: Math.cos(geometry.angle) };
         const offset = (point.x - geometry.sourceFirst.x) * normal.x + (point.y - geometry.sourceFirst.y) * normal.y;
-        return { ...entity, offset };
+        return geometry.mode === 'aligned' && !entity.linePoint
+            ? { ...entity, offset }
+            : { ...entity, linePoint: { x: point.x, y: point.y }, offset };
     }
-    if (gripId === 'dimension-position' && entity.type === 'radialDimension' && ['circle', 'arc'].includes(source?.type)) {
-        const dx = point.x - source.cx;
-        const dy = point.y - source.cy;
+    if (entity.type === 'radialDimension') {
+        const geometry = getDimensionGeometry(entity, source);
+        if (!geometry) return entity;
+        if (gripId === 'jog-center') return { ...entity, jogCenter: { x: point.x, y: point.y } };
+        if (gripId === 'jog-point') return { ...entity, jogPoint: { x: point.x, y: point.y } };
+        if (gripId !== 'dimension-position') return entity;
+        const dx = point.x - geometry.center.x;
+        const dy = point.y - geometry.center.y;
         const distance = Math.hypot(dx, dy);
-        if (distance <= EPSILON || Math.abs(source.r) <= EPSILON) return entity;
+        const radius = pointDistance(geometry.center, geometry.edge);
+        if (distance <= EPSILON || radius <= EPSILON) return entity;
         return {
             ...entity,
             angle: Math.atan2(dy, dx),
-            leaderScale: Math.max(1.05, distance / Math.abs(source.r)),
+            leaderScale: Math.max(1.05, distance / radius),
         };
+    }
+    if (gripId === 'dimension-position' && entity.type === 'angularDimension') {
+        const geometry = getDimensionGeometry(entity, source);
+        if (!geometry) return entity;
+        const radius = pointDistance(geometry.vertex, point);
+        return radius > EPSILON ? { ...entity, radius } : entity;
+    }
+    if (gripId === 'dimension-position' && entity.type === 'arcLengthDimension') {
+        const geometry = getDimensionGeometry(entity, source);
+        if (!geometry) return entity;
+        const radius = pointDistance(geometry.center, point);
+        const currentOffset = Number.isFinite(Number(entity.offset)) ? Number(entity.offset) : 0.6;
+        const sourceRadius = geometry.radius - currentOffset;
+        return radius > EPSILON ? { ...entity, offset: radius - sourceRadius } : entity;
+    }
+    if (entity.type === 'ordinateDimension') {
+        if (gripId === 'ordinate-origin') return { ...entity, origin: { x: point.x, y: point.y } };
+        if (gripId === 'ordinate-feature') return { ...entity, featurePoint: { x: point.x, y: point.y } };
+        if (gripId === 'dimension-position') return { ...entity, leaderPoint: { x: point.x, y: point.y } };
+    }
+    if (gripId === 'center-mark-size' && entity.type === 'centerMark') {
+        const geometry = getDimensionGeometry(entity, source);
+        if (!geometry) return entity;
+        const size = pointDistance(geometry.center, point) - geometry.extension;
+        return size > EPSILON ? { ...entity, size } : entity;
     }
     if (!['rectangle', 'image', 'text'].includes(entity.type)) return entity;
 
@@ -312,7 +370,7 @@ function entityIsContainedByBounds(entity, bounds, entityMap) {
             && entity.cy - radius >= bounds.minY - EPSILON
             && entity.cy + radius <= bounds.maxY + EPSILON;
     }
-    const segments = dimensionSegments(entity, entityMap.get(entity.sourceId));
+    const segments = dimensionSegments(entity, entityMap);
     return segments.length > 0 && segments.every(([first, second]) => (
         pointIsInBounds(first, bounds) && pointIsInBounds(second, bounds)
     ));
@@ -347,7 +405,7 @@ function entityCrossesBounds(entity, bounds, entityMap) {
     if (['rectangle', 'polygon', 'arc'].includes(entity.type)) return getEntitySegments(entity).some(segment => segmentIntersectsBounds(segment[0], segment[1], bounds));
     if (entity.type === 'image' || entity.type === 'text') return boundsOverlap(getEntityBounds(entity, entityMap), bounds);
     if (entity.type === 'circle') return isFiniteBoundedCircle(entity) && circleIntersectsBounds(entity, bounds);
-    return dimensionSegments(entity, entityMap.get(entity.sourceId))
+    return dimensionSegments(entity, entityMap)
         .some(segment => segmentIntersectsBounds(segment[0], segment[1], bounds));
 }
 
@@ -418,17 +476,25 @@ function circleIntersectsBounds(circle, bounds) {
     return nearestDistance <= radius + EPSILON && farthestDistance >= radius - EPSILON;
 }
 
-function dimensionSegments(entity, source) {
-    const geometry = getDimensionGeometry(entity, source);
+function dimensionSegments(entity, sources) {
+    const geometry = getDimensionGeometry(entity, sources);
     if (!geometry) return [];
-    if (geometry.kind === 'linear') {
-        return [
-            [geometry.sourceFirst, geometry.first],
-            [geometry.first, geometry.second],
-            [geometry.sourceSecond, geometry.second],
-        ];
-    }
-    return [[geometry.center, geometry.text]];
+    const lines = geometry.lines.map(line => [line.start, line.end]);
+    const arcs = geometry.arcs.flatMap(arc => {
+        let sweep = (arc.endAngle - arc.startAngle) % (Math.PI * 2);
+        if (arc.counterClockwise && sweep < 0) sweep += Math.PI * 2;
+        if (!arc.counterClockwise && sweep > 0) sweep -= Math.PI * 2;
+        const count = Math.max(4, Math.ceil(Math.abs(sweep) / (Math.PI / 12)));
+        const points = Array.from({ length: count + 1 }, (_, index) => {
+            const angle = arc.startAngle + sweep * index / count;
+            return {
+                x: arc.center.x + Math.cos(angle) * arc.radius,
+                y: arc.center.y + Math.sin(angle) * arc.radius,
+            };
+        });
+        return points.slice(0, -1).map((point, index) => [point, points[index + 1]]);
+    });
+    return [...lines, ...arcs];
 }
 
 function ellipseLocalPoint(ellipse, x, y) {

@@ -268,7 +268,15 @@ test('explode preserves rounded rectangle arcs and supports blocks, hatches, tex
             ]],
         },
         { id: 'text', type: 'text', layerId: 'geometry', text: 'AB', x: 0, y: 0, width: 2, height: 1, fontSize: 0.5 },
-        { id: 'dimension', type: 'linearDimension', layerId: 'dimensions', p1: { x: 0, y: 0 }, p2: { x: 3, y: 0 }, offset: 1 },
+        {
+            id: 'dimension', type: 'linearDimension', layerId: 'dimensions',
+            p1: { x: 0, y: 0 }, p2: { x: 3, y: 0 }, offset: 1,
+            dimensionFormat: {
+                tolerance: { mode: 'symmetric', upper: 0.01, precision: 2 },
+                alternateUnits: { enabled: true, unit: 'mm', precision: 0 },
+                inspection: { enabled: true, label: 'A', rate: '100%' },
+            },
+        },
         outerReference,
     ];
 
@@ -281,6 +289,10 @@ test('explode preserves rounded rectangle arcs and supports blocks, hatches, tex
     assert.deepEqual(explodeDrawingEntities(content, ['dimension']).entities.map(entity => entity.type), [
         'line', 'line', 'line', 'line', 'line', 'text',
     ]);
+    assert.equal(
+        explodeDrawingEntities(content, ['dimension']).entities.find(entity => entity.type === 'text').text,
+        'A\n3 m\n±0.01 m\n[3000 mm]\n100%',
+    );
 
     const oneLevel = explodeDrawingEntities(content, ['outer-reference']);
     assert.equal(oneLevel.entities[0].type, 'blockReference');
@@ -290,6 +302,56 @@ test('explode preserves rounded rectangle arcs and supports blocks, hatches, tex
         { x1: recursive.entities[0].x1, y1: recursive.entities[0].y1, x2: recursive.entities[0].x2, y2: recursive.entities[0].y2 },
         { x1: 12, y1: 0, x2: 13, y2: 0 },
     );
+});
+
+test('exploding one QDIM member detaches the complete series as independent native dimensions', () => {
+    const content = createDefaultDrawingContent();
+    content.entities = [
+        { id: 'source-a', type: 'line', layerId: 'geometry', x1: 0, y1: 0, x2: 0, y2: 3 },
+        { id: 'source-b', type: 'line', layerId: 'geometry', x1: 2, y1: 0, x2: 2, y2: 3 },
+        {
+            id: 'qdim-a', type: 'linearDimension', layerId: 'dimensions',
+            p1: { x: 0, y: 0 }, p2: { x: 2, y: 0 }, offset: 1,
+            sourceIds: ['source-a', 'source-b'],
+            sourcePointReferences: [
+                { sourceId: 'source-a', endpointIndex: 0 },
+                { sourceId: 'source-b', endpointIndex: 0 },
+            ],
+            seriesId: 'qdim-series-1', seriesMode: 'baseline', seriesIndex: 0,
+            seriesAxis: { x: 1, y: 0 }, baselineEnd: 'first',
+            baselineReference: { sourceId: 'source-a', endpointIndex: 0 },
+        },
+        {
+            id: 'qdim-b', type: 'linearDimension', layerId: 'dimensions',
+            p1: { x: 0, y: 0 }, p2: { x: 4, y: 0 }, offset: 2,
+            sourceIds: ['source-a', 'source-b'],
+            sourcePointReferences: [
+                { sourceId: 'source-a', endpointIndex: 0 },
+                { sourceId: 'source-b', endpointIndex: 0 },
+            ],
+            seriesId: 'qdim-series-1', seriesMode: 'baseline', seriesIndex: 1,
+            seriesAxis: { x: 1, y: 0 }, baselineEnd: 'first',
+            baselineReference: { sourceId: 'source-a', endpointIndex: 0 },
+        },
+    ];
+
+    const exploded = explodeDrawingEntities(content, ['qdim-b']);
+    assert.equal(exploded.changed, true);
+    assert.equal(exploded.explodedCount, 2);
+    assert.deepEqual(exploded.entities.map(entity => entity.type), ['linearDimension', 'linearDimension']);
+    assert.deepEqual(exploded.entities.map(entity => entity.offset), [1, 2]);
+    assert.ok(exploded.entities.every(entity => (
+        !Object.hasOwn(entity, 'seriesId')
+        && !Object.hasOwn(entity, 'seriesMode')
+        && !Object.hasOwn(entity, 'seriesIndex')
+        && !Object.hasOwn(entity, 'seriesAxis')
+        && !Object.hasOwn(entity, 'baselineEnd')
+        && !Object.hasOwn(entity, 'baselineReference')
+    )));
+    assert.ok(exploded.entities.every(entity => entity.sourceIds.join(',') === 'source-a,source-b'));
+    assert.ok(exploded.entities.every(entity => !['qdim-a', 'qdim-b'].includes(entity.id)));
+    assert.ok(exploded.content.entities.some(entity => entity.id === 'source-a'));
+    assert.ok(exploded.content.entities.some(entity => entity.id === 'source-b'));
 });
 
 test('XPLODE can inherit parent appearance or retain each exact part appearance', () => {

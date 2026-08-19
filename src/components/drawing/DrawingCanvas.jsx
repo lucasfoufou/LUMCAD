@@ -5,6 +5,7 @@ import DrawingCreationControls from '~components/drawing/DrawingCreationControls
 import DrawingDynamicInput from '~components/drawing/DrawingDynamicInput';
 import DrawingGrid from '~components/drawing/DrawingGrid';
 import DrawingScene from '~components/drawing/DrawingScene';
+import { DrawingTextEditor } from '~components/drawing/DrawingTextEditor';
 import { useI18n } from '~i18n/I18nProvider';
 import { createArrayDraftEntities, createMirrorDraftEntities } from '~utils/drawingCompoundOperations';
 import {
@@ -30,6 +31,7 @@ import {
     createDrawingId,
     createDimensionForEntity,
     createFreeDimension,
+    getEntityColor,
     getLayer,
     updateSelectedEntities,
 } from '~utils/drawingDocument';
@@ -38,6 +40,7 @@ import {
     createTangentCircle,
     findThreeEntityTangentCircles,
     fitViewBox,
+    getDimensionGeometry,
     getViewBoxWorldUnitsPerPixel,
     pointDistance,
     resizeViewBoxForCanvas,
@@ -53,6 +56,12 @@ import {
     isDrawingTextInput,
 } from '~utils/drawingInteraction';
 import { buildDrawingEntity } from '~utils/drawingEntityFactory';
+import { DRAWING_QDIM_GRIP_IDS, getDrawingEntityDependencyIds } from '~utils/drawingDimensions';
+import {
+    createAngularDimensionResult,
+    createOrdinateDimensionResult,
+    rebuildQdimSeriesFromGripResult,
+} from '~utils/drawingDimensionCommands';
 import {
     applyDrawingCreationMode,
     buildArcCreationEntity,
@@ -84,6 +93,7 @@ import { getOperationOrthogonalOrigin } from '~utils/drawingOperationOptions';
 import { drawingDynamicInputAnchor } from '~utils/drawingPrecisionInput';
 import { createStretchPreviewEntities } from '~utils/drawingStretchOperations';
 import { scaleDrawingViewBox, zoomDrawingViewBox } from '~utils/drawingViewport';
+import { drawingTextFontSizeToPixels, resolveDrawingTextStyle } from '~utils/drawingText';
 
 const drawingTools = new Set(['line', 'rectangle', 'circle', 'polygon', 'arc', 'text']);
 const cornerOperationTypes = new Set(['fillet', 'chamfer', 'blend']);
@@ -98,6 +108,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     onCommit,
     onViewportChange,
     onStatus,
+    onEndCoalescing,
     interactiveOperation = null,
     onInteractiveOperation,
     dimensionMode = 'auto',
@@ -120,12 +131,24 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const [operationPoint, setOperationPoint] = useState(null);
     const [operationShift, setOperationShift] = useState(false);
     const [spacePressed, setSpacePressed] = useState(false);
+    const [editingTextId, setEditingTextId] = useState(null);
+    const [editingTextInitialSelection, setEditingTextInitialSelection] = useState(null);
     const initialCreationConfigRef = useRef(createDefaultDrawingCreationConfig(activeTool));
     const [creationMode, setCreationMode] = useState(initialCreationConfigRef.current.mode);
     const [creationOptions, setCreationOptions] = useState(initialCreationConfigRef.current.options);
     const rememberedCreationConfigsRef = useRef(new Map());
     const pendingCreationRef = useRef(null);
     const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+    const editingText = useMemo(() => (
+        content.entities.find(entity => entity.id === editingTextId && entity.type === 'text') || null
+    ), [content.entities, editingTextId]);
+
+    useEffect(() => {
+        if (editingTextId && !editingText) {
+            setEditingTextId(null);
+            setEditingTextInitialSelection(null);
+        }
+    }, [editingText, editingTextId]);
 
     useEffect(() => {
         const canvas = svgRef.current;
@@ -186,7 +209,16 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             : null;
         pendingCreationRef.current = null;
         const remembered = rememberedCreationConfigsRef.current.get(activeTool);
-        const next = pending || remembered || createDefaultDrawingCreationConfig(activeTool);
+        const defaults = createDefaultDrawingCreationConfig(activeTool);
+        const next = pending || remembered || (activeTool === 'text'
+            ? {
+                ...defaults,
+                options: {
+                    ...defaults.options,
+                    textStyleId: content.activeTextStyleId || defaults.options.textStyleId,
+                },
+            }
+            : defaults);
         setCreationMode(next.mode);
         setCreationOptions(next.options);
         setGesture(current => current?.kind === 'draw' ? null : current);
@@ -256,9 +288,16 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const commitCreationEntity = entity => {
         if (!entity) return false;
         const nextEntity = { ...entity, id: entity.id === 'draft' ? createDrawingId(entity.type) : entity.id };
-        onCommit(addEntity(content, nextEntity));
+        onCommit(
+            addEntity(content, nextEntity),
+            nextEntity.type === 'text' ? { coalesceKey: `text-edit-${nextEntity.id}` } : undefined,
+        );
         onSelectionChange([nextEntity.id]);
         onEntityCreated?.(nextEntity);
+        if (nextEntity.type === 'text') {
+            setEditingTextInitialSelection({ start: 0, end: String(nextEntity.text || '').length });
+            setEditingTextId(nextEntity.id);
+        }
         setGesture(null);
         return true;
     };
@@ -419,6 +458,126 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
 
     const submitCreationInput = rawValue => submitCreationInputForTool(activeTool, rawValue);
 
+    const commitDimensionEntity = (dimension, statusKey = 'canvas.associativeDimensionAdded') => {
+        if (!dimension) return false;
+        onCommit(addEntity(content, dimension));
+        onSelectionChange([dimension.id]);
+        onStatus?.(t(statusKey));
+        setGesture(null);
+        return true;
+    };
+
+    const commitDimensionResult = result => {
+        if (!result?.changed) return false;
+        onCommit(result.content);
+        onSelectionChange(result.selectedIds);
+        onStatus?.(t('messages.dimensionCreated', { count: result.entities.length }));
+        setGesture(null);
+        return true;
+    };
+
+    const handleDimensionPoint = (point, targetEntity = null, hitPoint = point) => {
+        const config = normalizeCanvasDimensionMode(dimensionMode);
+        const mode = config.mode;
+        if (mode === 'angular') {
+            if (gesture?.kind === 'dimension' && gesture.dimensionKind === 'angular-lines') {
+                if (targetEntity?.type !== 'line' || gesture.sourceIds.includes(targetEntity.id)) {
+                    onStatus?.(t('canvas.angularSecondSource'));
+                    return true;
+                }
+                const result = createAngularDimensionResult(content, [...gesture.sourceIds, targetEntity.id], {
+                    sourcePickPoints: [...gesture.sourcePickPoints, hitPoint],
+                });
+                if (!commitDimensionResult(result)) onStatus?.(t('messages.dimensionSelectionRequired'));
+                return true;
+            }
+            if (gesture?.kind === 'dimension' && gesture.dimensionKind === 'angular-free') {
+                if (!gesture.ray1Point) {
+                    setGesture(current => ({ ...current, ray1Point: point, current: point }));
+                    onStatus?.(t('canvas.angularSecondRay'));
+                    return true;
+                }
+                const radius = Math.max(
+                    0.01,
+                    pointDistance(gesture.first, gesture.ray1Point),
+                    pointDistance(gesture.first, point),
+                );
+                const result = createAngularDimensionResult(content, [], {
+                    vertex: gesture.first,
+                    ray1Point: gesture.ray1Point,
+                    ray2Point: point,
+                    radius,
+                });
+                if (!commitDimensionResult(result)) onStatus?.(t('messages.dimensionSelectionRequired'));
+                return true;
+            }
+            if (targetEntity?.type === 'arc') {
+                return commitDimensionEntity(createDimensionForEntity(content, targetEntity, config, hitPoint));
+            }
+            if (targetEntity?.type === 'line') {
+                setGesture({
+                    kind: 'dimension',
+                    dimensionKind: 'angular-lines',
+                    sourceIds: [targetEntity.id],
+                    sourcePickPoints: [hitPoint],
+                    first: point,
+                    current: point,
+                });
+                onStatus?.(t('canvas.angularSecondSource'));
+                return true;
+            }
+            setGesture({
+                kind: 'dimension',
+                dimensionKind: 'angular-free',
+                first: point,
+                current: point,
+                ray1Point: null,
+            });
+            onStatus?.(t('canvas.angularFirstRay'));
+            return true;
+        }
+
+        if (mode === 'ordinate') {
+            if (gesture?.kind === 'dimension' && gesture.dimensionKind === 'ordinate') {
+                const dx = point.x - gesture.first.x;
+                const dy = point.y - gesture.first.y;
+                const axis = config.axis || (Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y');
+                const result = createOrdinateDimensionResult(content, [], {
+                    axis,
+                    origin: config.origin,
+                    featurePoint: gesture.first,
+                    leaderPoint: point,
+                });
+                if (!commitDimensionResult(result)) onStatus?.(t('messages.dimensionSelectionRequired'));
+                return true;
+            }
+            if (isDimensionableDrawingEntity(targetEntity)) {
+                return commitDimensionEntity(createDimensionForEntity(content, targetEntity, config, hitPoint));
+            }
+            setGesture({ kind: 'dimension', dimensionKind: 'ordinate', first: point, current: point });
+            onStatus?.(t('canvas.ordinateLeaderPoint'));
+            return true;
+        }
+
+        if (gesture?.kind === 'dimension') {
+            const dimension = createFreeDimension(content, gesture.first, point, config);
+            const committed = commitDimensionEntity(dimension, 'canvas.freeDimensionAdded');
+            if (!committed) setGesture(null);
+            return committed;
+        }
+        const dimension = isDimensionableDrawingEntity(targetEntity)
+            ? createDimensionForEntity(content, targetEntity, config, hitPoint)
+            : null;
+        if (dimension) return commitDimensionEntity(dimension);
+        if (['arcLength', 'radius', 'diameter', 'joggedRadius', 'centerMark'].includes(mode)) {
+            onStatus?.(t('messages.dimensionSelectionRequired'));
+            return true;
+        }
+        setGesture({ kind: 'dimension', dimensionKind: 'linear', first: point, current: point });
+        onStatus?.(t('canvas.dimensionSecondPoint'));
+        return true;
+    };
+
     function submitRemotePoint(rawPoint, options = {}) {
         if (!Number.isFinite(rawPoint?.x) || !Number.isFinite(rawPoint?.y)) return false;
         const targetId = typeof options.targetId === 'string' ? options.targetId : null;
@@ -483,28 +642,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         }
 
         if (activeTool === 'dimension') {
-            if (gesture?.kind === 'dimension') {
-                const dimension = createFreeDimension(content, gesture.first, point);
-                if (dimension) {
-                    onCommit(addEntity(content, dimension));
-                    onSelectionChange([dimension.id]);
-                    onStatus?.(t('canvas.freeDimensionAdded'));
-                }
-                setGesture(null);
-                return Boolean(dimension);
-            }
-            const dimension = isDimensionableDrawingEntity(targetEntity)
-                ? createDimensionForEntity(content, targetEntity, dimensionMode, point)
-                : null;
-            if (dimension) {
-                onCommit(addEntity(content, dimension));
-                onSelectionChange([dimension.id]);
-                onStatus?.(t('canvas.associativeDimensionAdded'));
-            } else {
-                setGesture({ kind: 'dimension', first: point, current: point });
-                onStatus?.(t('canvas.dimensionSecondPoint'));
-            }
-            return true;
+            return handleDimensionPoint(point, isDimensionableDrawingEntity(targetEntity) ? targetEntity : null, point);
         }
 
         if (drawingTools.has(activeTool)) {
@@ -549,7 +687,11 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 const height = values[1] ?? values[0];
                 const directionX = current.x < first.x ? -1 : 1;
                 const directionY = current.y < first.y ? -1 : 1;
-                return commitDraft(tool, first, { x: first.x + width * directionX, y: first.y + height * directionY });
+                const entity = buildCreationEntity(gesture, {
+                    x: first.x + width * directionX,
+                    y: first.y + height * directionY,
+                });
+                return commitCreationEntity(entity);
             }
             if (tool === 'polygon') {
                 const entity = buildCreationEntity({ ...gesture, options: { ...(gesture.options || {}), radius: values[0] } }, { x: first.x + values[0], y: first.y });
@@ -590,6 +732,9 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         },
         cancel() {
             setGesture(null);
+            if (editingTextId) onEndCoalescing?.();
+            setEditingTextId(null);
+            setEditingTextInitialSelection(null);
             setHoverSnap(null);
             setHoveredEntityId(null);
             setTrackingAnchors([]);
@@ -613,10 +758,41 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         getViewportCenter() {
             return { x: viewBox.x + viewBox.width / 2, y: viewBox.y + viewBox.height / 2 };
         },
+        editText(entityId = selectedIds[0]) {
+            const entity = content.entities.find(candidate => candidate.id === entityId);
+            if (entity?.type !== 'text' || !canEditEntity(content, entity)) return false;
+            setEditingTextInitialSelection(null);
+            setEditingTextId(entity.id);
+            onSelectionChange([entity.id]);
+            return true;
+        },
+        setTextCreationMode(textMode) {
+            const defaults = createDefaultDrawingCreationConfig('text');
+            const next = {
+                ...defaults,
+                options: {
+                    ...defaults.options,
+                    textStyleId: content.activeTextStyleId || defaults.options.textStyleId,
+                    textMode: textMode === 'multiline' ? 'multiline' : 'singleLine',
+                    wrapMode: textMode === 'multiline' ? 'word' : 'none',
+                },
+            };
+            rememberedCreationConfigsRef.current.set('text', next);
+            pendingCreationRef.current = { tool: 'text', ...next };
+            if (activeTool === 'text') {
+                setCreationMode(next.mode);
+                setCreationOptions(next.options);
+                setGesture(null);
+            }
+            return true;
+        },
+        isEditingText() {
+            return Boolean(editingTextId);
+        },
         submitPoint(point, options) {
             return submitRemotePoint(point, options);
         },
-    }), [activeTool, canvasSize, content, creationMode, creationOptions, dimensionMode, gesture, interactiveOperation, operationPoint, selectedIds, submitCreationInput, submitCreationInputForTool, t, temporaryTrackingPointMode, trackingAnchors, viewBox]);
+    }), [activeTool, canvasSize, content, creationMode, creationOptions, dimensionMode, editingTextId, gesture, interactiveOperation, onSelectionChange, operationPoint, selectedIds, submitCreationInput, submitCreationInputForTool, t, temporaryTrackingPointMode, trackingAnchors, viewBox]);
 
     const worldPoint = event => {
         const svg = svgRef.current;
@@ -687,6 +863,18 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         const snapped = resolveDrawingSnap(desired, content, worldUnitsPerPixel * 12, {
             excludeIds: [gesture.entityId], trackingAnchors, orthogonalOrigin, temporaryOrtho: Boolean(event.shiftKey),
         });
+        if (isQdimGrip(gesture.gripId)) {
+            const geometry = getDimensionGeometry(target, drawingDimensionSources(content, target));
+            if (!geometry?.label) return snapped;
+            const normal = { x: -Math.sin(geometry.angle), y: Math.cos(geometry.angle) };
+            const distance = (snapped.x - gesture.origin.x) * normal.x
+                + (snapped.y - gesture.origin.y) * normal.y;
+            return {
+                ...snapped,
+                x: gesture.origin.x + normal.x * distance,
+                y: gesture.origin.y + normal.y * distance,
+            };
+        }
         return event.shiftKey ? constrainLineGripPoint(target, gesture.gripId, snapped) : snapped;
     };
 
@@ -792,28 +980,14 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         if (activeTool === 'dimension') {
             const snapped = snapPoint(event, [], gesture?.kind === 'dimension' ? gesture.first : null);
             showPointerFeedback(snapped);
-            if (gesture?.kind === 'dimension') {
-                const dimension = createFreeDimension(content, gesture.first, snapped);
-                if (dimension) {
-                    onCommit(addEntity(content, dimension));
-                    onSelectionChange([dimension.id]);
-                    onStatus?.(t('canvas.freeDimensionAdded'));
-                }
-                setGesture(null);
-                return;
-            }
-            const dimension = isDimensionableDrawingEntity(targetEntity) && !isDimensionPointSnap(snapped)
-                ? createDimensionForEntity(content, targetEntity, dimensionMode, worldPoint(event))
-                : null;
-            if (dimension) {
-                onCommit(addEntity(content, dimension));
-                onSelectionChange([dimension.id]);
-                onStatus?.(t('canvas.associativeDimensionAdded'));
-            } else {
-                setGesture({ kind: 'dimension', first: snapped, current: snapped });
-                setHoverSnap(snapped.type ? snapped : null);
-                onStatus?.(t('canvas.dimensionSecondPoint'));
-            }
+            const mode = normalizeCanvasDimensionMode(dimensionMode).mode;
+            const pointSnapPrefersFreeLinear = isDimensionPointSnap(snapped)
+                && ['auto', 'linear', 'aligned', 'horizontal', 'vertical', 'rotated'].includes(mode);
+            handleDimensionPoint(
+                snapped,
+                isDimensionableDrawingEntity(targetEntity) && !pointSnapPrefersFreeLinear ? targetEntity : null,
+                worldPoint(event),
+            );
             return;
         }
 
@@ -835,9 +1009,15 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 completeSelectionWindow(worldPoint(event));
                 return;
             }
-            if (!interactiveOperation && gripId && targetEntity && selectedSet.has(targetId) && canEditEntity(content, targetEntity)) {
-                const source = targetEntity.sourceId ? content.entities.find(entity => entity.id === targetEntity.sourceId) : null;
-                const origin = getEntityGrips(targetEntity, source).find(grip => grip.id === gripId);
+            const qdimSeriesSelected = targetEntity?.type === 'linearDimension' && targetEntity.seriesId
+                && content.entities.some(entity => (
+                    entity.seriesId === targetEntity.seriesId && selectedSet.has(entity.id)
+                ));
+            if (!interactiveOperation && gripId && targetEntity
+                && (selectedSet.has(targetId) || qdimSeriesSelected)
+                && canEditEntity(content, targetEntity)) {
+                const sources = drawingDimensionSources(content, targetEntity);
+                const origin = getEntityGrips(targetEntity, sources).find(grip => grip.id === gripId);
                 if (!origin) return;
                 event.preventDefault();
                 svgRef.current.setPointerCapture(event.pointerId);
@@ -993,8 +1173,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             const target = content.entities.find(entity => entity.id === gesture.entityId);
             const snapped = gripPoint(event, target);
             if (pointDistance(gesture.origin, snapped) > worldUnitsPerPixel) {
-                const source = target?.sourceId ? content.entities.find(entity => entity.id === target.sourceId) : null;
-                onCommit(updateSelectedEntities(content, [gesture.entityId], entity => editEntityGrip(entity, gesture.gripId, snapped, source)));
+                onCommit(applyDrawingGripEdit(content, gesture.entityId, gesture.gripId, snapped));
                 onStatus?.(t('canvas.gripModified'));
             }
             setGesture(null);
@@ -1013,9 +1192,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
 
     const previewContent = useMemo(() => {
         if (gesture?.kind === 'grip') {
-            const target = content.entities.find(entity => entity.id === gesture.entityId);
-            const source = target?.sourceId ? content.entities.find(entity => entity.id === target.sourceId) : null;
-            return updateSelectedEntities(content, [gesture.entityId], entity => editEntityGrip(entity, gesture.gripId, gesture.current, source));
+            return applyDrawingGripEdit(content, gesture.entityId, gesture.gripId, gesture.current);
         }
         if (interactiveOperation && ['move', 'rotate', 'scale'].includes(interactiveOperation.type)
             && ['destination', 'angle', 'factor', 'reference'].includes(interactiveOperation.stage) && operationPoint) {
@@ -1173,7 +1350,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 options: { ...(gesture.options || {}), ...(creationOptions || {}) },
             })
         : gesture?.kind === 'dimension'
-            ? { id: 'dimension-draft', type: 'line', layerId: content.activeLayerId, x1: gesture.first.x, y1: gesture.first.y, x2: gesture.current.x, y2: gesture.current.y }
+            ? dimensionGestureDraft(gesture, content.activeLayerId)
             : gesture?.kind === 'trim-fence'
                 ? { id: 'trim-fence-draft', type: 'polyline', layerId: content.activeLayerId,
                     points: [...(gesture.points || [gesture.start]), gesture.current], closed: false }
@@ -1230,6 +1407,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         ? []
         : [...new Set([
             ...tangentTargetIds,
+            ...(gesture?.kind === 'dimension' ? gesture.sourceIds || [] : []),
             ...(interactiveOperation?.firstId ? [interactiveOperation.firstId] : []),
             ...(hoveredEntityId ? [hoveredEntityId] : []),
         ])];
@@ -1271,6 +1449,24 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         }
     };
 
+    const beginTextEditingFromEvent = event => {
+        if (activeTool !== 'select' || interactiveOperation) return;
+        const entityId = entityIdFromDrawingEvent(event);
+        const entity = content.entities.find(candidate => candidate.id === entityId);
+        if (entity?.type !== 'text' || !canEditEntity(content, entity)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setGesture(null);
+        setEditingTextInitialSelection(null);
+        setEditingTextId(entity.id);
+        onSelectionChange([entity.id]);
+        onStatus?.(t('textEditor.opened'));
+    };
+
+    const textEditorStyle = editingText
+        ? getTextEditorOverlayStyle(editingText, viewBox, canvasSize, content.textStyles)
+        : null;
+
     return (
         <div
             ref={wrapperRef}
@@ -1285,6 +1481,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
+                onDoubleClick={beginTextEditingFromEvent}
                 onPointerCancel={() => setGesture(null)}
                 onPointerLeave={() => {
                     if (interactiveOperation && !gesture) setOperationPoint(null);
@@ -1308,7 +1505,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                     draftEntities={draftEntities}
                     showGrips={activeTool === 'select' && !interactiveOperation}
                     gripSize={gripSize}
-                    hiddenIds={previewHiddenIds}
+                    hiddenIds={[...previewHiddenIds, ...(editingText ? [editingText.id] : [])]}
                     hitOnlyIds={cornerHiddenIds}
                     viewBox={viewBox}
                 />
@@ -1326,22 +1523,105 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                     onArrayHandleChange={(arrayHandle, event) => { const point = interactivePoint(event, arrayHandle); showPointerFeedback(point); onInteractiveOperation?.({ arrayHandle, point }); }}
                 />
             </svg>
+            {editingText && textEditorStyle && (
+                <DrawingTextEditor
+                    entity={editingText}
+                    textStyles={content.textStyles}
+                    labels={drawingTextEditorLabels(t)}
+                    fallbackColor={getEntityColor(content, editingText)}
+                    initialSelection={editingTextInitialSelection}
+                    toolbarPlacement={textEditorStyle.toolbarPlacement}
+                    style={textEditorStyle.root}
+                    contentStyle={textEditorStyle.content}
+                    onCommit={entity => {
+                        if (JSON.stringify(entity) !== JSON.stringify(editingText)) {
+                            onCommit(
+                                updateSelectedEntities(content, [editingText.id], () => entity),
+                                { coalesceKey: `text-edit-${editingText.id}` },
+                            );
+                        }
+                        setEditingTextId(null);
+                        setEditingTextInitialSelection(null);
+                        onEndCoalescing?.();
+                        onStatus?.(t('textEditor.committed'));
+                    }}
+                    onCancel={() => {
+                        setEditingTextId(null);
+                        setEditingTextInitialSelection(null);
+                        onEndCoalescing?.();
+                        onStatus?.(t('textEditor.cancelled'));
+                    }}
+                />
+            )}
             <DrawingDynamicInput
                 {...dynamicInput}
                 anchor={dynamicInputPosition}
                 enabled={dynamicInputVisible}
             />
-            <DrawingCreationControls
-                activeTool={activeTool}
-                mode={creationMode}
-                options={creationOptions}
-                onChange={updateCreationConfig}
-                editEntity={editEntity}
-                onEditChange={onEditEntityChange}
-            />
+            {!editingText && (
+                <DrawingCreationControls
+                    activeTool={activeTool}
+                    mode={creationMode}
+                    options={creationOptions}
+                    onChange={updateCreationConfig}
+                    editEntity={editEntity}
+                    onEditChange={onEditEntityChange}
+                    textStyles={content.textStyles}
+                />
+            )}
         </div>
     );
 });
+
+function normalizeCanvasDimensionMode(value) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+        return { ...value, mode: String(value.mode || 'auto') };
+    }
+    return { mode: String(value || 'auto') };
+}
+
+function drawingDimensionSources(content, entity) {
+    const dependencies = getDrawingEntityDependencyIds(entity);
+    if (!dependencies.length) return null;
+    const sourceMap = new Map(content.entities.map(candidate => [candidate.id, candidate]));
+    return dependencies.map(id => sourceMap.get(id)).filter(Boolean);
+}
+
+function applyDrawingGripEdit(content, entityId, gripId, point) {
+    if (isQdimGrip(gripId)) {
+        return rebuildQdimSeriesFromGripResult(content, entityId, gripId, point).content;
+    }
+    const target = content.entities.find(entity => entity.id === entityId);
+    const sources = drawingDimensionSources(content, target);
+    return updateSelectedEntities(content, [entityId], entity => editEntityGrip(entity, gripId, point, sources));
+}
+
+function isQdimGrip(gripId) {
+    return Object.values(DRAWING_QDIM_GRIP_IDS).includes(gripId);
+}
+
+function dimensionGestureDraft(gesture, layerId) {
+    if (!gesture?.first || !gesture?.current) return null;
+    if (gesture.dimensionKind === 'angular-lines') return null;
+    if (gesture.dimensionKind === 'angular-free' && gesture.ray1Point) {
+        return {
+            id: 'dimension-draft',
+            type: 'polyline',
+            layerId,
+            points: [gesture.ray1Point, gesture.first, gesture.current],
+            closed: false,
+        };
+    }
+    return {
+        id: 'dimension-draft',
+        type: 'line',
+        layerId,
+        x1: gesture.first.x,
+        y1: gesture.first.y,
+        x2: gesture.current.x,
+        y2: gesture.current.y,
+    };
+}
 
 function gestureReferenceOrigin(gesture) {
     if (!gesture) return null;
@@ -1366,6 +1646,78 @@ function drawingCircleSafety(viewBox) {
         maxRadiusFactor: 10_000,
         maxRadius: Math.min(1e12, span * 10_000),
         maxCoordinate: Math.min(1e12, extent + span * 10_000),
+    };
+}
+
+function getTextEditorOverlayStyle(entity, viewBox, canvasSize, textStyles) {
+    if (!canvasSize.width || !canvasSize.height || !viewBox.width || !viewBox.height) return null;
+    const scale = Math.min(canvasSize.width / viewBox.width, canvasSize.height / viewBox.height);
+    const offsetX = (canvasSize.width - viewBox.width * scale) / 2;
+    const offsetY = (canvasSize.height - viewBox.height * scale) / 2;
+    const x = Math.min(entity.x, entity.x + entity.width);
+    const y = Math.min(entity.y, entity.y + entity.height);
+    const width = Math.max(48, Math.abs(entity.width) * scale);
+    const height = Math.max(30, Math.abs(entity.height) * scale);
+    const left = offsetX + (x - viewBox.x) * scale;
+    const top = offsetY + (y - viewBox.y) * scale;
+    const textStyle = resolveDrawingTextStyle(entity, textStyles);
+    return {
+        toolbarPlacement: top < 110 ? 'below' : 'above',
+        root: {
+            left: `${left}px`,
+            top: `${top}px`,
+            width: `${width}px`,
+            height: `${height}px`,
+        },
+        content: {
+            fontFamily: textStyle.cssFontFamily,
+            fontSize: `${drawingTextFontSizeToPixels(textStyle.fontSize, scale)}px`,
+            lineHeight: textStyle.lineHeight,
+            transform: `${Number(entity.rotation) ? `rotate(${Number(entity.rotation)}deg)` : ''}${entity.mirrored ? ' scaleY(-1)' : ''}`.trim() || undefined,
+            transformOrigin: 'center',
+        },
+    };
+}
+
+function drawingTextEditorLabels(t) {
+    return {
+        editor: t('textEditor.editor'),
+        toolbar: t('textEditor.toolbar'),
+        content: t('textEditor.content'),
+        textStyle: t('textEditor.textStyle'),
+        font: t('textEditor.font'),
+        fontSize: t('textEditor.fontSize'),
+        mixed: t('textEditor.mixed'),
+        bold: t('textEditor.bold'),
+        italic: t('textEditor.italic'),
+        underline: t('textEditor.underline'),
+        strikethrough: t('textEditor.strikethrough'),
+        color: t('textEditor.color'),
+        textMode: t('textEditor.textMode'),
+        wrapMode: t('textEditor.wrapMode'),
+        alignment: t('textEditor.alignment'),
+        commit: t('textEditor.commit'),
+        cancel: t('textEditor.cancel'),
+        fonts: {
+            sans: t('textEditor.fonts.sans'),
+            serif: t('textEditor.fonts.serif'),
+            monospace: t('textEditor.fonts.monospace'),
+            technical: t('textEditor.fonts.technical'),
+        },
+        textModes: {
+            singleLine: t('textEditor.textModes.singleLine'),
+            multiline: t('textEditor.textModes.multiline'),
+        },
+        wrapModes: {
+            word: t('textEditor.wrapModes.word'),
+            character: t('textEditor.wrapModes.character'),
+            none: t('textEditor.wrapModes.none'),
+        },
+        alignments: {
+            left: t('textEditor.alignments.left'),
+            center: t('textEditor.alignments.center'),
+            right: t('textEditor.alignments.right'),
+        },
     };
 }
 

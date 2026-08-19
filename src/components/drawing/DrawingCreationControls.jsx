@@ -3,6 +3,13 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import { useI18n } from '~i18n/I18nProvider';
 import { createDefaultDrawingCreationConfig, supportsDrawingCreationPanel } from '~utils/drawingCreation';
 import { formatDecimalValue, parseDecimalDraft } from '~utils/drawingFormValues';
+import {
+    DEFAULT_DRAWING_TEXT_STYLE_ID,
+    DRAWING_TEXT_FONTS,
+    DRAWING_TEXT_WRAP_MODES,
+    normalizeDrawingTextStyles,
+    resolveDrawingTextStyle,
+} from '~utils/drawingText';
 
 export default function DrawingCreationControls({
     activeTool,
@@ -11,6 +18,7 @@ export default function DrawingCreationControls({
     onChange = () => {},
     editEntity = null,
     onEditChange = null,
+    textStyles = [],
 }) {
     const { t } = useI18n();
     const editMode = isEditableEntity(editEntity);
@@ -49,6 +57,7 @@ export default function DrawingCreationControls({
                 <EntityEditFields
                     entity={editEntity}
                     disabled={typeof onEditChange !== 'function'}
+                    textStyles={textStyles}
                     t={t}
                     onChange={updateEdit}
                 />
@@ -57,6 +66,7 @@ export default function DrawingCreationControls({
                     activeTool={activeTool}
                     mode={mode}
                     options={options}
+                    textStyles={textStyles}
                     t={t}
                     onModeChange={updateMode}
                     onChange={updateOptions}
@@ -66,21 +76,21 @@ export default function DrawingCreationControls({
     );
 }
 
-function CreationFields({ activeTool, mode, options, t, onModeChange, onChange }) {
+function CreationFields({ activeTool, mode, options, textStyles, t, onModeChange, onChange }) {
     if (activeTool === 'rectangle') return <RectangleCreationFields options={options} t={t} onChange={onChange} />;
     if (activeTool === 'circle') return <CircleCreationFields mode={mode} options={options} t={t} onModeChange={onModeChange} onChange={onChange} />;
     if (activeTool === 'polygon') return <PolygonCreationFields options={options} t={t} onChange={onChange} />;
     if (activeTool === 'arc') return <ArcCreationFields mode={mode} options={options} t={t} onModeChange={onModeChange} onChange={onChange} />;
-    if (activeTool === 'text') return <TextFields values={options} t={t} onChange={onChange} />;
+    if (activeTool === 'text') return <TextFields values={options} textStyles={textStyles} t={t} onChange={onChange} />;
     return null;
 }
 
-function EntityEditFields({ entity, disabled, t, onChange }) {
+function EntityEditFields({ entity, disabled, textStyles, t, onChange }) {
     if (entity.type === 'rectangle') return <RectangleEditFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (entity.type === 'circle') return <CircleEditFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (entity.type === 'polygon') return <PolygonEditFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (entity.type === 'arc') return <ArcEditFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
-    if (entity.type === 'text') return <TextFields values={entity} disabled={disabled} includeGeometry t={t} onChange={onChange} />;
+    if (entity.type === 'text') return <TextFields values={entity} textStyles={textStyles} disabled={disabled} includeGeometry t={t} onChange={onChange} />;
     return null;
 }
 
@@ -212,8 +222,32 @@ function ArcCreationFields({ mode, options, t, onModeChange, onChange }) {
     );
 }
 
-function TextFields({ values, t, onChange, disabled = false, includeGeometry = false }) {
+function TextFields({ values, textStyles = [], t, onChange, disabled = false, includeGeometry = false }) {
     const updateNumber = (property, value) => updateFinite(onChange, property, value);
+    const normalizedStyles = normalizeDrawingTextStyles(textStyles);
+    const textMode = values.textMode === 'singleLine' ? 'singleLine' : 'multiline';
+    const wrapMode = textMode === 'singleLine'
+        ? 'none'
+        : DRAWING_TEXT_WRAP_MODES.includes(values.wrapMode) ? values.wrapMode : 'word';
+    const textStyleId = normalizedStyles.some(style => style.id === values.textStyleId)
+        ? values.textStyleId
+        : DEFAULT_DRAWING_TEXT_STYLE_ID;
+    const resolvedStyle = resolveDrawingTextStyle({ ...values, textStyleId }, normalizedStyles);
+    const changeTextMode = nextMode => onChange({
+        textMode: nextMode,
+        wrapMode: nextMode === 'singleLine' ? 'none' : 'word',
+        ...(nextMode === 'singleLine' ? { text: String(values.text || '').replace(/\r\n?|\n/g, ' ') } : {}),
+    });
+    const changeTextStyle = nextStyleId => onChange({
+        textStyleId: nextStyleId,
+        fontFamily: undefined,
+        fontSize: undefined,
+        fontWeight: undefined,
+        fontStyle: undefined,
+        lineHeight: undefined,
+        underline: undefined,
+        strikethrough: undefined,
+    });
     return (
         <div className="drawing-creation-fields">
             {includeGeometry && (
@@ -225,15 +259,37 @@ function TextFields({ values, t, onChange, disabled = false, includeGeometry = f
                     <NumberField label={t('creation.rotation')} value={values.rotation} step={1} disabled={disabled} onChange={value => updateNumber('rotation', value)} />
                 </DetailsFields>
             )}
+            <SelectField label={t('creation.textMode')} value={textMode} disabled={disabled} onChange={changeTextMode} options={[
+                ['singleLine', t('creation.textModeSingleLine')],
+                ['multiline', t('creation.textModeMultiline')],
+            ]} />
             <TextAreaField
                 className="is-wide"
                 label={t('creation.textContent')}
                 value={values.text ?? ''}
                 disabled={disabled}
+                singleLine={textMode === 'singleLine'}
                 placeholder={t('creation.textPlaceholder')}
                 onChange={value => onChange({ text: value })}
             />
-            <NumberField label={t('creation.textSize')} value={values.fontSize} min={0.01} step={0.05} disabled={disabled} placeholder="0.35" onChange={value => updateNumber('fontSize', value)} />
+            <SelectField label={t('creation.textStyle')} value={textStyleId} disabled={disabled} onChange={changeTextStyle} options={normalizedStyles.map(style => [
+                style.id,
+                style.id === DEFAULT_DRAWING_TEXT_STYLE_ID ? t('creation.textStyleStandard') : style.name,
+            ])} />
+            <SelectField label={t('creation.textFont')} value={resolvedStyle.fontFamily} disabled={disabled} onChange={value => onChange({ fontFamily: value })} options={DRAWING_TEXT_FONTS.map(font => [
+                font.id,
+                t(`creation.textFont.${font.id}`),
+            ])} />
+            <NumberField label={t('creation.textSize')} value={resolvedStyle.fontSize} min={0.01} step={0.05} disabled={disabled} placeholder="0.35" onChange={value => updateNumber('fontSize', value)} />
+            <CheckboxField label={t('creation.textBold')} checked={resolvedStyle.fontWeight >= 700} disabled={disabled} onChange={checked => onChange({ fontWeight: checked ? 700 : 400 })} />
+            <CheckboxField label={t('creation.textItalic')} checked={resolvedStyle.fontStyle === 'italic'} disabled={disabled} onChange={checked => onChange({ fontStyle: checked ? 'italic' : 'normal' })} />
+            <CheckboxField label={t('creation.textUnderline')} checked={resolvedStyle.underline} disabled={disabled} onChange={underline => onChange({ underline })} />
+            <CheckboxField label={t('creation.textStrikethrough')} checked={resolvedStyle.strikethrough} disabled={disabled} onChange={strikethrough => onChange({ strikethrough })} />
+            <SelectField label={t('creation.textWrapMode')} value={wrapMode} disabled={disabled || textMode === 'singleLine'} onChange={value => onChange({ wrapMode: value })} options={[
+                ['word', t('creation.textWrapMode.word')],
+                ['character', t('creation.textWrapMode.character')],
+                ['none', t('creation.textWrapMode.none')],
+            ]} />
             <SelectField label={t('creation.horizontalAlignment')} value={values.horizontalAlign || 'left'} disabled={disabled} onChange={value => onChange({ horizontalAlign: value })} options={[
                 ['left', t('creation.left')],
                 ['center', t('creation.centered')],
@@ -369,11 +425,24 @@ function NumberField({ label, value, onChange, min, max, step = 0.1, placeholder
     );
 }
 
-function TextAreaField({ label, value, onChange, placeholder, disabled = false, className = '' }) {
+function TextAreaField({ label, value, onChange, placeholder, disabled = false, className = '', singleLine = false }) {
     return (
         <label className={`drawing-creation-field ${className}`.trim()}>
             <span>{label}</span>
-            <textarea value={value} placeholder={placeholder} disabled={disabled} rows="2" onChange={event => onChange(event.target.value)} />
+            {singleLine ? (
+                <input type="text" value={value} placeholder={placeholder} disabled={disabled} onChange={event => onChange(event.target.value)} />
+            ) : (
+                <textarea value={value} placeholder={placeholder} disabled={disabled} rows="2" onChange={event => onChange(event.target.value)} />
+            )}
+        </label>
+    );
+}
+
+function CheckboxField({ label, checked, onChange, disabled = false }) {
+    return (
+        <label className="drawing-creation-toggle">
+            <input type="checkbox" checked={Boolean(checked)} disabled={disabled} onChange={event => onChange(event.target.checked)} />
+            <span>{label}</span>
         </label>
     );
 }

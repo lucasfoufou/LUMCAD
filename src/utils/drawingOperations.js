@@ -7,6 +7,7 @@ import {
     translateEntity,
 } from './drawingGeometry.js';
 import { getTransformSelectionEntities, transformSelectedEntities } from './drawingDocument.js';
+import { remapDrawingEntityDependencies } from './drawingDimensions.js';
 
 export const ANGLE_UNITS = Object.freeze(['degrees', 'radians', 'gradians']);
 export const ANGLE_DIRECTIONS = Object.freeze(['counterClockwise', 'clockwise']);
@@ -351,10 +352,9 @@ export function createCopyPreviewEntities(content, entityIds, delta) {
     const idMap = new Map(originals.map(entity => [entity.id, `copy-preview-${entity.id}`]));
     return originals.map(entity => {
         const copy = {
-            ...entity,
+            ...remapDrawingEntityDependencies(entity, idMap),
             id: idMap.get(entity.id),
             previewMode: 'copy',
-            sourceId: entity.sourceId && idMap.has(entity.sourceId) ? idMap.get(entity.sourceId) : entity.sourceId,
         };
         return translateEntity(copy, delta.x, delta.y);
     });
@@ -373,12 +373,9 @@ export function createTransformCopyPreviewEntities(content, operation, currentPo
     return sources.map(source => {
         const transformed = transformedById.get(source.id) || source;
         return {
-            ...transformed,
+            ...remapDrawingEntityDependencies(transformed, idMap),
             id: idMap.get(source.id),
             previewMode: 'copy',
-            ...(transformed.sourceId && idMap.has(transformed.sourceId)
-                ? { sourceId: idMap.get(transformed.sourceId) }
-                : {}),
         };
     });
 }

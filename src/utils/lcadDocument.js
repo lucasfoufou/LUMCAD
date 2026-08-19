@@ -1,9 +1,14 @@
 import { createDefaultDrawingContent, createDrawingId, normalizeDrawingContent } from './drawingDocument.js';
 import { createI18nError } from '../i18n/translator.js';
-import { createDefaultDrawingLayouts, normalizeDrawingLayouts } from './drawingLayouts.js';
+import {
+    createDefaultDrawingLayouts,
+    normalizeDrawingLayouts,
+    normalizeDrawingPageSetups,
+} from './drawingLayouts.js';
 
 export const LCAD_FORMAT = 'lumcad';
-export const LCAD_FORMAT_VERSION = 1;
+export const LCAD_FORMAT_VERSION = 2;
+export const LCAD_MIN_READABLE_FORMAT_VERSION = 1;
 export const LCAD_APP_VERSION = '0.1.0';
 export const SUPPORTED_LCAD_IMAGE_MIME_TYPES = Object.freeze([
     'image/png',
@@ -26,6 +31,7 @@ export function createLcadDocument({
         content: createDefaultDrawingContent({ gridSpacing, tracking }),
         assets: [],
         layouts: createDefaultDrawingLayouts({ name: layoutName }),
+        pageSetups: [],
         createdAt: now,
         updatedAt: now,
     };
@@ -51,7 +57,9 @@ export function normalizeLcadEnvelope(envelope) {
     if (envelope.format !== LCAD_FORMAT) {
         throw createI18nError('errors.notLumcad');
     }
-    if (envelope.formatVersion !== LCAD_FORMAT_VERSION) {
+    if (!Number.isInteger(envelope.formatVersion)
+        || envelope.formatVersion < LCAD_MIN_READABLE_FORMAT_VERSION
+        || envelope.formatVersion > LCAD_FORMAT_VERSION) {
         throw createI18nError('errors.unsupportedFormatVersion', { version: String(envelope.formatVersion) });
     }
     if (!envelope.document || typeof envelope.document !== 'object' || Array.isArray(envelope.document)) {
@@ -59,6 +67,7 @@ export function normalizeLcadEnvelope(envelope) {
     }
     return {
         ...envelope,
+        formatVersion: LCAD_FORMAT_VERSION,
         document: normalizeLcadDocument(envelope.document),
     };
 }
@@ -71,6 +80,7 @@ export function normalizeLcadDocument(document) {
         content: normalizeDrawingContent(document?.content),
         assets: normalizeEmbeddedAssets(document?.assets),
         layouts: normalizeDrawingLayouts(document?.layouts),
+        pageSetups: normalizeDrawingPageSetups(document?.pageSetups),
         createdAt: isIsoDate(document?.createdAt) ? document.createdAt : now,
         updatedAt: isIsoDate(document?.updatedAt) ? document.updatedAt : now,
     };

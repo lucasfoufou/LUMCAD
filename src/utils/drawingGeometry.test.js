@@ -89,7 +89,7 @@ test('CAD aliases and numeric inputs are recognized', () => {
     assert.deepEqual(getDrawingCommandSuggestions('sav').map(item => item.name), ['SAVEAS']);
     assert.deepEqual(getDrawingCommandSuggestions('c').slice(0, 2).map(item => [item.name, item.alias]), [
         ['CIRCLE', 'C'],
-        ['CHAMFER', 'CHA'],
+        ['CENTERMARK', 'CM'],
     ]);
     assert.equal(resolveDrawingAutocompleteSubmission('sca', getDrawingCommandSuggestions('sca')), 'SCALE');
     assert.equal(resolveDrawingAutocompleteSubmission('SC', getDrawingCommandSuggestions('SC')), 'SC');

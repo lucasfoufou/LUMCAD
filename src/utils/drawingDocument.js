@@ -13,6 +13,19 @@ import {
 } from './drawingBlocks.js';
 import { normalizeAdvancedDrawingEntity } from './drawingAdvancedEntities.js';
 import { normalizeDrawingDraftingSettings } from './drawingDraftingSettings.js';
+import {
+    drawingEntityDependsOn,
+    getDrawingEntityDependencyIds,
+    isDrawingDimensionEntity,
+    normalizeDrawingDimension,
+    remapDrawingEntityDependencies,
+} from './drawingDimensions.js';
+import {
+    DEFAULT_DRAWING_TEXT_STYLE,
+    DEFAULT_DRAWING_TEXT_STYLE_ID,
+    normalizeDrawingTextEntity,
+    normalizeDrawingTextStyles,
+} from './drawingText.js';
 
 const DEFAULT_LAYER_IDS = {
     geometry: 'geometry',
@@ -49,6 +62,8 @@ export function createDefaultDrawingContent({
             createDefaultLayer(DEFAULT_LAYER_IDS.dimensions, PROTECTED_LAYER_NAMES.dimensions, '#d97706'),
             createDefaultLayer(DEFAULT_LAYER_IDS.references, PROTECTED_LAYER_NAMES.references, '#64748b'),
         ],
+        textStyles: [{ ...DEFAULT_DRAWING_TEXT_STYLE }],
+        activeTextStyleId: DEFAULT_DRAWING_TEXT_STYLE_ID,
         blocks: [],
         entities: [],
         settings: {
@@ -82,11 +97,16 @@ export function normalizeDrawingContent(content) {
         .map(layer => normalizeDrawingLayer(layer));
     const sourceSettings = content.settings || {};
     const draftingSettings = normalizeDrawingDraftingSettings({ ...defaults.settings, ...sourceSettings });
-    const blocks = normalizeDrawingBlocks(content.blocks, { normalizeEntity: normalizeDrawingEntityAppearance });
+    const textStyles = normalizeDrawingTextStyles(content.textStyles);
+    const activeTextStyleId = textStyles.some(style => style.id === content.activeTextStyleId)
+        ? content.activeTextStyleId
+        : DEFAULT_DRAWING_TEXT_STYLE_ID;
+    const normalizeEntity = entity => normalizeDrawingEntityAppearance(entity, { styles: textStyles, defaultStyleId: activeTextStyleId });
+    const blocks = normalizeDrawingBlocks(content.blocks, { normalizeEntity });
     const blockIds = new Set(blocks.map(block => block.id));
     const entities = Array.isArray(content.entities)
         ? content.entities
-            .map(normalizeDrawingEntityAppearance)
+            .map(normalizeEntity)
             .filter(entity => entity?.type !== 'blockReference' || blockIds.has(entity.blockId))
         : [];
     return {
@@ -95,6 +115,8 @@ export function normalizeDrawingContent(content) {
         version: 1,
         unit: 'm',
         layers,
+        textStyles,
+        activeTextStyleId,
         blocks,
         entities,
         activeLayerId: layers.some(layer => layer.id === content.activeLayerId) ? content.activeLayerId : layers[0].id,
@@ -242,11 +264,13 @@ export function transformSelectedEntities(content, selectedIds, updater, { copy 
     const originalById = new Map(sources.map(entity => [entity.id, entity]));
     const initialTransforms = new Map(sources.map(entity => [entity.id, normalizeTransformedEntity(updater(entity), entity)]));
     const transformedSources = sources.map(entity => {
-        if (!entity.sourceId || !originalById.has(entity.sourceId)) return initialTransforms.get(entity.id);
+        const transformedDependencyIds = getDrawingEntityDependencyIds(entity).filter(id => originalById.has(id));
+        if (transformedDependencyIds.length !== 1) return initialTransforms.get(entity.id);
+        const [sourceId] = transformedDependencyIds;
         const prepared = detachDimensionForIncompatibleSource(
             entity,
-            originalById.get(entity.sourceId),
-            initialTransforms.get(entity.sourceId),
+            originalById.get(sourceId),
+            initialTransforms.get(sourceId),
         );
         return prepared === entity
             ? initialTransforms.get(entity.id)
@@ -273,9 +297,8 @@ export function transformSelectedEntities(content, selectedIds, updater, { copy 
         createDrawingId(transformedSources[index].type || entity.type),
     ]));
     const copies = transformedSources.map((entity, index) => ({
-        ...entity,
+        ...remapDrawingEntityDependencies(entity, idMap),
         id: idMap.get(sources[index].id),
-        ...(entity.sourceId && idMap.has(entity.sourceId) ? { sourceId: idMap.get(entity.sourceId) } : {}),
     }));
     return {
         changed: true,
@@ -293,7 +316,8 @@ export function getTransformSelectionEntities(content, selectedIds) {
         .filter(entity => requested.has(entity.id) && canEditEntity(content, entity))
         .map(entity => entity.id));
     return content.entities.filter(entity => (
-        (editableSourceIds.has(entity.id) || editableSourceIds.has(entity.sourceId))
+        (editableSourceIds.has(entity.id)
+            || getDrawingEntityDependencyIds(entity).some(sourceId => editableSourceIds.has(sourceId)))
         && canEditEntity(content, entity)
     ));
 }
@@ -342,7 +366,8 @@ export function deleteSelectedEntities(content, selectedIds) {
     return {
         ...content,
         entities: content.entities.filter(entity => (
-            !removedSourceIds.has(entity.id) && !removedSourceIds.has(entity.sourceId)
+            !removedSourceIds.has(entity.id)
+            && !getDrawingEntityDependencyIds(entity).some(id => removedSourceIds.has(id))
         )),
     };
 }
@@ -354,7 +379,7 @@ export function replaceEntityWithEntities(content, entityId, replacements) {
         ...content,
         entities: content.entities.flatMap(entity => {
             if (entity.id === entityId) return replacementList;
-            if (entity.sourceId === entityId) return [];
+            if (drawingEntityDependsOn(entity, entityId)) return [];
             return [entity];
         }),
     };
@@ -369,8 +394,7 @@ export function copySelectedEntities(content, selectedIds, offset = { x: 0.5, y:
 export function pasteDrawingEntities(content, originals, offset = { x: 0.5, y: 0.5 }) {
     const idMap = new Map(originals.map(entity => [entity.id, createDrawingId(entity.type)]));
     const copies = originals.map(entity => {
-        const next = { ...entity, id: idMap.get(entity.id) };
-        if (next.sourceId && idMap.has(next.sourceId)) next.sourceId = idMap.get(next.sourceId);
+        const next = { ...remapDrawingEntityDependencies(entity, idMap), id: idMap.get(entity.id) };
         return translateEntity(next, offset.x, offset.y);
     });
     return {
@@ -382,31 +406,100 @@ export function pasteDrawingEntities(content, originals, offset = { x: 0.5, y: 0
 
 export function createDimensionForEntity(content, source, mode = 'auto', hitPoint = null) {
     if (!source) return null;
+    const config = normalizeDimensionCreationMode(mode);
+    const creationMode = config.mode;
+    const base = {
+        id: createDrawingId('dimension'),
+        layerId: getDimensionLayerId(content),
+    };
     if (source.type === 'line') {
-        return {
-            id: createDrawingId('dimension'),
+        if (creationMode === 'ordinate') {
+            return normalizeDrawingDimension({
+                ...base,
+                type: 'ordinateDimension',
+                sourceId: source.id,
+                featurePoint: finitePoint(hitPoint) || { x: source.x1, y: source.y1 },
+                axis: config.axis === 'y' ? 'y' : 'x',
+                origin: finitePoint(config.origin) || { x: 0, y: 0 },
+            });
+        }
+        if (['angular', 'arcLength', 'radius', 'diameter', 'joggedRadius', 'centerMark'].includes(creationMode)) return null;
+        return normalizeDrawingDimension({
+            ...base,
             type: 'linearDimension',
-            layerId: getDimensionLayerId(content),
             sourceId: source.id,
+            measurementMode: linearDimensionCreationMode(creationMode),
+            dimensionAngle: Number.isFinite(config.dimensionAngle) ? config.dimensionAngle : 0,
             offset: 0.6,
-        };
+        });
     }
     if (['rectangle', 'polygon'].includes(source.type)) {
+        if (creationMode === 'ordinate') {
+            return normalizeDrawingDimension({
+                ...base,
+                type: 'ordinateDimension',
+                sourceId: source.id,
+                featurePoint: finitePoint(hitPoint) || { x: source.x, y: source.y },
+                axis: config.axis === 'y' ? 'y' : 'x',
+                origin: finitePoint(config.origin) || { x: 0, y: 0 },
+            });
+        }
+        if (['angular', 'arcLength', 'radius', 'diameter', 'joggedRadius', 'centerMark'].includes(creationMode)) return null;
         const segments = getEntitySegments(source);
         const edgeIndex = hitPoint ? segments.reduce((best, segment, index) => (
             pointToSegmentDistance(hitPoint, segment[0], segment[1])
                 < pointToSegmentDistance(hitPoint, segments[best][0], segments[best][1]) ? index : best
         ), 0) : 0;
-        return {
-            id: createDrawingId('dimension'),
+        return normalizeDrawingDimension({
+            ...base,
             type: 'linearDimension',
-            layerId: getDimensionLayerId(content),
             sourceId: source.id,
             edgeIndex,
+            measurementMode: linearDimensionCreationMode(creationMode),
+            dimensionAngle: Number.isFinite(config.dimensionAngle) ? config.dimensionAngle : 0,
             offset: 0.6,
-        };
+        });
     }
     if (source.type === 'circle' || source.type === 'arc') {
+        if (creationMode === 'centerMark') {
+            return normalizeDrawingDimension({
+                ...base,
+                type: 'centerMark',
+                sourceId: source.id,
+                size: config.size,
+                extension: config.extension,
+            });
+        }
+        if (creationMode === 'angular') {
+            if (source.type !== 'arc') return null;
+            return normalizeDrawingDimension({
+                ...base,
+                type: 'angularDimension',
+                sourceId: source.id,
+                radius: Number.isFinite(config.radius) ? config.radius : Math.max(0.6, source.r + 0.6),
+                counterClockwise: source.counterClockwise !== false,
+            });
+        }
+        if (creationMode === 'arcLength') {
+            if (source.type !== 'arc') return null;
+            return normalizeDrawingDimension({
+                ...base,
+                type: 'arcLengthDimension',
+                sourceId: source.id,
+                offset: Number.isFinite(config.offset) ? config.offset : 0.6,
+            });
+        }
+        if (creationMode === 'ordinate') {
+            return normalizeDrawingDimension({
+                ...base,
+                type: 'ordinateDimension',
+                sourceId: source.id,
+                featurePoint: finitePoint(hitPoint) || { x: source.cx, y: source.cy },
+                axis: config.axis === 'y' ? 'y' : 'x',
+                origin: finitePoint(config.origin) || { x: 0, y: 0 },
+            });
+        }
+        if (['horizontal', 'vertical', 'rotated', 'aligned', 'linear'].includes(creationMode)) return null;
         const center = { x: source.cx, y: source.cy };
         const hitAngle = hitPoint && Math.hypot(hitPoint.x - source.cx, hitPoint.y - source.cy) > Number.EPSILON
             ? Math.atan2(hitPoint.y - source.cy, hitPoint.x - source.cx)
@@ -415,28 +508,51 @@ export function createDimensionForEntity(content, source, mode = 'auto', hitPoin
         const angle = Number.isFinite(hitAngle) && (source.type !== 'arc' || arcContainsAngle(source, hitAngle))
             ? hitAngle
             : midpoint ? Math.atan2(midpoint.y - center.y, midpoint.x - center.x) : -Math.PI / 4;
-        return {
-            id: createDrawingId('dimension'),
+        return normalizeDrawingDimension({
+            ...base,
             type: 'radialDimension',
-            layerId: getDimensionLayerId(content),
             sourceId: source.id,
-            mode: mode === 'diameter' ? 'diameter' : 'radius',
+            mode: creationMode === 'diameter'
+                ? 'diameter'
+                : creationMode === 'joggedRadius' ? 'joggedRadius' : 'radius',
             angle,
-        };
+            jogSize: config.jogSize,
+        });
     }
     return null;
 }
 
-export function createFreeDimension(content, first, second) {
+export function createFreeDimension(content, first, second, mode = 'aligned') {
     if (!first || !second || Math.hypot(second.x - first.x, second.y - first.y) < 1e-9) return null;
-    return {
+    const config = normalizeDimensionCreationMode(mode);
+    return normalizeDrawingDimension({
         id: createDrawingId('dimension'),
         type: 'linearDimension',
         layerId: getDimensionLayerId(content),
         p1: { x: first.x, y: first.y },
         p2: { x: second.x, y: second.y },
+        measurementMode: linearDimensionCreationMode(config.mode),
+        dimensionAngle: Number.isFinite(config.dimensionAngle) ? config.dimensionAngle : 0,
         offset: 0.6,
-    };
+    });
+}
+
+function normalizeDimensionCreationMode(value) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+        return { ...value, mode: String(value.mode || 'auto') };
+    }
+    return { mode: String(value || 'auto') };
+}
+
+function linearDimensionCreationMode(mode) {
+    if (['horizontal', 'vertical', 'rotated'].includes(mode)) return mode;
+    return 'aligned';
+}
+
+function finitePoint(value) {
+    return Number.isFinite(Number(value?.x)) && Number.isFinite(Number(value?.y))
+        ? { x: Number(value.x), y: Number(value.y) }
+        : null;
 }
 
 export function addLayer(content, name = null) {
@@ -508,9 +624,9 @@ function normalizeDrawingLayer(layer) {
     };
 }
 
-function normalizeDrawingEntityAppearance(entity) {
+function normalizeDrawingEntityAppearance(entity, textOptions = {}) {
     if (!entity || typeof entity !== 'object') return entity;
-    const normalized = normalizeDrawingEntityGeometry(entity);
+    const normalized = normalizeDrawingEntityGeometry(entity, textOptions);
     const color = normalizeDrawingColor(entity.color);
     const lineWeight = normalizeDrawingLineWeight(entity.lineWeight);
     const lineType = normalizeDrawingLineType(entity.lineType);
@@ -544,14 +660,16 @@ function normalizeDrawingPolylinePartTransparency(part) {
     return normalized;
 }
 
-function normalizeDrawingEntityGeometry(entity) {
+function normalizeDrawingEntityGeometry(entity, textOptions = {}) {
     const normalized = { ...entity };
+    if (isDrawingDimensionEntity(entity)) return normalizeDrawingDimension(normalized);
+    if (entity.type === 'text') return normalizeDrawingTextEntity(normalized, textOptions);
     if (entity.type === 'blockReference') return normalizeDrawingBlockReference(normalized);
     if (['ellipse', 'ellipseArc', 'spline', 'cubicSpline', 'cubicBezier', 'bezier', 'hatch'].includes(entity.type)) {
         return normalizeAdvancedDrawingEntity(normalized);
     }
     if (entity.type === 'polyline' && Array.isArray(entity.parts)) {
-        normalized.parts = entity.parts.map(normalizeDrawingEntityGeometry);
+        normalized.parts = entity.parts.map(part => normalizeDrawingEntityGeometry(part, textOptions));
         normalized.closed = Boolean(entity.closed);
     }
     if (['circle', 'polygon', 'arc'].includes(entity.type)) {

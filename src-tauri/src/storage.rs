@@ -15,7 +15,8 @@ use tauri::{AppHandle, Manager};
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
 
 const LCAD_FORMAT: &str = "lumcad";
-const LCAD_FORMAT_VERSION: u64 = 1;
+const LCAD_FORMAT_VERSION: u64 = 2;
+const LCAD_MIN_READABLE_FORMAT_VERSION: u64 = 1;
 const LCAD_MANIFEST_PATH: &str = "manifest.json";
 const LCAD_ASSET_DIRECTORY: &str = "assets/";
 const RECOVERY_FILENAME: &str = "recovery.lcad";
@@ -76,7 +77,13 @@ fn validate_envelope(envelope: &Value) -> Result<(), String> {
         return Err(storage_error("invalid_format", None, None, None));
     }
 
-    if object.get("formatVersion").and_then(Value::as_u64) != Some(LCAD_FORMAT_VERSION) {
+    if !object
+        .get("formatVersion")
+        .and_then(Value::as_u64)
+        .is_some_and(|version| {
+            (LCAD_MIN_READABLE_FORMAT_VERSION..=LCAD_FORMAT_VERSION).contains(&version)
+        })
+    {
         return Err(storage_error(
             "unsupported_version",
             None,
@@ -725,7 +732,7 @@ mod tests {
     fn valid_envelope(name: &str) -> Value {
         json!({
             "format": "lumcad",
-            "formatVersion": 1,
+            "formatVersion": 2,
             "appVersion": "0.1.0",
             "document": { "name": name, "content": {}, "assets": [] }
         })
@@ -734,7 +741,7 @@ mod tests {
     fn envelope_with_asset(name: &str) -> Value {
         json!({
             "format": "lumcad",
-            "formatVersion": 1,
+            "formatVersion": 2,
             "appVersion": "0.1.0",
             "document": {
                 "name": name,
@@ -755,7 +762,11 @@ mod tests {
     fn validates_the_current_lcad_envelope() {
         assert!(validate_envelope(&valid_envelope("Plan")).is_ok());
         assert!(validate_envelope(
-            &json!({ "format": "lumcad", "formatVersion": 2, "document": {} })
+            &json!({ "format": "lumcad", "formatVersion": 1, "document": {} })
+        )
+        .is_ok());
+        assert!(validate_envelope(
+            &json!({ "format": "lumcad", "formatVersion": 3, "document": {} })
         )
         .is_err());
         assert!(validate_envelope(
@@ -793,7 +804,7 @@ mod tests {
             let entry = archive.by_name(LCAD_MANIFEST_PATH).unwrap();
             serde_json::from_reader(entry).unwrap()
         };
-        assert_eq!(manifest["formatVersion"], 1);
+        assert_eq!(manifest["formatVersion"], 2);
         assert!(manifest["document"]["assets"][0].get("link").is_none());
         assert_eq!(
             manifest["document"]["assets"][0]["path"],

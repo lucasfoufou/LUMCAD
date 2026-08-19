@@ -3,10 +3,11 @@ import { useCallback, useEffect, useState } from 'react';
 import useLatestRef from '~hooks/useLatestRef';
 import { useI18n } from '~i18n/I18nProvider';
 import { localizeError } from '~i18n/translator';
-import { createLcadDocument } from '~utils/lcadDocument';
+import { createLcadDocument, createLcadEnvelope } from '~utils/lcadDocument';
 import { printRenderedLayouts } from '~utils/drawingPrint';
 import {
     clearLcadRecovery,
+    exportLcadDocumentAs,
     listenForLcadOpen,
     openLcadDocument,
     readLcadDocumentAtPath,
@@ -132,8 +133,45 @@ export default function useLcadFileCommands({
         }
     }, [document, setMessage, t]);
 
+    const exportPageSetups = useCallback(async pageSetupIds => {
+        const requestedIds = new Set(Array.isArray(pageSetupIds) ? pageSetupIds : []);
+        const pageSetups = requestedIds.size
+            ? document.pageSetups.filter(pageSetup => requestedIds.has(pageSetup.id))
+            : document.pageSetups;
+        if (!pageSetups.length) {
+            setMessage(t('layout.noPageSetupsToExport'));
+            return false;
+        }
+        setIsExporting(true);
+        try {
+            const exportName = t('layout.pageSetupExportName', { name: document.name });
+            const exportDocument = {
+                ...createLcadDocument({
+                    name: exportName,
+                    layoutName: t('layout.defaultName', { number: 1 }),
+                }),
+                pageSetups,
+            };
+            const result = await exportLcadDocumentAs(
+                createLcadEnvelope(exportDocument),
+                exportName,
+                { filterName: t('fileDialog.lcadDrawing') },
+            );
+            setMessage(t(result ? 'layout.pageSetupsExported' : 'layout.pageSetupsExportCancelled', {
+                count: pageSetups.length,
+            }));
+            return Boolean(result);
+        } catch (error) {
+            setMessage(localizeError(error, t, 'layout.pageSetupsExportFailed'));
+            return false;
+        } finally {
+            setIsExporting(false);
+        }
+    }, [document.name, document.pageSetups, setMessage, t]);
+
     return {
         createNewDrawing,
+        exportPageSetups,
         exportPdf,
         isExporting,
         openDrawing,

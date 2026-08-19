@@ -2,15 +2,18 @@ import React, { useId, useMemo } from 'react';
 
 import { useI18n } from '~i18n/I18nProvider';
 import {
-    formatDrawingLength,
-    getDimensionGeometry,
     getArcPath,
     getCircleViewportGeometry,
+    getDimensionGeometry,
+    getDrawingEntityDependencyIds,
     getRectangleOutlinePath,
     getRegularPolygonVertices,
+    formatDrawingDimensionLabel,
+    isDrawingDimensionEntity,
 } from '~utils/drawingGeometry';
 import { getEntityGrips } from '~utils/drawingSelection';
 import { canEditEntity, getEntityAppearance } from '~utils/drawingDocument';
+import { DRAWING_QDIM_GRIP_IDS } from '~utils/drawingDimensions';
 import { getDrawingTextLayout } from '~utils/drawingText';
 import { affineMatrixToSvg, getDrawingBlockReferenceBounds } from '~utils/drawingBlocks';
 import { getDrawingEntityRenderMode } from '~utils/drawingInteraction';
@@ -40,6 +43,16 @@ export default function DrawingScene({
     const renderEntityMap = useMemo(() => new Map([...entityMap, ...draftList.map(entity => [entity.id, entity])]), [draftList, entityMap]);
     const assetMap = useMemo(() => new Map(assets.map(asset => [asset.id, asset])), [assets]);
     const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
+    const selectedQdimGripSeries = useMemo(() => {
+        const seriesIds = new Set(content.entities.flatMap(entity => (
+            selected.has(entity.id) && entity.type === 'linearDimension' && entity.seriesId
+                ? [entity.seriesId]
+                : []
+        )));
+        return new Set([...seriesIds].filter(seriesId => content.entities
+            .filter(entity => entity.type === 'linearDimension' && entity.seriesId === seriesId)
+            .every(entity => canEditEntity(content, entity))));
+    }, [content, selected]);
     const previewSelected = useMemo(() => previewSelectedIds ? new Set(previewSelectedIds) : null, [previewSelectedIds]);
     const highlighted = useMemo(() => new Set(highlightedIds), [highlightedIds]);
     const hidden = useMemo(() => new Set(hiddenIds), [hiddenIds]);
@@ -66,7 +79,7 @@ export default function DrawingScene({
                     <DrawingEntity
                         key={entity.id}
                         entity={entity}
-                        source={entity.sourceId ? entityMap.get(entity.sourceId) : null}
+                        sources={getDrawingEntityDependencyIds(entity).map(id => entityMap.get(id)).filter(Boolean)}
                         asset={entity.assetId ? assetMap.get(entity.assetId) : null}
                         appearance={getEntityAppearance(content, entity)}
                         selected={previewSelected ? previewSelected.has(entity.id) : selected.has(entity.id)}
@@ -74,7 +87,10 @@ export default function DrawingScene({
                         editable={canEditEntity(content, entity)}
                         interactive={interactive}
                         dimensionTextSize={dimensionTextSize}
-                        showGrips={showGrips && selected.has(entity.id)}
+                        showGrips={showGrips && (
+                            selected.has(entity.id)
+                            || selectedQdimGripSeries.has(entity.seriesId)
+                        )}
                         gripSize={gripSize}
                         locale={locale}
                         t={t}
@@ -86,6 +102,7 @@ export default function DrawingScene({
                         layerMap={layerMap}
                         hiddenLayers={hiddenLayers}
                         visualHidden={visualHidden}
+                        textStyles={content.textStyles}
                     />
                 );
             })}
@@ -93,7 +110,7 @@ export default function DrawingScene({
                 <DrawingEntity
                     key={entity.id || `draft-${index}`}
                     entity={entity}
-                    source={entity.sourceId ? renderEntityMap.get(entity.sourceId) : null}
+                    sources={getDrawingEntityDependencyIds(entity).map(id => renderEntityMap.get(id)).filter(Boolean)}
                     asset={entity.assetId ? assetMap.get(entity.assetId) : null}
                     appearance={getEntityAppearance(content, entity)}
                     interactive={false}
@@ -109,6 +126,7 @@ export default function DrawingScene({
                     assetMap={assetMap}
                     layerMap={layerMap}
                     hiddenLayers={hiddenLayers}
+                    textStyles={content.textStyles}
                 />
             ))}
         </g>
@@ -117,7 +135,7 @@ export default function DrawingScene({
 
 function DrawingEntity({
     entity,
-    source = null,
+    sources = [],
     asset = null,
     appearance,
     selected = false,
@@ -140,6 +158,7 @@ function DrawingEntity({
     nested = false,
     visitedBlockIds = new Set(),
     visualHidden = false,
+    textStyles = [],
 }) {
     const isTrimPreview = draft && entity.previewMode === 'trim';
     const appearanceOpacity = draft ? 1 : transparencyToOpacity(appearance.transparency);
@@ -200,9 +219,20 @@ function DrawingEntity({
         const rect = normalizedRect(entity);
         shape = draft && entity.previewMode !== 'copy' ? (
             <rect {...rect} {...shapeProps} transform={rectTransform(entity)} />
-        ) : <DrawingTextShape entity={entity} color={appearance.color} opacity={entity.previewMode === 'copy' ? 0.72 : appearanceOpacity} />;
-    } else if (entity.type === 'linearDimension' || entity.type === 'radialDimension') {
-        shape = <DimensionShape entity={entity} source={source} appearance={appearance} opacity={appearanceOpacity} textSize={dimensionTextSize} locale={locale} />;
+        ) : <DrawingTextShape entity={entity} color={appearance.color} opacity={entity.previewMode === 'copy' ? 0.72 : appearanceOpacity} textStyles={textStyles} />;
+    } else if (isDrawingDimensionEntity(entity)) {
+        shape = (
+            <DimensionShape
+                entity={entity}
+                sources={sources}
+                appearance={appearance}
+                opacity={appearanceOpacity}
+                textSize={Number.isFinite(Number(entity.textSize)) && Number(entity.textSize) > 0
+                    ? Number(entity.textSize)
+                    : dimensionTextSize}
+                locale={locale}
+            />
+        );
     } else if (entity.type === 'blockReference') {
         shape = <BlockReferenceGeometry
             reference={entity}
@@ -217,6 +247,7 @@ function DrawingEntity({
             viewBox={viewBox}
             circleGeometryCache={circleGeometryCache}
             visitedBlockIds={visitedBlockIds}
+            textStyles={textStyles}
         />;
     }
 
@@ -224,10 +255,10 @@ function DrawingEntity({
     return (
         <g {...groupProps}>
             {!visualHidden && shape}
-            {interactive && <HitShape entity={entity} source={source} viewBox={viewBox} circleGeometryCache={circleGeometryCache} />}
-            {!visualHidden && selected && <SelectionShape entity={entity} source={source} viewBox={viewBox} circleGeometryCache={circleGeometryCache} />}
-            {!visualHidden && highlighted && <SelectionShape entity={entity} source={source} viewBox={viewBox} circleGeometryCache={circleGeometryCache} preview />}
-            {!visualHidden && selected && editable && showGrips && <GripHandles entity={entity} source={source} size={gripSize} t={t} />}
+            {interactive && <HitShape entity={entity} sources={sources} viewBox={viewBox} circleGeometryCache={circleGeometryCache} />}
+            {!visualHidden && selected && <SelectionShape entity={entity} sources={sources} viewBox={viewBox} circleGeometryCache={circleGeometryCache} />}
+            {!visualHidden && highlighted && <SelectionShape entity={entity} sources={sources} viewBox={viewBox} circleGeometryCache={circleGeometryCache} preview />}
+            {!visualHidden && editable && showGrips && <GripHandles entity={entity} sources={sources} size={gripSize} t={t} />}
         </g>
     );
 }
@@ -245,6 +276,7 @@ function BlockReferenceGeometry({
     viewBox,
     circleGeometryCache,
     visitedBlockIds,
+    textStyles,
 }) {
     if (!block || visitedBlockIds.has(block.id)) return null;
     const childMap = new Map(block.entities.map(entity => [entity.id, entity]));
@@ -259,7 +291,7 @@ function BlockReferenceGeometry({
                     <DrawingEntity
                         key={entity.id}
                         entity={entity}
-                        source={entity.sourceId ? childMap.get(entity.sourceId) : null}
+                        sources={getDrawingEntityDependencyIds(entity).map(id => childMap.get(id)).filter(Boolean)}
                         asset={entity.assetId ? assetMap.get(entity.assetId) : null}
                         appearance={getEntityAppearance({ layers: [...layerMap.values()] }, entity)}
                         interactive={false}
@@ -277,6 +309,7 @@ function BlockReferenceGeometry({
                         hiddenLayers={hiddenLayers}
                         nested
                         visitedBlockIds={nextVisited}
+                        textStyles={textStyles}
                     />
                 );
             })}
@@ -284,26 +317,71 @@ function BlockReferenceGeometry({
     );
 }
 
-function GripHandles({ entity, source, size, t }) {
-    const grips = getEntityGrips(entity, source);
+function GripHandles({ entity, sources, size, t }) {
+    const grips = getEntityGrips(entity, sources);
     if (!grips.length) return null;
     return (
         <g className="drawing-grips">
-            {grips.map(grip => (
-                <rect
-                    key={grip.id}
-                    className="drawing-grip"
-                    data-entity-id={entity.id}
-                    data-grip-id={grip.id}
-                    x={grip.x - size / 2}
-                    y={grip.y - size / 2}
-                    width={size}
-                    height={size}
-                    vectorEffect="non-scaling-stroke"
-                    aria-label={t('canvas.grip', { name: gripName(grip.id, t) })}
-                />
-            ))}
+            {grips.map(grip => <GripHandle key={grip.id} entity={entity} grip={grip} size={size} t={t} />)}
         </g>
+    );
+}
+
+function GripHandle({ entity, grip, size, t }) {
+    const label = gripName(grip.id, t);
+    const shared = {
+        'data-entity-id': entity.id,
+        'data-grip-id': grip.id,
+        'vectorEffect': 'non-scaling-stroke',
+        'aria-label': t('canvas.grip', { name: label }),
+    };
+    if (grip.id === DRAWING_QDIM_GRIP_IDS.spacing) return (
+        <g className="drawing-array-control-handle-group">
+            <circle
+                {...shared}
+                className="drawing-array-handle is-spacing"
+                cx={grip.x}
+                cy={grip.y}
+                r={size / 2}
+            />
+            <GripHandleLabel grip={grip} label={label} size={size} />
+        </g>
+    );
+    if (grip.id === DRAWING_QDIM_GRIP_IDS.offset) return (
+        <g className="drawing-array-control-handle-group">
+            <rect
+                {...shared}
+                className="drawing-array-handle is-base"
+                x={grip.x - size / 2}
+                y={grip.y - size / 2}
+                width={size}
+                height={size}
+            />
+            <GripHandleLabel grip={grip} label={label} size={size} />
+        </g>
+    );
+    return (
+        <rect
+            {...shared}
+            className="drawing-grip"
+            x={grip.x - size / 2}
+            y={grip.y - size / 2}
+            width={size}
+            height={size}
+        />
+    );
+}
+
+function GripHandleLabel({ grip, label, size }) {
+    return (
+        <text
+            className="drawing-array-control-label"
+            x={grip.x + size * 0.8}
+            y={grip.y - size * 0.75}
+            fontSize={size * 0.9}
+        >
+            {label}
+        </text>
     );
 }
 
@@ -327,6 +405,8 @@ function gripName(id, t) {
         center: 'grip.center',
         radius: 'grip.radius',
         'dimension-position': 'grip.dimensionPosition',
+        [DRAWING_QDIM_GRIP_IDS.offset]: 'grip.qdimOffset',
+        [DRAWING_QDIM_GRIP_IDS.spacing]: 'grip.qdimSpacing',
     })[id];
     if (directKey) return t(directKey);
     const vertex = /^vertex-(\d+)/.exec(id);
@@ -406,9 +486,9 @@ function PolylineGeometry({
     });
 }
 
-function DrawingTextShape({ entity, color, opacity }) {
+function DrawingTextShape({ entity, color, opacity, textStyles }) {
     const clipId = `drawing-text-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
-    const layout = getDrawingTextLayout(entity);
+    const layout = getDrawingTextLayout(entity, { color, styles: textStyles });
     return (
         <g transform={rectTransform(entity)} opacity={opacity} pointerEvents="none">
             <defs>
@@ -420,17 +500,31 @@ function DrawingTextShape({ entity, color, opacity }) {
                 clipPath={`url(#${clipId})`}
                 x={layout.textX}
                 fill={color}
-                fontFamily="SourceSans3, Arial, sans-serif"
+                fontFamily={layout.baseStyle.cssFontFamily}
                 fontSize={layout.fontSize}
+                fontWeight={layout.baseStyle.fontWeight}
+                fontStyle={layout.baseStyle.fontStyle}
                 textAnchor={layout.textAnchor}
             >
-                {layout.lines.map((line, index) => (
+                {layout.styledLines.map((line, index) => (
                     <tspan
-                        key={`${index}-${line}`}
+                        key={`${index}-${line.text}`}
                         x={layout.textX}
-                        y={layout.firstBaseline + index * layout.lineHeight}
+                        y={line.baseline}
                     >
-                        {line || '\u00a0'}
+                        {line.spans.length ? line.spans.map((span, spanIndex) => (
+                            <tspan
+                                key={`${spanIndex}-${span.text}`}
+                                fill={span.style.color || color}
+                                fontFamily={span.style.cssFontFamily}
+                                fontSize={span.style.fontSize}
+                                fontWeight={span.style.fontWeight}
+                                fontStyle={span.style.fontStyle}
+                                textDecoration={span.style.textDecoration}
+                            >
+                                {span.text || '\u00a0'}
+                            </tspan>
+                        )) : '\u00a0'}
                     </tspan>
                 ))}
             </text>
@@ -438,7 +532,7 @@ function DrawingTextShape({ entity, color, opacity }) {
     );
 }
 
-function HitShape({ entity, source, viewBox, circleGeometryCache }) {
+function HitShape({ entity, sources, viewBox, circleGeometryCache }) {
     const hitProps = {
         stroke: 'transparent',
         strokeWidth: 12,
@@ -462,13 +556,12 @@ function HitShape({ entity, source, viewBox, circleGeometryCache }) {
         const bounds = getDrawingBlockReferenceBounds(entity);
         return bounds ? <rect {...rectFromBounds(bounds)} {...hitProps} pointerEvents="all" /> : null;
     }
-    const geometry = getDimensionGeometry(entity, source);
+    const geometry = getDimensionGeometry(entity, sources);
     if (!geometry) return null;
-    if (geometry.kind === 'linear') return <line x1={geometry.first.x} y1={geometry.first.y} x2={geometry.second.x} y2={geometry.second.y} {...hitProps} />;
-    return <line x1={geometry.center.x} y1={geometry.center.y} x2={geometry.text.x} y2={geometry.text.y} {...hitProps} />;
+    return <DimensionPrimitiveGeometry geometry={geometry} lineProps={hitProps} includeTicks={false} />;
 }
 
-function SelectionShape({ entity, source, preview = false, viewBox, circleGeometryCache }) {
+function SelectionShape({ entity, sources, preview = false, viewBox, circleGeometryCache }) {
     const props = {
         stroke: '#f7941d',
         strokeWidth: preview ? 4 : 3,
@@ -494,10 +587,9 @@ function SelectionShape({ entity, source, preview = false, viewBox, circleGeomet
         const bounds = getDrawingBlockReferenceBounds(entity);
         return bounds ? <rect {...rectFromBounds(bounds)} {...props} /> : null;
     }
-    const geometry = getDimensionGeometry(entity, source);
+    const geometry = getDimensionGeometry(entity, sources);
     if (!geometry) return null;
-    const points = geometry.points.map(point => `${point.x},${point.y}`).join(' ');
-    return <polyline points={points} {...props} />;
+    return <DimensionPrimitiveGeometry geometry={geometry} lineProps={props} includeTicks={false} />;
 }
 
 function rectFromBounds(bounds) {
@@ -674,8 +766,8 @@ function angularSweep(entity) {
     return entity.counterClockwise === false ? positive - Math.PI * 2 : positive;
 }
 
-function DimensionShape({ entity, source, appearance, opacity, textSize, locale }) {
-    const geometry = getDimensionGeometry(entity, source);
+function DimensionShape({ entity, sources, appearance, opacity, textSize, locale }) {
+    const geometry = getDimensionGeometry(entity, sources);
     if (!geometry) return null;
     const color = appearance.color;
     const lineProps = {
@@ -686,31 +778,64 @@ function DimensionShape({ entity, source, appearance, opacity, textSize, locale 
         ...lineTypeStrokeProps(appearance.lineType, appearance.lineWeight),
     };
 
-    if (geometry.kind === 'linear') {
-        const rawDegrees = geometry.angle * 180 / Math.PI;
-        const degrees = rawDegrees > 90 || rawDegrees < -90 ? rawDegrees + 180 : rawDegrees;
-        return (
-            <g className="drawing-dimension" opacity={opacity}>
-                <line x1={geometry.sourceFirst.x} y1={geometry.sourceFirst.y} x2={geometry.first.x} y2={geometry.first.y} {...lineProps} />
-                <line x1={geometry.sourceSecond.x} y1={geometry.sourceSecond.y} x2={geometry.second.x} y2={geometry.second.y} {...lineProps} />
-                <line x1={geometry.first.x} y1={geometry.first.y} x2={geometry.second.x} y2={geometry.second.y} {...lineProps} />
-                <DimensionTick point={geometry.first} angle={geometry.angle} lineProps={lineProps} size={textSize * 0.7} />
-                <DimensionTick point={geometry.second} angle={geometry.angle} lineProps={lineProps} size={textSize * 0.7} />
-                <DimensionText point={geometry.text} angle={degrees} color={color} textSize={textSize}>
-                    {formatDrawingLength(geometry.value, 4, locale)}
-                </DimensionText>
-            </g>
-        );
-    }
-
+    const formatted = formatDrawingDimensionLabel(geometry, entity, locale);
+    const labelLines = formatted.lines;
     return (
         <g className="drawing-dimension" opacity={opacity}>
-            <line x1={geometry.center.x} y1={geometry.center.y} x2={geometry.text.x} y2={geometry.text.y} {...lineProps} />
-            <DimensionTick point={geometry.edge} angle={geometry.angle} lineProps={lineProps} size={textSize * 0.7} />
-            <DimensionText point={geometry.text} angle={0} color={color} textSize={textSize} anchor="start">
-                {geometry.mode === 'diameter' ? 'Ø ' : 'R '}{formatDrawingLength(geometry.value, 4, locale)}
-            </DimensionText>
+            <DimensionPrimitiveGeometry geometry={geometry} lineProps={lineProps} tickSize={textSize * 0.7} />
+            {geometry.label && labelLines.length > 0 && (
+                <DimensionText
+                    point={geometry.label.point}
+                    angle={readableDimensionAngle(geometry.label.angle)}
+                    color={color}
+                    textSize={textSize}
+                    anchor={geometry.kind === 'radial' || geometry.kind === 'ordinate' ? 'start' : 'middle'}
+                    inspection={Boolean(formatted.inspection)}
+                    lines={labelLines}
+                />
+            )}
         </g>
+    );
+}
+
+function DimensionPrimitiveGeometry({ geometry, lineProps, includeTicks = true, tickSize = 0.2 }) {
+    return (
+        <>
+            {(geometry.lines || []).map((line, index) => (
+                <line
+                    key={`line-${index}`}
+                    x1={line.start.x}
+                    y1={line.start.y}
+                    x2={line.end.x}
+                    y2={line.end.y}
+                    {...lineProps}
+                />
+            ))}
+            {(geometry.arcs || []).map((arc, index) => (
+                <path
+                    key={`arc-${index}`}
+                    d={getArcPath({
+                        type: 'arc',
+                        cx: arc.center.x,
+                        cy: arc.center.y,
+                        r: arc.radius,
+                        startAngle: arc.startAngle,
+                        endAngle: arc.endAngle,
+                        counterClockwise: arc.counterClockwise,
+                    })}
+                    {...lineProps}
+                />
+            ))}
+            {includeTicks && (geometry.ticks || []).map((tick, index) => (
+                <DimensionTick
+                    key={`tick-${index}`}
+                    point={tick.point}
+                    angle={tick.angle}
+                    lineProps={lineProps}
+                    size={tickSize}
+                />
+            ))}
+        </>
     );
 }
 
@@ -743,23 +868,52 @@ function transparencyToOpacity(transparency) {
     return 1 - Math.max(0, Math.min(90, value)) / 100;
 }
 
-function DimensionText({ point, angle, color, textSize, anchor = 'middle', children }) {
+function DimensionText({ point, angle, color, textSize, anchor = 'middle', inspection = false, lines = [] }) {
+    const lineHeight = textSize * 1.08;
+    const width = Math.max(...lines.map(line => String(line).length), 1) * textSize * 0.58 + textSize * 0.8;
+    const height = Math.max(1, lines.length) * lineHeight + textSize * 0.45;
+    const left = anchor === 'start' ? -textSize * 0.22 : -width / 2;
+    const top = -height - textSize * 0.12;
     return (
-        <text
-            x={point.x}
-            y={point.y}
-            dy="-0.35em"
-            textAnchor={anchor}
-            transform={`rotate(${angle} ${point.x} ${point.y})`}
-            fill={color}
-            fontSize={textSize}
-            fontFamily="SourceSans3, Arial, sans-serif"
-            paintOrder="stroke"
-            stroke="white"
-            strokeWidth={textSize * 0.3}
-            strokeLinejoin="round"
-        >
-            {children}
-        </text>
+        <g transform={`translate(${point.x} ${point.y}) rotate(${angle})`}>
+            {inspection && (
+                <rect
+                    x={left}
+                    y={top}
+                    width={width}
+                    height={height}
+                    rx={textSize * 0.08}
+                    fill="white"
+                    fillOpacity="0.9"
+                    stroke={color}
+                    strokeWidth={Math.max(textSize * 0.08, 0.02)}
+                    vectorEffect="non-scaling-stroke"
+                />
+            )}
+            <text
+                x="0"
+                y={-textSize * 0.35 - (lines.length - 1) * lineHeight}
+                textAnchor={anchor}
+                fill={color}
+                fontSize={textSize}
+                fontFamily="SourceSans3, Arial, sans-serif"
+                paintOrder="stroke"
+                stroke="white"
+                strokeWidth={textSize * 0.3}
+                strokeLinejoin="round"
+            >
+                {lines.map((line, index) => (
+                    <tspan key={`${index}-${line}`} x="0" dy={index ? lineHeight : 0}>{line}</tspan>
+                ))}
+            </text>
+        </g>
     );
+}
+
+function readableDimensionAngle(radians) {
+    let degrees = (Number(radians) || 0) * 180 / Math.PI;
+    degrees = ((degrees + 180) % 360 + 360) % 360 - 180;
+    if (degrees > 90) degrees -= 180;
+    if (degrees < -90) degrees += 180;
+    return degrees;
 }

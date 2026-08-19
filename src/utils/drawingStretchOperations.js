@@ -10,13 +10,14 @@ import {
     normalizeCurvePrimitive,
 } from './drawingCurveKernel.js';
 import { getRectEntityCorners, translateEntity } from './drawingGeometry.js';
+import { getDrawingEntityDependencyIds } from './drawingDimensions.js';
 
 const EPSILON = 1e-9;
 const MAX_COORDINATE = 1e12;
 const MAX_TARGETS = 10_000;
 const PART_METADATA_KEYS = new Set([
     'id', 'layerId', 'color', 'lineWeight', 'lineWidth', 'lineType', 'transparency', 'locked',
-    'sourceId', 'previewMode',
+    'sourceId', 'sourceIds', 'previewMode',
 ]);
 const GEOMETRY_KEYS = new Set([
     'type', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'rx', 'ry', 'startAngle', 'endAngle',
@@ -82,7 +83,7 @@ export function stretchDrawingEntities(content, {
             ...content,
             entities: content.entities.flatMap(entity => {
                 if (replacements.has(entity.id)) return [replacements.get(entity.id)];
-                if (incompatible.has(entity.sourceId)) return [];
+                if (getDrawingEntityDependencyIds(entity).some(id => incompatible.has(id))) return [];
                 return [entity];
             }),
         },

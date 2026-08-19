@@ -15,6 +15,7 @@ import {
     pathSubpath,
     splitPath,
 } from './drawingCurveKernel.js';
+import { drawingEntityDependsOn } from './drawingDimensions.js';
 
 const TAU = Math.PI * 2;
 const EPSILON = 1e-9;
@@ -22,7 +23,7 @@ const MAX_COORDINATE = 1e12;
 const MAX_PATHS = 1_024;
 const PART_METADATA_KEYS = new Set([
     'id', 'layerId', 'color', 'lineWeight', 'lineWidth', 'lineType', 'transparency', 'locked',
-    'sourceId', 'previewMode',
+    'sourceId', 'sourceIds', 'previewMode',
 ]);
 const GEOMETRY_KEYS = new Set([
     'type', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'rx', 'ry', 'startAngle', 'endAngle',
@@ -197,7 +198,7 @@ export function lengthenDrawingTarget(content, targetOrId, pickPoint, options = 
             ...content,
             entities: content.entities.flatMap(entity => {
                 if (entity.id === target.id) return [replacement];
-                if (incompatible && entity.sourceId === target.id) return [];
+                if (incompatible && drawingEntityDependsOn(entity, target.id)) return [];
                 return [entity];
             }),
         },
@@ -387,7 +388,7 @@ function applyBreakResult(content, target, result) {
             ...content,
             entities: content.entities.flatMap(entity => {
                 if (entity.id === target.id) return replacements;
-                if (entity.sourceId === target.id) return [];
+                if (drawingEntityDependsOn(entity, target.id)) return [];
                 return [entity];
             }),
         },

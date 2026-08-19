@@ -22,6 +22,7 @@ import {
     transformAdvancedCurveAffine,
     transformHatchPatternAffine,
 } from './drawingAdvancedEntities.js';
+import { isDrawingDimensionEntity } from './drawingDimensions.js';
 
 export const DEFAULT_TRANSFORM_OPTIONS = Object.freeze({
     curveSegments: 96,
@@ -262,6 +263,7 @@ export function transformEntity(entity, transform = {}, options = {}) {
 
     if (entity.type === 'linearDimension') return scaleLinearDimension(entity, resolved);
     if (entity.type === 'radialDimension') return scaleRadialDimension(entity, resolved);
+    if (isDrawingDimensionEntity(entity)) return scaleDrawingDimension(entity, resolved);
     return entity;
 }
 
@@ -286,12 +288,8 @@ export function translateEntity(entity, dx, dy) {
             ? { parts: entity.parts.map(part => translateEntity(part, dx, dy)) }
             : { points: (entity.points || []).map(point => ({ x: point.x + dx, y: point.y + dy })) }),
     };
-    if (entity.type === 'linearDimension' && entity.p1 && entity.p2) {
-        return {
-            ...entity,
-            p1: { x: entity.p1.x + dx, y: entity.p1.y + dy },
-            p2: { x: entity.p2.x + dx, y: entity.p2.y + dy },
-        };
+    if (isDrawingDimensionEntity(entity)) {
+        return transformDimensionPointFields(entity, point => ({ x: point.x + dx, y: point.y + dy }));
     }
     return entity;
 }
@@ -348,11 +346,10 @@ export function rotateEntity(entity, angleInput, origin) {
             ? { parts: entity.parts.map(part => rotateEntity(part, angleDegrees, origin)) }
             : { points: (entity.points || []).map(point => rotatePoint(point, origin, angleDegrees)) }),
     };
-    if (entity.type === 'linearDimension' && entity.p1 && entity.p2) {
-        return { ...entity, p1: rotatePoint(entity.p1, origin, angleDegrees), p2: rotatePoint(entity.p2, origin, angleDegrees) };
-    }
-    if (entity.type === 'radialDimension') {
-        return { ...entity, angle: (Number(entity.angle) || 0) + angleDegrees * Math.PI / 180 };
+    if (isDrawingDimensionEntity(entity)) {
+        const radians = angleDegrees * Math.PI / 180;
+        const rotated = transformDimensionPointFields(entity, point => rotatePoint(point, origin, angleDegrees));
+        return transformDimensionAngles(rotated, angle => angle + radians);
     }
     return entity;
 }
@@ -421,16 +418,22 @@ export function mirrorEntity(entity, axisFirst, axisSecond, options = {}) {
             counterClockwise: entity.counterClockwise === false,
         };
     }
-    if (entity.type === 'linearDimension') {
-        const mirrored = entity.p1 && entity.p2 ? {
-            p1: mirrorPoint(entity.p1, axisFirst, axisSecond),
-            p2: mirrorPoint(entity.p2, axisFirst, axisSecond),
-        } : {};
-        return { ...entity, ...mirrored, offset: -(Number.isFinite(entity.offset) ? entity.offset : 0.6) };
-    }
-    if (entity.type === 'radialDimension') {
+    if (isDrawingDimensionEntity(entity)) {
         const axisAngle = Math.atan2(axisSecond.y - axisFirst.y, axisSecond.x - axisFirst.x);
-        return { ...entity, angle: axisAngle * 2 - (Number(entity.angle) || 0) };
+        const mirrored = transformDimensionPointFields(
+            entity,
+            point => mirrorPoint(point, axisFirst, axisSecond),
+        );
+        const angled = transformDimensionAngles(mirrored, angle => axisAngle * 2 - angle);
+        return {
+            ...angled,
+            ...(entity.type === 'linearDimension'
+                ? { offset: -(Number.isFinite(entity.offset) ? entity.offset : 0.6) }
+                : {}),
+            ...(entity.type === 'angularDimension'
+                ? { counterClockwise: entity.counterClockwise === false }
+                : {}),
+        };
     }
     return entity;
 }
@@ -592,7 +595,7 @@ function scaleRectLike(entity, transform) {
 }
 
 function scaleLinearDimension(entity, transform) {
-    const next = { ...entity };
+    const next = transformDimensionPointFields(entity, point => transformPoint(point, transform));
     if (entity.p1 && entity.p2 && isFinitePoint(entity.p1) && isFinitePoint(entity.p2)) {
         const first = transformPoint(entity.p1, transform);
         const second = transformPoint(entity.p2, transform);
@@ -608,24 +611,86 @@ function scaleLinearDimension(entity, transform) {
                 ? ((second.x - first.x) * (offsetPoint.y - first.y) - (second.y - first.y) * (offsetPoint.x - first.x)) / transformedLength
                 : offset;
         }
-        next.p1 = first;
-        next.p2 = second;
     } else if (Number.isFinite(Number(entity.offset))) {
         next.offset = Number(entity.offset) * scaleThickness(transform);
+    }
+    scaleDimensionDistanceFields(next, entity, transform, ['radius', 'jogSize', 'size', 'extension', 'textSize']);
+    return transformDimensionAnglesForScale(next, transform);
+}
+
+function scaleRadialDimension(entity, transform) {
+    const next = transformDimensionPointFields(entity, point => transformPoint(point, transform));
+    scaleDimensionDistanceFields(next, entity, transform, ['jogSize', 'textSize']);
+    const angled = transformDimensionAnglesForScale(next, transform);
+    return {
+        ...angled,
+        ...(Number.isFinite(Number(entity.leaderScale))
+            ? { leaderScale: Number(entity.leaderScale) * scaleThickness(transform) }
+            : {}),
+    };
+}
+
+function scaleDrawingDimension(entity, transform) {
+    const next = transformDimensionPointFields(entity, point => transformPoint(point, transform));
+    scaleDimensionDistanceFields(next, entity, transform, [
+        'offset', 'radius', 'jogSize', 'size', 'extension', 'textSize',
+    ]);
+    const angled = transformDimensionAnglesForScale(next, transform);
+    if (entity.type === 'angularDimension' && transform.scaleX * transform.scaleY < 0) {
+        angled.counterClockwise = entity.counterClockwise === false;
+    }
+    return angled;
+}
+
+function transformDimensionPointFields(entity, transformPointFn) {
+    const next = { ...entity };
+    [
+        'p1',
+        'p2',
+        'linePoint',
+        'vertex',
+        'ray1Point',
+        'ray2Point',
+        'jogCenter',
+        'jogPoint',
+        'origin',
+        'featurePoint',
+        'leaderPoint',
+    ].forEach(property => {
+        if (isFinitePoint(entity[property])) next[property] = transformPointFn(entity[property]);
+    });
+    if (Array.isArray(entity.sourcePickPoints)) {
+        next.sourcePickPoints = entity.sourcePickPoints.map(point => (
+            isFinitePoint(point) ? transformPointFn(point) : point
+        ));
     }
     return next;
 }
 
-function scaleRadialDimension(entity, transform) {
-    const angle = Number(entity.angle) || 0;
-    const direction = transformPoint({ x: Math.cos(angle), y: Math.sin(angle) }, {
-        origin: { x: 0, y: 0 }, scaleX: transform.scaleX, scaleY: transform.scaleY,
+function transformDimensionAngles(entity, transformAngle) {
+    const next = { ...entity };
+    ['angle', 'dimensionAngle'].forEach(property => {
+        if (Number.isFinite(Number(entity[property]))) next[property] = transformAngle(Number(entity[property]));
     });
-    return {
-        ...entity,
-        angle: Math.atan2(direction.y, direction.x),
-        ...(Number.isFinite(Number(entity.leaderScale)) ? { leaderScale: Number(entity.leaderScale) * scaleThickness(transform) } : {}),
-    };
+    return next;
+}
+
+function transformDimensionAnglesForScale(entity, transform) {
+    return transformDimensionAngles(entity, angle => {
+        const direction = transformPoint({ x: Math.cos(angle), y: Math.sin(angle) }, {
+            origin: { x: 0, y: 0 },
+            scaleX: transform.scaleX,
+            scaleY: transform.scaleY,
+        });
+        return Math.atan2(direction.y, direction.x);
+    });
+}
+
+function scaleDimensionDistanceFields(next, source, transform, properties) {
+    const factor = scaleThickness(transform);
+    properties.forEach(property => {
+        if (Number.isFinite(Number(source[property]))) next[property] = Number(source[property]) * factor;
+    });
 }
 
 function scaleThickness(transform) {

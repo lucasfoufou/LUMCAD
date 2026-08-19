@@ -1,9 +1,13 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 
 import DrawingCommandBar from '~components/drawing/DrawingCommandBar';
 import DrawingLayoutCanvas from '~components/drawing/DrawingLayoutCanvas';
 import DrawingLayoutSidebar from '~components/drawing/DrawingLayoutSidebar';
 import DrawingLayoutToolbar from '~components/drawing/DrawingLayoutToolbar';
+import {
+    createDrawingViewportClipPreset,
+    updateDrawingViewport,
+} from '~utils/drawingLayouts';
 
 export default function DrawingLayoutEditor({
     activeTool,
@@ -16,20 +20,59 @@ export default function DrawingLayoutEditor({
     isExporting,
     layout,
     layoutCount,
+    maximizedViewportId = null,
     message,
     onChange,
+    onClipViewport,
+    onCreatePageSetup,
     onDeleteLayout,
+    onDeletePageSetup,
     onDeleteViewport,
     onExportAll,
     onExportCurrent,
+    onExportPageSetups,
+    onImportPageSetups,
+    onMaximizeViewport,
+    onMinimizeViewport,
     onOperationPoint,
     onScaleViewport,
     onSelectedViewportChange,
     onStatus,
+    onToggleViewportLock,
     onToolChange,
     operation,
+    pageSetups = [],
     selectedViewportId,
+    viewportMaximized = false,
 }) {
+    const [selectedPaperEntityId, setSelectedPaperEntityId] = useState(null);
+    const selectedViewport = layout.viewports.find(viewport => viewport.id === selectedViewportId) || null;
+    useEffect(() => {
+        setSelectedPaperEntityId(current => (
+            layout.paperEntities?.some(entity => entity.id === current) ? current : null
+        ));
+    }, [layout.id, layout.paperEntities]);
+    const selectViewport = viewportId => {
+        if (viewportId) setSelectedPaperEntityId(null);
+        onSelectedViewportChange(viewportId);
+    };
+    const selectPaperEntity = entityId => {
+        if (entityId) onSelectedViewportChange(null);
+        setSelectedPaperEntityId(entityId);
+    };
+    const clipSelectedViewport = selectedViewport ? () => {
+        const clipBoundary = selectedViewport.clipBoundary
+            ? null
+            : createDrawingViewportClipPreset('hexagon');
+        if (onClipViewport) onClipViewport(selectedViewport.id, clipBoundary);
+        else onChange(updateDrawingViewport(layout, selectedViewport.id, { clipBoundary }));
+    } : null;
+    const toggleSelectedViewportLock = selectedViewport ? () => {
+        const locked = !selectedViewport.locked;
+        if (onToggleViewportLock) onToggleViewportLock(selectedViewport.id, locked);
+        else onChange(updateDrawingViewport(layout, selectedViewport.id, { locked }));
+    } : null;
+
     return (
         <div className="drawing-layout-editor">
             <DrawingLayoutToolbar
@@ -37,10 +80,20 @@ export default function DrawingLayoutEditor({
                 hasSelection={Boolean(selectedViewportId)}
                 onDelete={onDeleteViewport}
                 onFitPaper={() => canvasRef.current?.fitPaper()}
+                onMaximize={onMaximizeViewport && selectedViewport
+                    ? () => onMaximizeViewport(selectedViewport.id)
+                    : null}
+                onMinimize={onMinimizeViewport && selectedViewport
+                    ? () => onMinimizeViewport(selectedViewport.id)
+                    : null}
+                onClip={clipSelectedViewport}
                 onScale={onScaleViewport}
+                onToggleLock={toggleSelectedViewportLock}
                 onToolChange={onToolChange}
                 onZoomIn={() => canvasRef.current?.zoomPaper(0.82)}
                 onZoomOut={() => canvasRef.current?.zoomPaper(1.22)}
+                viewportLocked={Boolean(selectedViewport?.locked)}
+                viewportMaximized={viewportMaximized}
             />
             <main className="drawing-layout-stage">
                 <DrawingLayoutCanvas
@@ -50,11 +103,14 @@ export default function DrawingLayoutEditor({
                     content={content}
                     currentModelViewport={currentModelViewport}
                     layout={layout}
+                    maximizedViewportId={maximizedViewportId}
                     onChange={onChange}
                     onOperationPoint={onOperationPoint}
-                    onSelectedViewportChange={onSelectedViewportChange}
+                    onSelectedPaperEntityChange={selectPaperEntity}
+                    onSelectedViewportChange={selectViewport}
                     onStatus={onStatus}
                     operation={operation}
+                    selectedPaperEntityId={selectedPaperEntityId}
                     selectedViewportId={selectedViewportId}
                 />
                 <DrawingCommandBar ref={commandBarRef} {...command} message={message} />
@@ -66,11 +122,18 @@ export default function DrawingLayoutEditor({
                 layout={layout}
                 layoutCount={layoutCount}
                 onChange={onChange}
+                onCreatePageSetup={onCreatePageSetup}
                 onDeleteLayout={onDeleteLayout}
+                onDeletePageSetup={onDeletePageSetup}
                 onExportAll={onExportAll}
                 onExportCurrent={onExportCurrent}
-                onSelectViewport={onSelectedViewportChange}
+                onExportPageSetups={onExportPageSetups}
+                onImportPageSetups={onImportPageSetups}
+                onSelectedPaperEntityChange={selectPaperEntity}
+                onSelectViewport={selectViewport}
                 onToolChange={onToolChange}
+                pageSetups={pageSetups}
+                selectedPaperEntityId={selectedPaperEntityId}
                 selectedViewportId={selectedViewportId}
             />
         </div>

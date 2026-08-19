@@ -88,7 +88,14 @@ test('SVG interchange exports exact ellipses, elliptical arcs, splines, hatch bo
             { x: 5, y: 5 }, { x: 7, y: 5 }, { x: 6, y: 7 },
         ]] },
         { id: 'dimension-source', type: 'line', layerId: 'geometry', x1: 0, y1: 9, x2: 4, y2: 9 },
-        { id: 'dimension', type: 'linearDimension', layerId: 'dimensions', sourceId: 'dimension-source', offset: 1 },
+        {
+            id: 'dimension', type: 'linearDimension', layerId: 'dimensions', sourceId: 'dimension-source', offset: 1,
+            dimensionFormat: {
+                tolerance: { mode: 'symmetric', upper: 0.01, precision: 2 },
+                alternateUnits: { enabled: true, unit: 'mm', precision: 0 },
+                inspection: { enabled: true, label: 'A', rate: '100%' },
+            },
+        },
     ];
     const payload = createDrawingClipboardPayload({ content, assets: [] }, [
         'ellipse', 'ellipse-arc', 'spline', 'hatch', 'dimension-source',
@@ -98,7 +105,12 @@ test('SVG interchange exports exact ellipses, elliptical arcs, splines, hatch bo
     assert.match(svg, /<path d="M [^"]+ A 2 1 15 1 1/);
     assert.match(svg, / C 1 7 3 3 4 5/);
     assert.match(svg, /M 5 5 L 7 5 L 6 7 L 5 5 Z/);
-    assert.match(svg, /4 m<\/text>/);
+    assert.match(svg, /<tspan x="0">A<\/tspan>/);
+    assert.match(svg, /4 m<\/tspan>/);
+    assert.match(svg, /±0\.01 m<\/tspan>/);
+    assert.match(svg, /\[4000 mm\]<\/tspan>/);
+    assert.match(svg, /100%<\/tspan>/);
+    assert.match(svg, /<rect\b[^>]*fill-opacity="0\.9"/);
     assert.deepEqual(parseDrawingClipboardText(svg), payload);
 });
 

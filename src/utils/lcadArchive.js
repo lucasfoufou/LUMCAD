@@ -4,6 +4,7 @@ import { createI18nError } from '../i18n/translator.js';
 import {
     LCAD_FORMAT,
     LCAD_FORMAT_VERSION,
+    LCAD_MIN_READABLE_FORMAT_VERSION,
     normalizeLcadEnvelope,
     normalizeLcadImageMimeType,
 } from './lcadDocument.js';
@@ -138,7 +139,9 @@ function validateArchiveManifest(manifest) {
         throw createI18nError('storage.invalidManifest');
     }
     if (manifest.format !== LCAD_FORMAT) throw createI18nError('errors.notLumcad');
-    if (manifest.formatVersion !== LCAD_FORMAT_VERSION) {
+    if (!Number.isInteger(manifest.formatVersion)
+        || manifest.formatVersion < LCAD_MIN_READABLE_FORMAT_VERSION
+        || manifest.formatVersion > LCAD_FORMAT_VERSION) {
         throw createI18nError('errors.unsupportedFormatVersion', { version: String(manifest.formatVersion) });
     }
     if (!manifest.document || typeof manifest.document !== 'object' || Array.isArray(manifest.document)) {

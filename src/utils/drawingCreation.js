@@ -13,6 +13,7 @@ import {
     tangentRadiusAtPoint,
 } from './drawingCurves.js';
 import { pointDistance } from './drawingPrimitives.js';
+import { DEFAULT_DRAWING_TEXT_STYLE_ID } from './drawingText.js';
 
 const CREATION_PANEL_ENTITY_TYPES = new Set(['rectangle', 'circle', 'polygon', 'arc', 'text']);
 
@@ -28,7 +29,9 @@ export function createDefaultDrawingCreationConfig(tool) {
     if (tool === 'text') return {
         mode: 'corner',
         options: {
-            fontSize: 0.35,
+            textMode: 'singleLine',
+            wrapMode: 'none',
+            textStyleId: DEFAULT_DRAWING_TEXT_STYLE_ID,
             horizontalAlign: 'left',
             verticalAlign: 'top',
         },

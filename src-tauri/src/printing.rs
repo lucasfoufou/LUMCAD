@@ -1,6 +1,7 @@
 use serde::Serialize;
 
 const POINTS_PER_MM: f64 = 72.0 / 25.4;
+const PAPER_POINT_QUANTUM: f64 = 1_000.0;
 const MIN_PAPER_MM: f64 = 10.0;
 const MAX_PAPER_MM: f64 = 5_000.0;
 
@@ -34,9 +35,17 @@ fn print_page_profile(width_mm: f64, height_mm: f64) -> Result<PrintPageProfile,
     Ok(PrintPageProfile {
         width_mm,
         height_mm,
-        width_points: width_mm * POINTS_PER_MM,
-        height_points: height_mm * POINTS_PER_MM,
+        // Cocoa and WebKit do not always quantize physical sizes in the same
+        // direction. Rounding the native paper outward to a thousandth of a
+        // point prevents the requested sheet from becoming microscopically
+        // smaller than the exact CSS @page boundary.
+        width_points: round_paper_points_outward(width_mm * POINTS_PER_MM),
+        height_points: round_paper_points_outward(height_mm * POINTS_PER_MM),
     })
+}
+
+fn round_paper_points_outward(points: f64) -> f64 {
+    (points * PAPER_POINT_QUANTUM).ceil() / PAPER_POINT_QUANTUM
 }
 
 fn portrait_paper_points(profile: PrintPageProfile) -> (f64, f64) {
@@ -82,8 +91,8 @@ mod tests {
     #[test]
     fn converts_a0_landscape_from_millimetres_to_native_points() {
         let profile = print_page_profile(1189.0, 841.0).unwrap();
-        assert!((profile.width_points - 3370.393700787402).abs() < 1e-9);
-        assert!((profile.height_points - 2383.937007874016).abs() < 1e-9);
+        assert!((profile.width_points - 3370.394).abs() < 1e-9);
+        assert!((profile.height_points - 2383.938).abs() < 1e-9);
     }
 
     #[test]
@@ -114,8 +123,8 @@ mod tests {
             let landscape = print_page_profile(long_side, short_side).unwrap();
             let portrait = print_page_profile(short_side, long_side).unwrap();
             let expected_portrait_points = (
-                short_side * POINTS_PER_MM,
-                long_side * POINTS_PER_MM,
+                round_paper_points_outward(short_side * POINTS_PER_MM),
+                round_paper_points_outward(long_side * POINTS_PER_MM),
             );
 
             assert_eq!(portrait_paper_points(landscape), expected_portrait_points);
@@ -124,6 +133,17 @@ mod tests {
             assert!((landscape.height_mm - short_side).abs() < f64::EPSILON);
             assert!((portrait.width_mm - short_side).abs() < f64::EPSILON);
             assert!((portrait.height_mm - long_side).abs() < f64::EPSILON);
+        }
+    }
+
+    #[test]
+    fn native_point_rounding_never_reduces_exact_a_series_bounds() {
+        for millimetres in [210.0, 297.0, 420.0, 594.0, 841.0, 1189.0] {
+            let exact = millimetres * POINTS_PER_MM;
+            let rounded = round_paper_points_outward(exact);
+            assert!(rounded >= exact);
+            assert!(rounded - exact < 0.001 + f64::EPSILON);
+            assert!((rounded * PAPER_POINT_QUANTUM).fract().abs() < 1e-7);
         }
     }
 }

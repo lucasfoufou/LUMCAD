@@ -20,7 +20,7 @@ The project is now open source so that this foundation can grow into a useful ge
 
 ## Current capabilities
 
-- lines, rectangles, regular polygons, circles, arcs, polylines, text, reference images, and dimensions;
+- lines, rectangles, regular polygons, circles, arcs, polylines, rich single-line/multiline text, reference images, and associative dimensions;
 - layers and ByLayer/custom colors, line weights, line types, and transparency;
 - object snaps, tracking helpers, grips, selection windows, and command aliases;
 - move, copy, rotate, scale, offset, exact native-curve trim/extend and break, crossing-window stretch, four-mode lengthen, mirror, exact mixed-curve join, explode/XPLODE, and rectangular array operations;
@@ -29,8 +29,9 @@ The project is now open source so that this foundation can grow into a useful ge
 - persistent exact ellipse, cubic-spline, mixed-path, hatch-boundary, dimension, and anonymous block-reference data used by compound operations and interchange;
 - local `.lcad` files with native Open and Save As dialogs plus continuous autosave;
 - atomic autosave and automatic recovery for drawings that do not yet have a file path;
-- portrait or landscape A4, A3, A2, A1, and A0 layouts with multiple model viewports, exact `1/X` scales, and per-viewport layer visibility;
-- export of one layout or every layout through the system PDF print dialog;
+- standard or custom paper layouts with margins, importable/exportable page setups, text/line/rectangle paper annotations, templates, scrollable tabs, and pointer reordering;
+- multiple transparent clipped/rotated model viewports with exact `1/X` scales, locking, maximize/minimize, annotation controls, and per-viewport layer appearance;
+- export of one, every, or a Cmd/Ctrl-selected subset of layouts through the system PDF print dialog;
 - a local Streamable HTTP MCP server for AI-assisted drawing workflows;
 - an English and French interface, with English as the source language.
 
@@ -54,7 +55,7 @@ drawing.lcad
 
 `manifest.json` is a versioned JSON document containing the drawing geometry, layers, settings, and asset descriptors. Binary images are stored separately below `assets/`; they are not duplicated as base64 inside the manifest. This keeps reference images—and future title-block resources—portable inside one `.lcad` file while remaining easy to inspect with standard ZIP tools.
 
-The initial `.lcad` format version is version 1 and always uses this ZIP structure. See [LCAD_FORMAT.md](./LCAD_FORMAT.md) for the container contract and safety limits.
+The current `.lcad` format is version 2 and always uses this ZIP structure. Version 1 files remain readable and are normalized to the current document model when opened. See [LCAD_FORMAT.md](./LCAD_FORMAT.md) for the container contract and safety limits.
 
 Rust writes to a temporary file next to the target, synchronizes it to disk, and then replaces the target atomically. A drawing without a file path is saved as `recovery.lcad` in LUMCAD's application data directory and restored at the next startup.
 

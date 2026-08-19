@@ -49,6 +49,11 @@ import {
 import { baseSnapCandidates, nearestSnapCandidate } from './drawingSnapGeometry.js';
 import { getAdvancedEntityBounds, getHatchBoundaryEntities } from './drawingAdvancedEntities.js';
 import { extractEntityPaths, intersectPaths } from './drawingCurveKernel.js';
+import {
+    formatDrawingLength,
+    getDimensionGeometry,
+    isDrawingDimensionEntity,
+} from './drawingDimensions.js';
 
 export {
     getEntitySegments,
@@ -93,6 +98,38 @@ export {
     normalizePolygonSides,
     tangentRadiusAtPoint,
 } from './drawingCurves.js';
+
+export {
+    DRAWING_DIMENSION_SERIES_MODES,
+    DRAWING_DIMENSION_TOLERANCE_MODES,
+    DRAWING_DIMENSION_TYPES,
+    DRAWING_DIMENSION_UNITS,
+    DRAWING_LINEAR_DIMENSION_MODES,
+    DRAWING_RADIAL_DIMENSION_MODES,
+    buildBaselineDimensions,
+    buildChainDimensions,
+    buildContinuedDimensions,
+    buildLinearDimensionSeries,
+    buildQuickDimensions,
+    convertDrawingLength,
+    drawingEntityDependsOn,
+    formatDrawingAngle,
+    formatDrawingDimensionLabel,
+    formatDrawingDimensionMeasurement,
+    formatDrawingLength,
+    getAngularDimensionGeometry,
+    getArcLengthDimensionGeometry,
+    getCenterMarkGeometry,
+    getDimensionGeometry,
+    getDrawingEntityDependencyIds,
+    getLinearDimensionGeometry,
+    getOrdinateDimensionGeometry,
+    getRadialDimensionGeometry,
+    isDrawingDimensionEntity,
+    normalizeDrawingDimension,
+    normalizeDrawingDimensionFormat,
+    remapDrawingEntityDependencies,
+} from './drawingDimensions.js';
 
 export function getViewBoxWorldUnitsPerPixel(viewBox, viewportSize) {
     const width = Math.max(1, Number(viewportSize?.width) || 0);
@@ -187,8 +224,8 @@ export function getEntityBounds(entity, entityMap = new Map()) {
         const radius = Math.abs(Number(entity.r) || 0);
         return normalizeBounds(entity.cx - radius, entity.cy - radius, entity.cx + radius, entity.cy + radius);
     }
-    if (entity.type === 'linearDimension' || entity.type === 'radialDimension') {
-        const geometry = getDimensionGeometry(entity, entityMap.get(entity.sourceId));
+    if (isDrawingDimensionEntity(entity)) {
+        const geometry = getDimensionGeometry(entity, entityMap);
         return geometry ? boundsFromPoints(geometry.points) : null;
     }
     return null;
@@ -981,6 +1018,7 @@ function lineFragmentFromEntity(entity, first, second) {
         r: _r,
         rotation: _rotation,
         sourceId: _sourceId,
+        sourceIds: _sourceIds,
         ...properties
     } = entity;
     return { ...properties, type: 'line', x1: first.x, y1: first.y, x2: second.x, y2: second.y };
@@ -999,65 +1037,6 @@ export function selectionCenter(content, selectedIds) {
         );
     }, null);
     return bounds ? { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 } : { x: 0, y: 0 };
-}
-
-export function getDimensionGeometry(dimension, source) {
-    if (dimension?.type === 'linearDimension') {
-        let sourceFirst = null;
-        let sourceSecond = null;
-        if (source?.type === 'line') {
-            sourceFirst = { x: source.x1, y: source.y1 };
-            sourceSecond = { x: source.x2, y: source.y2 };
-        } else if (['rectangle', 'polygon'].includes(source?.type)) {
-            const segments = getEntitySegments(source);
-            const edgeIndex = Math.max(0, Math.min(segments.length - 1, Number(dimension.edgeIndex) || 0));
-            [sourceFirst, sourceSecond] = segments[edgeIndex] || [];
-        } else if (dimension.p1 && dimension.p2) {
-            sourceFirst = dimension.p1;
-            sourceSecond = dimension.p2;
-        }
-        if (!sourceFirst || !sourceSecond) return null;
-        const dx = sourceSecond.x - sourceFirst.x;
-        const dy = sourceSecond.y - sourceFirst.y;
-        const length = Math.hypot(dx, dy);
-        if (length < EPSILON) return null;
-        const normal = { x: -dy / length, y: dx / length };
-        const offset = Number.isFinite(dimension.offset) ? dimension.offset : 0.6;
-        const first = { x: sourceFirst.x + normal.x * offset, y: sourceFirst.y + normal.y * offset };
-        const second = { x: sourceSecond.x + normal.x * offset, y: sourceSecond.y + normal.y * offset };
-        return {
-            kind: 'linear',
-            first,
-            second,
-            sourceFirst,
-            sourceSecond,
-            text: { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 },
-            angle: Math.atan2(dy, dx),
-            value: length,
-            points: [first, second, sourceFirst, sourceSecond],
-        };
-    }
-    if (dimension?.type === 'radialDimension' && ['circle', 'arc'].includes(source?.type)) {
-        if (!isFiniteBoundedCircle(source)) return null;
-        const angle = Number.isFinite(dimension.angle) ? dimension.angle : -Math.PI / 4;
-        const leaderScale = Math.max(1.05, Number(dimension.leaderScale) || 1.45);
-        const radius = Math.abs(Number(source.r) || 0);
-        const edge = { x: source.cx + Math.cos(angle) * radius, y: source.cy + Math.sin(angle) * radius };
-        const text = { x: source.cx + Math.cos(angle) * radius * leaderScale, y: source.cy + Math.sin(angle) * radius * leaderScale };
-        return {
-            kind: 'radial', center: { x: source.cx, y: source.cy }, edge, text, angle,
-            mode: dimension.mode === 'diameter' ? 'diameter' : 'radius',
-            value: dimension.mode === 'diameter' ? radius * 2 : radius,
-            points: [{ x: source.cx, y: source.cy }, edge, text],
-        };
-    }
-    return null;
-}
-
-export function formatDrawingLength(value, precision = 4, locale = 'en') {
-    const decimal = Number(value || 0).toFixed(precision).replace(/\.?0+$/, '');
-    const formatted = String(locale).startsWith('fr') ? decimal.replace('.', ',') : decimal;
-    return `${formatted} m`;
 }
 
 export function snapDrawingPoint(point, content, threshold, { excludeIds = [] } = {}) {

@@ -8,6 +8,7 @@ import {
     normalizeCurvePath,
     normalizeCurvePrimitive,
 } from './drawingCurveKernel.js';
+import { drawingEntityDependsOn } from './drawingDimensions.js';
 
 const TAU = Math.PI * 2;
 const EPSILON = 1e-9;
@@ -672,7 +673,7 @@ function applyWholePathDrawingOperation(content, entityId, perform, prefix, opti
     const incompatible = source.type !== result.entity.type;
     const entities = content.entities.flatMap(entity => {
         if (entity.id === entityId) return [{ ...result.entity, id: entityId }];
-        if (incompatible && entity.sourceId === entityId) return [];
+        if (incompatible && drawingEntityDependsOn(entity, entityId)) return [];
         return [entity];
     });
     const replacement = entities.find(entity => entity.id === entityId);
@@ -732,6 +733,7 @@ function stripPartAppearance(part) {
         transparency: _transparency,
         locked: _locked,
         sourceId: _sourceId,
+        sourceIds: _sourceIds,
         previewMode: _previewMode,
         ...geometry
     } = part;

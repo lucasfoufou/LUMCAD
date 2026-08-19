@@ -11,6 +11,11 @@ import {
     transformAdvancedCurveAffine,
     transformHatchPatternAffine,
 } from './drawingAdvancedEntities.js';
+import {
+    getDimensionGeometry,
+    isDrawingDimensionEntity,
+    remapDrawingEntityDependencies,
+} from './drawingDimensions.js';
 
 const EPSILON = 1e-9;
 const MAX_BLOCK_DEFINITIONS = 1_024;
@@ -301,7 +306,7 @@ export function remapDrawingBlockEntity(entity, {
 } = {}) {
     const next = cloneJson(entity);
     if (entityIdMap.has(next.id)) next.id = entityIdMap.get(next.id);
-    if (next.sourceId && entityIdMap.has(next.sourceId)) next.sourceId = entityIdMap.get(next.sourceId);
+    Object.assign(next, remapDrawingEntityDependencies(next, entityIdMap));
     if (next.layerId && layerIdMap.has(next.layerId)) next.layerId = layerIdMap.get(next.layerId);
     if (next.assetId && assetIdMap.has(next.assetId)) next.assetId = assetIdMap.get(next.assetId);
     if (next.blockId && blockIdMap.has(next.blockId)) next.blockId = blockIdMap.get(next.blockId);
@@ -361,9 +366,7 @@ function transformDrawingBlockEntityAffine(entity, matrix) {
             rotation: 0,
         } : entity;
     }
-    if (entity.type === 'linearDimension' && entity.p1 && entity.p2) {
-        return { ...entity, p1: transformAffinePoint(entity.p1, matrix), p2: transformAffinePoint(entity.p2, matrix) };
-    }
+    if (isDrawingDimensionEntity(entity)) return transformDrawingDimensionAffine(entity, matrix);
     return entity;
 }
 
@@ -388,8 +391,8 @@ function translateDrawingBlockEntity(entity, dx, dy) {
             ? { parts: entity.parts.map(part => translateDrawingBlockEntity(part, dx, dy)) }
             : { points: (entity.points || []).map(point => ({ x: point.x + dx, y: point.y + dy })) }),
     };
-    if (entity.type === 'linearDimension' && entity.p1 && entity.p2) {
-        return { ...entity, p1: { x: entity.p1.x + dx, y: entity.p1.y + dy }, p2: { x: entity.p2.x + dx, y: entity.p2.y + dy } };
+    if (isDrawingDimensionEntity(entity)) {
+        return transformDrawingDimensionAffine(entity, translationAffineMatrix(dx, dy));
     }
     return entity;
 }
@@ -428,42 +431,50 @@ function getDrawingBlockEntityBounds(entity, blockMap, entityMap, visiting) {
         ), null);
         return boundsFromPoints(entity.points || []);
     }
-    if (entity.type === 'linearDimension') return linearDimensionBounds(entity, entityMap.get(entity.sourceId));
-    if (entity.type === 'radialDimension') return radialDimensionBounds(entity, entityMap.get(entity.sourceId));
+    if (isDrawingDimensionEntity(entity)) {
+        const geometry = getDimensionGeometry(entity, entityMap);
+        return geometry ? boundsFromPoints(geometry.points) : null;
+    }
     return null;
 }
 
-function linearDimensionBounds(entity, source) {
-    let first = entity.p1;
-    let second = entity.p2;
-    if (source?.type === 'line') {
-        first = { x: source.x1, y: source.y1 };
-        second = { x: source.x2, y: source.y2 };
-    } else if (source?.type === 'rectangle' || source?.type === 'polygon') {
-        const points = source.type === 'rectangle' ? getRectangleOutlinePoints(source) : getRegularPolygonVertices(source);
-        const index = Math.max(0, Math.min(points.length - 1, Number(entity.edgeIndex) || 0));
-        first = points[index];
-        second = points[(index + 1) % points.length];
+function transformDrawingDimensionAffine(entity, matrix) {
+    const normalized = normalizeAffineMatrix(matrix);
+    const next = { ...entity };
+    const pointProperties = [
+        'p1', 'p2', 'linePoint', 'vertex', 'ray1Point', 'ray2Point',
+        'jogCenter', 'jogPoint', 'origin', 'featurePoint', 'leaderPoint',
+    ];
+    pointProperties.forEach(property => {
+        if (isFinitePoint(entity[property])) next[property] = transformAffinePoint(entity[property], normalized);
+    });
+    if (Array.isArray(entity.sourcePickPoints)) {
+        next.sourcePickPoints = entity.sourcePickPoints.map(point => (
+            isFinitePoint(point) ? transformAffinePoint(point, normalized) : point
+        ));
     }
-    if (!isFinitePoint(first) || !isFinitePoint(second)) return null;
-    const dx = second.x - first.x;
-    const dy = second.y - first.y;
-    const length = Math.hypot(dx, dy);
-    if (length <= EPSILON) return boundsFromPoints([first, second]);
-    const offset = Number.isFinite(Number(entity.offset)) ? Number(entity.offset) : 0.6;
-    const normal = { x: -dy / length * offset, y: dx / length * offset };
-    return boundsFromPoints([first, second, { x: first.x + normal.x, y: first.y + normal.y }, { x: second.x + normal.x, y: second.y + normal.y }]);
-}
-
-function radialDimensionBounds(entity, source) {
-    if (!['circle', 'arc'].includes(source?.type)) return null;
-    const angle = Number(entity.angle) || 0;
-    const radius = Math.abs(Number(source.r) || 0);
-    const scale = Math.max(1.05, Number(entity.leaderScale) || 1.45);
-    return boundsFromPoints([
-        { x: source.cx, y: source.cy },
-        { x: source.cx + Math.cos(angle) * radius * scale, y: source.cy + Math.sin(angle) * radius * scale },
-    ]);
+    ['angle', 'dimensionAngle'].forEach(property => {
+        if (!Number.isFinite(Number(entity[property]))) return;
+        const angle = Number(entity[property]);
+        const direction = {
+            x: normalized.a * Math.cos(angle) + normalized.c * Math.sin(angle),
+            y: normalized.b * Math.cos(angle) + normalized.d * Math.sin(angle),
+        };
+        if (Math.hypot(direction.x, direction.y) > EPSILON) {
+            next[property] = Math.atan2(direction.y, direction.x);
+        }
+    });
+    const determinant = normalized.a * normalized.d - normalized.b * normalized.c;
+    const distanceScale = Math.sqrt(Math.abs(determinant));
+    if (Number.isFinite(distanceScale) && distanceScale > EPSILON) {
+        ['offset', 'radius', 'jogSize', 'size', 'extension', 'textSize'].forEach(property => {
+            if (Number.isFinite(Number(entity[property]))) next[property] = Number(entity[property]) * distanceScale;
+        });
+    }
+    if (entity.type === 'angularDimension' && determinant < 0) {
+        next.counterClockwise = entity.counterClockwise === false;
+    }
+    return next;
 }
 
 function drawingBlockEntityUsesLayer(entity, layerId) {

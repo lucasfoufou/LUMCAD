@@ -57,6 +57,12 @@ export async function writeLcadDocument(path, envelope) {
 }
 
 export async function saveLcadDocumentAs(envelope, suggestedName, { filterName = 'LUMCAD drawing' } = {}) {
+    const result = await exportLcadDocumentAs(envelope, suggestedName, { filterName });
+    if (result && !isTauriRuntime()) window.localStorage.removeItem(RECOVERY_STORAGE_KEY);
+    return result;
+}
+
+export async function exportLcadDocumentAs(envelope, suggestedName, { filterName = 'LUMCAD drawing' } = {}) {
     const normalized = normalizeLcadEnvelope(envelope);
     if (isTauriRuntime()) {
         const path = await save({
@@ -67,7 +73,6 @@ export async function saveLcadDocumentAs(envelope, suggestedName, { filterName =
         return invoke('write_lcad_document', { path, envelope: normalized });
     }
     downloadBrowserDocument(normalized);
-    window.localStorage.removeItem(RECOVERY_STORAGE_KEY);
     return { path: null, savedAt: Date.now(), recovery: false };
 }
 

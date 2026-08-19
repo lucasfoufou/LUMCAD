@@ -67,6 +67,16 @@ test('creation tools expose only their exhaustive contextual options', () => {
     assert.deepEqual(createDefaultDrawingCreationConfig('polygon'), {
         mode: 'centerRadius', options: { sides: 6, mode: 'inscribed' },
     });
+    assert.deepEqual(createDefaultDrawingCreationConfig('text'), {
+        mode: 'corner',
+        options: {
+            textMode: 'singleLine',
+            wrapMode: 'none',
+            textStyleId: 'text-style-standard',
+            horizontalAlign: 'left',
+            verticalAlign: 'top',
+        },
+    });
 });
 
 test('rectangle construction supports size, area, rotation, chamfer, fillet and width', () => {

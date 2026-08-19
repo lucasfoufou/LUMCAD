@@ -2,9 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+    DRAWING_PRINT_CONTENT_EDGE_GUARD_POINTS,
     createDrawingPrintPageStyle,
     getCommonDrawingPrintPage,
     getDrawingPrintContentSize,
+    getDrawingPrintPageName,
+    getDrawingPrintPagePointSize,
     getDrawingPrintPagePixelSize,
     printRenderedLayouts,
     waitForPrintRendering,
@@ -19,11 +22,11 @@ const A_SERIES_DIMENSIONS = {
     A0: { width: 1189, height: 841 },
 };
 
-test('print page rules use one quantized CSS page per physical layout', () => {
+test('print page rules use exact physical millimetres per layout', () => {
     assert.equal(createDrawingPrintPageStyle([
         { format: 'A0', orientation: 'landscape' },
         { format: 'A0', orientation: 'landscape' },
-    ]), '@page layout-a0-landscape { size: 4493px 3178px; margin: 0; }\n'
+    ]), '@page layout-a0-landscape { size: 1189mm 841mm; margin: 0; }\n'
         + '.drawing-layout-print-page[data-print-page="layout-a0-landscape"] { page: layout-a0-landscape; }');
     const a2Styles = createDrawingPrintPageStyle([
         { format: 'A2', orientation: 'landscape' },
@@ -31,37 +34,66 @@ test('print page rules use one quantized CSS page per physical layout', () => {
         { format: 'A2', orientation: 'landscape' },
     ]);
     assert.equal(a2Styles.split('@page').length - 1, 2);
-    assert.match(a2Styles, /@page layout-a2-landscape \{ size: 2245px 1587px; margin: 0; \}/);
-    assert.match(a2Styles, /@page layout-a2-portrait \{ size: 1587px 2245px; margin: 0; \}/);
+    assert.match(a2Styles, /@page layout-a2-landscape \{ size: 594mm 420mm; margin: 0; \}/);
+    assert.match(a2Styles, /@page layout-a2-portrait \{ size: 420mm 594mm; margin: 0; \}/);
     assert.deepEqual(getCommonDrawingPrintPage([
         { format: 'A0', orientation: 'landscape' },
         { format: 'A0', orientation: 'landscape' },
     ]), { width: 1189, height: 841 });
 });
 
-test('every A-series orientation keeps printable content strictly inside one CSS page', () => {
+test('every A-series orientation keeps exact paper dimensions and content strictly within native point bounds', () => {
     for (const [format, dimensions] of Object.entries(A_SERIES_DIMENSIONS)) {
         for (const orientation of ['landscape', 'portrait']) {
             const layout = { format, orientation };
             const pageSize = getDrawingPrintPagePixelSize(layout);
             const contentSize = getDrawingPrintContentSize(layout);
-            assert.equal(Number.isInteger(pageSize.width), true, `${format} ${orientation} width`);
-            assert.equal(Number.isInteger(pageSize.height), true, `${format} ${orientation} height`);
-            assert.deepEqual(contentSize, {
-                width: pageSize.width - 2,
-                height: pageSize.height - 2,
-            });
+            const pointSize = getDrawingPrintPagePointSize(layout);
             const expectedPhysical = orientation === 'portrait'
                 ? { width: dimensions.height, height: dimensions.width }
                 : dimensions;
-            assert.deepEqual(pageSize, {
-                width: Math.floor(expectedPhysical.width * CSS_PIXELS_PER_MM),
-                height: Math.floor(expectedPhysical.height * CSS_PIXELS_PER_MM),
-            });
-            assert.ok(contentSize.width < pageSize.width, `${format} ${orientation} width fits`);
-            assert.ok(contentSize.height < pageSize.height, `${format} ${orientation} height fits`);
+            assert.ok(Math.abs(pageSize.width - expectedPhysical.width * CSS_PIXELS_PER_MM) < 1e-9);
+            assert.ok(Math.abs(pageSize.height - expectedPhysical.height * CSS_PIXELS_PER_MM) < 1e-9);
+            assert.ok(contentSize.width < pageSize.width);
+            assert.ok(contentSize.height < pageSize.height);
+            assert.ok(Math.abs((pageSize.width - contentSize.width) * 72 / 96
+                - DRAWING_PRINT_CONTENT_EDGE_GUARD_POINTS) < 1e-9);
+            assert.ok(Math.abs((pageSize.height - contentSize.height) * 72 / 96
+                - DRAWING_PRINT_CONTENT_EDGE_GUARD_POINTS) < 1e-9);
+            assert.ok(Math.abs(pointSize.width - expectedPhysical.width * 72 / 25.4) < 1e-9);
+            assert.ok(Math.abs(pointSize.height - expectedPhysical.height * 72 / 25.4) < 1e-9);
         }
     }
+});
+
+test('A3, A1 and A0 keep a two-point driver-rounding guard inside the landscape page boundary', () => {
+    for (const format of ['A3', 'A1', 'A0']) {
+        const layout = { format, orientation: 'landscape' };
+        const pagePoints = getDrawingPrintPagePointSize(layout);
+        const content = getDrawingPrintContentSize(layout);
+        const contentPoints = {
+            width: content.width * 72 / 96,
+            height: content.height * 72 / 96,
+        };
+        assert.ok(contentPoints.width < pagePoints.width);
+        assert.ok(contentPoints.height < pagePoints.height);
+        assert.ok(pagePoints.width - contentPoints.width >= 1.999999999);
+        assert.ok(pagePoints.height - contentPoints.height >= 1.999999999);
+    }
+});
+
+test('custom paper sizes receive collision-free page names and exact print rules', () => {
+    const landscape = {
+        format: 'CUSTOM', orientation: 'landscape', customPaperSize: { width: 650.5, height: 320.25 },
+    };
+    const portrait = { ...landscape, orientation: 'portrait' };
+    assert.equal(getDrawingPrintPageName(landscape), 'layout-custom-650500x320250');
+    assert.equal(getDrawingPrintPageName(portrait), 'layout-custom-320250x650500');
+    const styles = createDrawingPrintPageStyle([landscape, portrait]);
+    assert.match(styles, /size: 650\.5mm 320\.25mm/);
+    assert.match(styles, /size: 320\.25mm 650\.5mm/);
+    assert.equal(getCommonDrawingPrintPage([landscape, { ...landscape }]).width, 650.5);
+    assert.equal(getCommonDrawingPrintPage([landscape, portrait]), null);
 });
 
 test('print rendering waits for fonts and three committed animation frames', async () => {

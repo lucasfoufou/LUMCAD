@@ -1,12 +1,31 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
 import { DrawingEntityAppearanceFields, DrawingLayerAppearanceFields } from '~components/drawing/DrawingAppearanceFields';
+import DrawingDimensionFields from '~components/drawing/DrawingDimensionFields';
+import DrawingQdimOptions from '~components/drawing/DrawingQdimOptions';
+import DrawingTextStylesPanel from '~components/drawing/DrawingTextStylesPanel';
 import { useI18n } from '~i18n/I18nProvider';
 import { addLayer, canEditEntity, isProtectedDrawingLayer, removeEmptyLayer, updateLayer, updateSelectedEntities } from '~utils/drawingDocument';
+import {
+    DEFAULT_DRAWING_TEXT_STYLE_ID,
+    addDrawingTextStyle,
+    removeDrawingTextStyle,
+    updateDrawingTextStyle,
+} from '~utils/drawingText';
+import {
+    DEFAULT_DRAWING_QDIM_BASELINE_SPACING,
+    isDrawingDimensionEntity,
+} from '~utils/drawingDimensions';
+import { rebuildQdimSeriesResult } from '~utils/drawingDimensionCommands';
 
-export default function DrawingSidebar({ content, selectedIds, onCommit }) {
+export default function DrawingSidebar({ content, selectedIds, onCommit, panel, onPanelChange }) {
     const { t } = useI18n();
-    const [tab, setTab] = useState('layers');
+    const [internalTab, setInternalTab] = useState('layers');
+    const tab = panel || internalTab;
+    const setTab = nextTab => {
+        setInternalTab(nextTab);
+        onPanelChange?.(nextTab);
+    };
     useEffect(() => {
         const selected = content.entities.find(entity => selectedIds.includes(entity.id));
         if (selected?.type === 'text') setTab('selection');
@@ -16,13 +35,97 @@ export default function DrawingSidebar({ content, selectedIds, onCommit }) {
             <div className="drawing-sidebar-tabs" role="tablist">
                 <button type="button" className={tab === 'layers' ? 'is-active' : ''} onClick={() => setTab('layers')}>{t('sidebar.layers')}</button>
                 <button type="button" className={tab === 'selection' ? 'is-active' : ''} onClick={() => setTab('selection')}>{t('sidebar.selection')}</button>
+                <button type="button" className={tab === 'textStyles' ? 'is-active' : ''} onClick={() => setTab('textStyles')}>{t('sidebar.textStyles')}</button>
             </div>
             <div className="drawing-sidebar-content">
                 {tab === 'layers' && <LayersPanel content={content} onCommit={onCommit} t={t} />}
                 {tab === 'selection' && <SelectionPanel content={content} selectedIds={selectedIds} onCommit={onCommit} t={t} />}
+                {tab === 'textStyles' && <TextStylesPanel content={content} onCommit={onCommit} t={t} />}
             </div>
         </aside>
     );
+}
+
+function TextStylesPanel({ content, onCommit, t }) {
+    const commitStyles = (styles, activeTextStyleId = content.activeTextStyleId) => onCommit({
+        ...content,
+        textStyles: styles,
+        activeTextStyleId,
+    });
+    return (
+        <DrawingTextStylesPanel
+            styles={content.textStyles}
+            selectedStyleId={content.activeTextStyleId}
+            labels={drawingTextStyleLabels(t)}
+            onSelect={activeTextStyleId => commitStyles(content.textStyles, activeTextStyleId)}
+            onCreate={draft => {
+                const textStyles = addDrawingTextStyle(content.textStyles, draft);
+                commitStyles(textStyles, textStyles.at(-1)?.id || content.activeTextStyleId);
+            }}
+            onRename={(id, name) => commitStyles(updateDrawingTextStyle(content.textStyles, id, { name }))}
+            onUpdate={(id, patch) => commitStyles(updateDrawingTextStyle(content.textStyles, id, patch))}
+            onDelete={id => {
+                const textStyles = removeDrawingTextStyle(content.textStyles, id);
+                onCommit(reassignDeletedTextStyle({
+                    ...content,
+                    textStyles,
+                    activeTextStyleId: content.activeTextStyleId === id
+                        ? DEFAULT_DRAWING_TEXT_STYLE_ID
+                        : content.activeTextStyleId,
+                }, id));
+            }}
+        />
+    );
+}
+
+function reassignDeletedTextStyle(content, deletedStyleId) {
+    const reassign = entity => {
+        if (entity?.type === 'text' && entity.textStyleId === deletedStyleId) {
+            return { ...entity, textStyleId: DEFAULT_DRAWING_TEXT_STYLE_ID };
+        }
+        if (entity?.type === 'polyline' && Array.isArray(entity.parts)) {
+            return { ...entity, parts: entity.parts.map(reassign) };
+        }
+        return entity;
+    };
+    return {
+        ...content,
+        entities: content.entities.map(reassign),
+        blocks: (content.blocks || []).map(block => ({ ...block, entities: block.entities.map(reassign) })),
+    };
+}
+
+function drawingTextStyleLabels(t) {
+    return {
+        panel: t('textStyles.panel'),
+        title: t('textStyles.title'),
+        create: t('textStyles.create'),
+        newStyleName: t('textStyles.newStyleName'),
+        list: t('textStyles.list'),
+        name: t('textStyles.name'),
+        font: t('textStyles.font'),
+        fontSize: t('textStyles.fontSize'),
+        weight: t('textStyles.weight'),
+        normal: t('textStyles.normal'),
+        bold: t('textStyles.bold'),
+        fontStyle: t('textStyles.fontStyle'),
+        italic: t('textStyles.italic'),
+        lineHeight: t('textStyles.lineHeight'),
+        underline: t('textStyles.underline'),
+        strikethrough: t('textStyles.strikethrough'),
+        preview: t('textStyles.preview'),
+        previewText: t('textStyles.previewText'),
+        delete: t('textStyles.delete'),
+        fonts: {
+            sans: t('textStyles.fonts.sans'),
+            serif: t('textStyles.fonts.serif'),
+            monospace: t('textStyles.fonts.monospace'),
+            technical: t('textStyles.fonts.technical'),
+        },
+        styleNames: {
+            [DEFAULT_DRAWING_TEXT_STYLE_ID]: t('textStyles.styleNames.text-style-standard'),
+        },
+    };
 }
 
 function LayersPanel({ content, onCommit, t }) {
@@ -90,6 +193,24 @@ function SelectionPanel({ content, selectedIds, onCommit, t }) {
     if (selected.length === 0) return <p className="drawing-sidebar-empty">{t('sidebar.selectObjects')}</p>;
     const single = selected.length === 1 ? selected[0] : null;
     const selectionLocked = selected.some(entity => !canEditEntity(content, entity));
+    const selectedQdimSeriesIds = new Set(selected.flatMap(entity => (
+        entity.type === 'linearDimension' && entity.seriesId ? [entity.seriesId] : []
+    )));
+    const qdimSeriesAnchor = selectedQdimSeriesIds.size === 1
+        && selected.every(entity => entity.type === 'linearDimension' && entity.seriesId === selected[0]?.seriesId)
+        ? selected[0]
+        : null;
+    const qdimSeries = qdimSeriesAnchor
+        ? content.entities.filter(entity => entity.type === 'linearDimension' && entity.seriesId === qdimSeriesAnchor.seriesId)
+        : [];
+    const orderedQdimSeries = [...qdimSeries].sort((left, right) => (
+        Number(left.seriesIndex || 0) - Number(right.seriesIndex || 0)
+    ));
+    const qdimOffset = Number(orderedQdimSeries[0]?.offset ?? 0.6);
+    const qdimSpacing = orderedQdimSeries.length > 1
+        ? Math.abs(Number(orderedQdimSeries[1].offset) - qdimOffset)
+        : DEFAULT_DRAWING_QDIM_BASELINE_SPACING;
+    const qdimSeriesLocked = qdimSeries.some(entity => !canEditEntity(content, entity));
     const setSelected = updater => onCommit(updateSelectedEntities(content, selectedIds, updater));
     const setLocked = locked => {
         const ids = new Set(selectedIds);
@@ -120,6 +241,28 @@ function SelectionPanel({ content, selectedIds, onCommit, t }) {
                 onUpdate={setSelected}
                 t={t}
             />
+            {single && isDrawingDimensionEntity(single) && !qdimSeriesAnchor && (
+                <DrawingDimensionFields
+                    dimension={single}
+                    disabled={selectionLocked}
+                    onChange={nextDimension => setSelected(() => nextDimension)}
+                    t={t}
+                />
+            )}
+            {qdimSeries.length > 0 && (
+                <DrawingQdimOptions
+                    mode={qdimSeriesAnchor.seriesMode}
+                    baselineEnd={qdimSeriesAnchor.baselineEnd}
+                    offset={qdimOffset}
+                    spacing={qdimSpacing}
+                    disabled={selectionLocked || qdimSeriesLocked}
+                    onChange={next => {
+                        const result = rebuildQdimSeriesResult(content, qdimSeriesAnchor.seriesId, next);
+                        if (result.changed) onCommit(result.content);
+                    }}
+                    t={t}
+                />
+            )}
             {single?.type === 'image' && (
                 <>
                     <label className="drawing-sidebar-field">
@@ -131,27 +274,6 @@ function SelectionPanel({ content, selectedIds, onCommit, t }) {
                         {t('sidebar.includeReferenceInPdf')}
                     </label>
                 </>
-            )}
-            {single?.type === 'radialDimension' && (
-                <>
-                    <label className="drawing-sidebar-field">
-                        <span>{t('sidebar.circleMeasurement')}</span>
-                        <select disabled={selectionLocked} value={single.mode || 'radius'} onChange={event => setSelected(entity => ({ ...entity, mode: event.target.value }))}>
-                            <option value="diameter">{t('sidebar.diameter')}</option>
-                            <option value="radius">{t('sidebar.radius')}</option>
-                        </select>
-                    </label>
-                    <label className="drawing-sidebar-field">
-                        <span>{t('sidebar.labelDistance')}</span>
-                        <input disabled={selectionLocked} type="number" min="1.05" step="0.05" value={single.leaderScale ?? 1.45} onChange={event => setSelected(entity => ({ ...entity, leaderScale: Math.max(1.05, Number(event.target.value) || 1.45) }))} />
-                    </label>
-                </>
-            )}
-            {single?.type === 'linearDimension' && (
-                <label className="drawing-sidebar-field">
-                    <span>{t('sidebar.dimensionOffset')}</span>
-                    <input disabled={selectionLocked} type="number" step="0.1" value={single.offset ?? 0.6} onChange={event => setSelected(entity => ({ ...entity, offset: Number(event.target.value) || 0 }))} />
-                </label>
             )}
         </section>
     );

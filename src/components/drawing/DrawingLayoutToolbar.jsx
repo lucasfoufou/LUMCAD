@@ -3,7 +3,22 @@ import React from 'react';
 import { DrawingToolButton } from '~components/drawing/DrawingToolbar';
 import { useI18n } from '~i18n/I18nProvider';
 
-export default function DrawingLayoutToolbar({ activeTool, hasSelection, onToolChange, onDelete, onFitPaper, onScale, onZoomIn, onZoomOut }) {
+export default function DrawingLayoutToolbar({
+    activeTool,
+    hasSelection,
+    onClip,
+    onDelete,
+    onFitPaper,
+    onMaximize,
+    onMinimize,
+    onScale,
+    onToggleLock,
+    onToolChange,
+    onZoomIn,
+    onZoomOut,
+    viewportLocked = false,
+    viewportMaximized = false,
+}) {
     const { t } = useI18n();
     return (
         <aside className="drawing-toolbar drawing-layout-toolbar" aria-label={t('layout.tools')}>
@@ -39,6 +54,28 @@ export default function DrawingLayoutToolbar({ activeTool, hasSelection, onToolC
                     label={t('layout.scaleViewportTool')}
                     onClick={onScale}
                 />
+                <DrawingToolButton
+                    disabled={!hasSelection || !onClip}
+                    glyph="⬡"
+                    label={t('layout.viewportClipTool')}
+                    onClick={onClip}
+                />
+                <DrawingToolButton
+                    active={viewportLocked}
+                    disabled={!hasSelection || !onToggleLock}
+                    glyph={viewportLocked ? '🔒' : '🔓'}
+                    label={t(viewportLocked ? 'layout.unlockViewport' : 'layout.lockViewport')}
+                    onClick={onToggleLock}
+                />
+                {(onMaximize || onMinimize) && (
+                    <DrawingToolButton
+                        active={viewportMaximized}
+                        disabled={!hasSelection || (viewportMaximized ? !onMinimize : !onMaximize)}
+                        glyph={viewportMaximized ? '▣' : '⛶'}
+                        label={t(viewportMaximized ? 'layout.minimizeViewport' : 'layout.maximizeViewport')}
+                        onClick={viewportMaximized ? onMinimize : onMaximize}
+                    />
+                )}
             </div>
             <div className="drawing-toolbar-group">
                 <DrawingToolButton glyph="＋" label={t('layout.paperZoomIn')} onClick={onZoomIn} />

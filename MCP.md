@@ -67,7 +67,7 @@ Returns the complete active document plus editor state:
 - current file path and recovery state;
 - current selection;
 - active tool and interactive operation;
-- latest command message, viewport, and undo/redo availability.
+- latest command message, model viewport, active model/paper workspace, active and selected layouts, selected/maximized layout viewport, and undo/redo availability.
 
 This is the safest starting point for every agent operation.
 
@@ -121,6 +121,8 @@ Example — offset two known entities by one metre toward the upper side:
 }
 ```
 
+Selection-driven annotation commands such as `QDIM`, `DIMBASELINE`, `DIMCONTINUE`, and `CENTERMARK` can complete in one call. `QDIM` accepts `CONTINUOUS` or `BASELINE`, while a baseline accepts `FIRST` or `LAST` to choose its editable reference end. Interactive `TEXT`, `MTEXT`, and dimension variants accept the same ordered point actions as the canvas. Layout commands (`LAYOUT`, `PAGESETUP`, `PSETUPIN`, `PSETOUT`, `MODEL`, `PSPACE`, `MVIEW`, `VPCLIP`, `VPLAYER`, `VPMAX`, and `VPMIN`) share the command-bar implementation; commands that open native file dialogs still require the user or a desktop-automation harness to finish that dialog.
+
 ### `interact`
 
 Continues the currently active command without restarting it. This is useful when an agent deliberately works in several MCP calls, inspecting state between stages.
@@ -136,7 +138,7 @@ Continues the currently active command without restarting it. This is useful whe
 
 ### `replace_document`
 
-Merges a supplied LUMCAD document object into the active document and normalizes its layers, entities, settings, metadata, and embedded assets. The content replacement is added to undo history and is picked up by autosave. MCP exchanges the hydrated in-memory document; persistence converts embedded image data URLs into separate files inside the ZIP-based `.lcad` container described in [LCAD_FORMAT.md](./LCAD_FORMAT.md).
+Merges a supplied LUMCAD document object into the active document and normalizes its layers, entities, text styles, settings, metadata, layouts, page setups, and embedded assets. The replacement is added to undo history and is picked up by autosave. MCP exchanges the hydrated in-memory document; persistence converts embedded image data URLs into separate files inside the ZIP-based `.lcad` container described in [LCAD_FORMAT.md](./LCAD_FORMAT.md).
 
 Use `get_state` first, preserve fields you do not intend to change, and prefer regular commands for localized edits. This tool is intended for AI-generated drawings or large deterministic transformations.
 
@@ -157,7 +159,7 @@ Use `get_state` first, preserve fields you do not intend to change, and prefer r
 }
 ```
 
-- `x` and `y` are required finite coordinates. Drawing commands use metres; `VIEWPORT` uses millimetres on the active layout sheet.
+- `x` and `y` are required finite coordinates. Model-space drawing commands use metres; `MVIEW` and other paper-space point stages use millimetres on the active layout sheet.
 - `targetId` identifies the hit entity for target-based operations such as trim/extend, break, lengthen, fillet/chamfer/blend, selection, and associative dimensions.
 - `snap: true` applies the active LUMCAD object-snap settings to the supplied point.
 - `shift: true` temporarily swaps `TRIM` with `EXTEND` during their target/fence stage. For other point stages it temporarily inverts persistent Ortho mode, matching the UI whenever the active command has a reference point. Use `ORTHO`, `POLAR`, and `OTRACK` to change the persisted drafting modes; `POLAR` also accepts an increment followed by optional additional angles.
@@ -197,7 +199,7 @@ Cancels the current command and clears the selection.
 
 ## Native-dialog commands
 
-`SAVEAS`, `OPEN`, `PDF`, and `PDFALL` intentionally open native system dialogs, just as they do from the interface. The MCP call activates the command, but the user or a desktop-automation harness must finish the native dialog. Regular persistence is handled continuously by autosave.
+`SAVEAS`, `OPEN`, `PSETOUT`, `PDF`, `PDFALL`, and `PDFSELECTED` intentionally open native system dialogs, just as they do from the interface. `PDFSELECTED` uses the layout tabs selected through Cmd/Ctrl-click, in their current document order. The MCP call activates the command, but the user or a desktop-automation harness must finish the native dialog. Regular persistence is handled continuously by autosave.
 
 ## Tests and command coverage
 

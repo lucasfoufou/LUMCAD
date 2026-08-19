@@ -1,5 +1,6 @@
 import { transformSelectedEntities } from './drawingDocument.js';
 import { rotateEntity, scaleEntity, translateEntity } from './drawingPrimitives.js';
+import { remapDrawingEntityDependencies } from './drawingDimensions.js';
 
 export const DEFAULT_ALIGN_TOLERANCE = 1e-9;
 
@@ -161,10 +162,9 @@ export function createAlignPreviewEntities(content, entityIds, pairs, options = 
     if (!result.changed) return [];
     const idMap = new Map(result.entities.map(entity => [entity.id, `align-preview-${entity.id}`]));
     return result.entities.map(entity => ({
-        ...entity,
+        ...remapDrawingEntityDependencies(entity, idMap),
         id: idMap.get(entity.id),
         previewMode: 'align',
-        ...(entity.sourceId && idMap.has(entity.sourceId) ? { sourceId: idMap.get(entity.sourceId) } : {}),
     }));
 }
 

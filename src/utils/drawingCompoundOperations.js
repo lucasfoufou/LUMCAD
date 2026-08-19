@@ -1,6 +1,5 @@
 import { canEditEntity, createDrawingId } from './drawingDocument.js';
 import {
-    formatDrawingLength,
     getDimensionGeometry,
     mirrorEntity,
     pointDistance,
@@ -14,6 +13,12 @@ import {
 } from './drawingCurveKernel.js';
 import { materializeDrawingBlockReference } from './drawingBlocks.js';
 import { getDrawingTextLayout } from './drawingText.js';
+import {
+    formatDrawingDimensionLabel,
+    getDrawingEntityDependencyIds,
+    isDrawingDimensionEntity,
+    remapDrawingEntityDependencies,
+} from './drawingDimensions.js';
 
 const DEFAULT_JOIN_TOLERANCE = 1e-6;
 
@@ -64,7 +69,10 @@ export function joinDrawingEntities(content, entityIds, tolerance = DEFAULT_JOIN
             parts: joinedParts,
             closed: ordered.path.closed,
         };
-    const entities = content.entities.filter(entity => !sourceIds.has(entity.id) && !sourceIds.has(entity.sourceId));
+    const entities = content.entities.filter(entity => (
+        !sourceIds.has(entity.id)
+        && !getDrawingEntityDependencyIds(entity).some(id => sourceIds.has(id))
+    ));
     return {
         changed: true,
         content: { ...content, entities: [...entities, joinedEntity] },
@@ -97,7 +105,20 @@ export function xplodeDrawingEntities(content, entityIds, {
 
 function explodeDrawingEntitiesWithAppearance(content, entityIds, options) {
     const selected = new Set(entityIds || []);
-    const candidates = content.entities.filter(entity => selected.has(entity.id) && canEditEntity(content, entity));
+    const selectedQdimSeries = new Set(content.entities
+        .filter(entity => selected.has(entity.id) && isDrawingQdimSeriesEntity(entity))
+        .map(entity => entity.seriesId));
+    const editableQdimSeries = new Set([...selectedQdimSeries].filter(seriesId => (
+        content.entities
+            .filter(entity => isDrawingQdimSeriesEntity(entity) && entity.seriesId === seriesId)
+            .every(entity => canEditEntity(content, entity))
+    )));
+    const candidates = content.entities.filter(entity => {
+        if (isDrawingQdimSeriesEntity(entity) && selectedQdimSeries.has(entity.seriesId)) {
+            return editableQdimSeries.has(entity.seriesId);
+        }
+        return selected.has(entity.id) && canEditEntity(content, entity);
+    });
     const exploded = candidates.map(source => ({
         source,
         replacements: explodeDrawingSource(source, content, options),
@@ -109,7 +130,10 @@ function explodeDrawingEntitiesWithAppearance(content, entityIds, options) {
     const replacements = exploded.flatMap(({ source, replacements: raw }) => (
         assignExplodedEntityIds(raw.map(part => applyExplodedAppearance(part, source, options.appearanceMode)))
     ));
-    const entities = content.entities.filter(entity => !sourceIds.has(entity.id) && !sourceIds.has(entity.sourceId));
+    const entities = content.entities.filter(entity => (
+        !sourceIds.has(entity.id)
+        && !getDrawingEntityDependencyIds(entity).some(id => sourceIds.has(id))
+    ));
     return {
         changed: true,
         content: { ...content, entities: [...entities, ...replacements] },
@@ -146,9 +170,8 @@ export function mirrorDrawingEntities(content, entityIds, axisFirst, axisSecond,
     const copies = originals.map(entity => {
         const mirrored = mirrorEntity(entity, axisFirst, axisSecond, { mirrorTextGlyphs });
         return {
-            ...mirrored,
+            ...remapDrawingEntityDependencies(mirrored, idMap),
             id: idMap.get(entity.id),
-            ...(mirrored.sourceId && idMap.has(mirrored.sourceId) ? { sourceId: idMap.get(mirrored.sourceId) } : {}),
         };
     });
     const requested = new Set(entityIds || []);
@@ -167,10 +190,9 @@ export function createMirrorPreviewEntities(content, entityIds, axisFirst, axisS
     return originals.map(entity => {
         const mirrored = mirrorEntity(entity, axisFirst, axisSecond, { mirrorTextGlyphs });
         return {
-            ...mirrored,
+            ...remapDrawingEntityDependencies(mirrored, idMap),
             id: idMap.get(entity.id),
             previewMode: 'mirror',
-            ...(mirrored.sourceId && idMap.has(mirrored.sourceId) ? { sourceId: idMap.get(mirrored.sourceId) } : {}),
         };
     });
 }
@@ -216,7 +238,10 @@ export function createRectangularArray(content, entityIds, basePoint, horizontal
     const origin = arrayOrigin(basePoint, options.sourceBasePoint);
     const polyline = buildArrayPolyline(sources, horizontal, vertical, normalizedColumns, normalizedRows, { origin });
     const sourceIds = new Set(sources.map(entity => entity.id));
-    const entities = content.entities.filter(entity => !sourceIds.has(entity.id) && !sourceIds.has(entity.sourceId));
+    const entities = content.entities.filter(entity => (
+        !sourceIds.has(entity.id)
+        && !getDrawingEntityDependencyIds(entity).some(id => sourceIds.has(id))
+    ));
     return {
         changed: true,
         content: { ...content, entities: [...entities, polyline] },
@@ -321,7 +346,9 @@ function mirrorOperationSources(content, entityIds) {
         .filter(entity => requested.has(entity.id) && canEditEntity(content, entity))
         .map(entity => entity.id));
     return content.entities.filter(entity => (
-        (sourceIds.has(entity.id) || sourceIds.has(entity.sourceId)) && canEditEntity(content, entity)
+        (sourceIds.has(entity.id)
+            || getDrawingEntityDependencyIds(entity).some(id => sourceIds.has(id)))
+        && canEditEntity(content, entity)
     ));
 }
 
@@ -359,7 +386,7 @@ function buildArrayPolyline(sources, horizontal, vertical, columns, rows, { prev
 
 function entityAsPolylineParts(entity) {
     if (entity.type === 'polyline' && Array.isArray(entity.parts)) return entity.parts.flatMap(entityAsPolylineParts);
-    const { id, layerId, locked, sourceId, previewMode, array, ...part } = entity;
+    const { id, layerId, locked, sourceId, sourceIds, previewMode, array, ...part } = entity;
     return [{ ...part }];
 }
 
@@ -400,9 +427,9 @@ function explodeDrawingSource(source, content, options) {
         });
     }
     if (source.type === 'text') return explodeTextEntity(source);
-    if (source.type === 'linearDimension' || source.type === 'radialDimension') {
-        const dimensionSource = content.entities.find(entity => entity.id === source.sourceId);
-        return explodeDimensionEntity(source, dimensionSource, options);
+    if (isDrawingDimensionEntity(source)) {
+        if (isDrawingQdimSeriesEntity(source)) return [detachDrawingQdimDimension(source)];
+        return explodeDimensionEntity(source, new Map(content.entities.map(entity => [entity.id, entity])), options);
     }
     if (!['path', 'polyline', 'rectangle', 'polygon', 'hatch', 'block'].includes(source.type)) return [];
     const paths = extractEntityPaths(source, {
@@ -412,6 +439,25 @@ function explodeDrawingSource(source, content, options) {
         },
     });
     return paths.flatMap(path => path.parts.map(compoundPart));
+}
+
+function isDrawingQdimSeriesEntity(entity) {
+    return entity?.type === 'linearDimension'
+        && typeof entity.seriesId === 'string'
+        && Boolean(entity.seriesId.trim());
+}
+
+function detachDrawingQdimDimension(entity) {
+    const detached = { ...entity };
+    [
+        'seriesId',
+        'seriesMode',
+        'seriesIndex',
+        'seriesAxis',
+        'baselineEnd',
+        'baselineReference',
+    ].forEach(property => delete detached[property]);
+    return detached;
 }
 
 function applyExplodedAppearance(part, parent, appearanceMode) {
@@ -440,32 +486,40 @@ function assignExplodedEntityIds(parts) {
         }
     });
     return parts.map(part => ({
-        ...part,
+        ...remapDrawingEntityDependencies(part, idMap),
         id: idMap.get(part.id) || createDrawingId(part.type || 'entity'),
-        ...(part.sourceId && idMap.has(part.sourceId) ? { sourceId: idMap.get(part.sourceId) } : {}),
     }));
 }
 
-function explodeDimensionEntity(entity, source, { locale = 'en', dimensionTextSize = 0.35 } = {}) {
-    const geometry = getDimensionGeometry(entity, source);
+function explodeDimensionEntity(entity, sources, { locale = 'en', dimensionTextSize = 0.35 } = {}) {
+    const geometry = getDimensionGeometry(entity, sources);
     if (!geometry) return [];
     const textSize = Math.max(0.01, Number(entity.textSize) || Number(dimensionTextSize) || 0.35);
-    if (geometry.kind === 'linear') {
-        const degrees = readableTextAngle(geometry.angle * 180 / Math.PI);
-        return [
-            linePart(geometry.sourceFirst, geometry.first),
-            linePart(geometry.sourceSecond, geometry.second),
-            linePart(geometry.first, geometry.second),
-            dimensionTick(geometry.first, geometry.angle, textSize * 0.7),
-            dimensionTick(geometry.second, geometry.angle, textSize * 0.7),
-            dimensionText(formatDrawingLength(geometry.value, 4, locale), geometry.text, degrees, textSize, 'middle'),
-        ];
-    }
-    const prefix = geometry.mode === 'diameter' ? 'Ø ' : 'R ';
+    const primitives = [
+        ...geometry.lines.map(line => linePart(line.start, line.end)),
+        ...geometry.arcs.map(arc => ({
+            type: 'arc',
+            cx: arc.center.x,
+            cy: arc.center.y,
+            r: arc.radius,
+            startAngle: arc.startAngle,
+            endAngle: arc.endAngle,
+            counterClockwise: arc.counterClockwise,
+        })),
+        ...geometry.ticks.map(tick => dimensionTick(tick.point, tick.angle - Math.PI / 2, textSize * 0.7)),
+    ];
+    if (!geometry.label || geometry.value === null) return primitives;
+    const formatted = formatDrawingDimensionLabel(geometry, entity, locale);
+    if (!formatted.lines.length) return primitives;
     return [
-        linePart(geometry.center, geometry.text),
-        dimensionTick(geometry.edge, geometry.angle, textSize * 0.7),
-        dimensionText(`${prefix}${formatDrawingLength(geometry.value, 4, locale)}`, geometry.text, 0, textSize, 'start'),
+        ...primitives,
+        dimensionText(
+            formatted.plainText,
+            geometry.label.point,
+            readableTextAngle(geometry.label.angle * 180 / Math.PI),
+            textSize,
+            geometry.kind === 'radial' || geometry.kind === 'ordinate' ? 'start' : 'middle',
+        ),
     ];
 }
 
@@ -486,6 +540,7 @@ function explodeTextEntity(entity) {
             const {
                 id: _id,
                 sourceId: _sourceId,
+                sourceIds: _sourceIds,
                 text: _text,
                 x: _x,
                 y: _y,
@@ -532,16 +587,20 @@ function dimensionTick(point, angle, size) {
 }
 
 function dimensionText(text, point, rotation, fontSize, anchor) {
-    const width = Math.max(fontSize, [...text].length * fontSize * 0.56);
+    const lines = String(text).split('\n');
+    const width = Math.max(fontSize, ...lines.map(line => [...line].length * fontSize * 0.56));
+    const height = Math.max(fontSize * 1.2, lines.length * fontSize * 1.2);
     return {
         type: 'text',
         text,
         x: anchor === 'start' ? point.x : point.x - width / 2,
-        y: point.y - fontSize,
+        y: point.y - height,
         width,
-        height: fontSize * 1.2,
+        height,
         fontSize,
         rotation,
+        textMode: lines.length > 1 ? 'multiline' : 'singleLine',
+        wrapMode: 'none',
         horizontalAlign: anchor === 'start' ? 'left' : 'center',
         verticalAlign: 'top',
     };
@@ -559,6 +618,7 @@ function compoundPart(part) {
     const {
         id: _id,
         sourceId: _sourceId,
+        sourceIds: _sourceIds,
         locked: _locked,
         previewMode: _previewMode,
         array: _array,

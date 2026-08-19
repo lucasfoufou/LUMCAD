@@ -509,6 +509,24 @@
   }
 }
 
+.drawing-creation-toggle {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.38rem;
+  border: 1px solid rgba(#fff, 0.16);
+  border-radius: 4px;
+  color: #c7d2d9;
+  white-space: nowrap;
+
+  input { margin: 0; accent-color: $lum_orange; }
+
+  &:has(input:focus-visible) {
+    border-color: rgba($lum_orange, 0.78);
+  }
+}
+
 .drawing-creation-details {
   flex: 1 0 100%;
 }
@@ -1096,6 +1114,47 @@
     margin: 0 0 0.55rem;
     color: #334750;
     font-size: 0.78rem;
+  }
+}
+
+.drawing-dimension-fields,
+.drawing-qdim-options {
+  margin: 0.75rem 0;
+  padding: 0.65rem;
+  border: 1px solid #dce3e7;
+  border-radius: 6px;
+  background: #f7f9fa;
+
+  h4,
+  legend {
+    padding: 0 0.2rem;
+    color: #334750;
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+}
+
+.drawing-qdim-mode-options {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.2rem 0 0.65rem;
+}
+
+.drawing-qdim-baseline-options {
+  .drawing-sidebar-field { margin-bottom: 0.45rem; }
+
+  .drawing-secondary-button {
+    width: 100%;
+    padding: 0.42rem 0.55rem;
+    border: 1px solid #b9c8d1;
+    border-radius: 5px;
+    background: #fff;
+    color: #344a57;
+
+    &:hover:not(:disabled) {
+      border-color: rgba($lum_orange, 0.75);
+      color: #9a4b00;
+    }
   }
 }
 

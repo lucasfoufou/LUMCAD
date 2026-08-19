@@ -19,13 +19,17 @@ import {
     getRegularPolygonVertices,
 } from './drawingCurves.js';
 import {
-    formatDrawingLength,
     getDimensionGeometry,
     getEntityBounds,
     pointDistance,
 } from './drawingGeometry.js';
 import { extractEntityPaths } from './drawingCurveKernel.js';
 import { translateEntity } from './drawingPrimitives.js';
+import {
+    formatDrawingDimensionLabel,
+    getDrawingEntityDependencyIds,
+    isDrawingDimensionEntity,
+} from './drawingDimensions.js';
 
 export const DRAWING_CLIPBOARD_FORMAT = 'lumcad-clipboard';
 export const DRAWING_CLIPBOARD_VERSION = 1;
@@ -125,12 +129,16 @@ export function validateDrawingClipboardPayload(candidate, limits = DRAWING_CLIP
         }
     });
     entities.forEach(entity => {
-        if (entity.sourceId && !entityIds.has(entity.sourceId)) throw clipboardError('missing-source');
+        if (getDrawingEntityDependencyIds(entity).some(id => !entityIds.has(id))) {
+            throw clipboardError('missing-source');
+        }
     });
     blocks.forEach(block => {
         const localIds = new Set(block.entities.map(entity => entity.id));
         block.entities.forEach(entity => {
-            if (entity.sourceId && !localIds.has(entity.sourceId)) throw clipboardError('missing-block-source');
+            if (getDrawingEntityDependencyIds(entity).some(id => !localIds.has(id))) {
+                throw clipboardError('missing-block-source');
+            }
         });
     });
     const selectionIds = Array.isArray(candidate.selectionIds) ? [...new Set(candidate.selectionIds)] : [];
@@ -330,14 +338,16 @@ function collectEntityDependencyClosure(allEntities, selectedIds) {
     while (changed) {
         changed = false;
         [...included].forEach(id => {
-            const sourceId = byId.get(id)?.sourceId;
-            if (sourceId && byId.has(sourceId) && !included.has(sourceId)) {
-                included.add(sourceId);
-                changed = true;
-            }
+            getDrawingEntityDependencyIds(byId.get(id)).forEach(sourceId => {
+                if (byId.has(sourceId) && !included.has(sourceId)) {
+                    included.add(sourceId);
+                    changed = true;
+                }
+            });
         });
         allEntities.forEach(entity => {
-            if (entity.sourceId && included.has(entity.sourceId) && !included.has(entity.id)) {
+            if (getDrawingEntityDependencyIds(entity).some(sourceId => included.has(sourceId))
+                && !included.has(entity.id)) {
                 included.add(entity.id);
                 changed = true;
             }
@@ -935,8 +945,8 @@ function entityToSvg(entity, context) {
         });
         return `<g>${paths.map(path => `<path d="${escapeXml(curvePathToSvgData(path))}"${common}/>`).join('')}</g>`;
     }
-    if (entity.type === 'linearDimension' || entity.type === 'radialDimension') {
-        return dimensionToSvg(entity, context.entityMap.get(entity.sourceId), common, appearance.color);
+    if (isDrawingDimensionEntity(entity)) {
+        return dimensionToSvg(entity, context.entityMap, common, appearance.color);
     }
     if (entity.type === 'image') {
         const link = entity.link || context.assetMap.get(entity.assetId)?.link;
@@ -1029,8 +1039,8 @@ function curveSweepValue(entity) {
     return delta;
 }
 
-function dimensionToSvg(entity, source, common, color) {
-    const geometry = getDimensionGeometry(entity, source);
+function dimensionToSvg(entity, sources, common, color) {
+    const geometry = getDimensionGeometry(entity, sources);
     if (!geometry) return '';
     const textSize = Math.max(0.01, Number(entity.textSize) || 0.35);
     const line = (first, second) => `<line x1="${first.x}" y1="${first.y}" x2="${second.x}" y2="${second.y}"${common}/>`;
@@ -1040,13 +1050,48 @@ function dimensionToSvg(entity, source, common, color) {
         const dy = Math.sin(tickAngle) * textSize * 0.35;
         return line({ x: point.x - dx, y: point.y - dy }, { x: point.x + dx, y: point.y + dy });
     };
-    if (geometry.kind === 'linear') {
-        const angle = geometry.angle * 180 / Math.PI;
-        const readable = angle > 90 || angle < -90 ? angle + 180 : angle;
-        return `<g>${line(geometry.sourceFirst, geometry.first)}${line(geometry.sourceSecond, geometry.second)}${line(geometry.first, geometry.second)}${tick(geometry.first, geometry.angle)}${tick(geometry.second, geometry.angle)}<text x="${geometry.text.x}" y="${geometry.text.y}" text-anchor="middle" transform="rotate(${readable} ${geometry.text.x} ${geometry.text.y})" fill="${escapeXml(color)}">${escapeXml(formatDrawingLength(geometry.value, 4, 'en'))}</text></g>`;
-    }
-    const label = `${geometry.mode === 'diameter' ? 'Ø ' : 'R '}${formatDrawingLength(geometry.value, 4, 'en')}`;
-    return `<g>${line(geometry.center, geometry.text)}${tick(geometry.edge, geometry.angle)}<text x="${geometry.text.x}" y="${geometry.text.y}" fill="${escapeXml(color)}">${escapeXml(label)}</text></g>`;
+    const arc = value => {
+        const first = {
+            x: value.center.x + Math.cos(value.startAngle) * value.radius,
+            y: value.center.y + Math.sin(value.startAngle) * value.radius,
+        };
+        const second = {
+            x: value.center.x + Math.cos(value.endAngle) * value.radius,
+            y: value.center.y + Math.sin(value.endAngle) * value.radius,
+        };
+        let sweep = (value.endAngle - value.startAngle) % (Math.PI * 2);
+        if (value.counterClockwise && sweep < 0) sweep += Math.PI * 2;
+        if (!value.counterClockwise && sweep > 0) sweep -= Math.PI * 2;
+        return `<path d="M ${first.x} ${first.y} A ${value.radius} ${value.radius} 0 ${Math.abs(sweep) > Math.PI ? 1 : 0} ${sweep > 0 ? 1 : 0} ${second.x} ${second.y}"${common}/>`;
+    };
+    const strokes = [
+        ...geometry.lines.map(value => line(value.start, value.end)),
+        ...geometry.arcs.map(arc),
+        ...geometry.ticks.map(value => tick(value.point, value.angle - Math.PI / 2)),
+    ].join('');
+    if (!geometry.label || geometry.value === null) return `<g>${strokes}</g>`;
+    const formatted = formatDrawingDimensionLabel(geometry, entity, 'en');
+    if (!formatted.lines.length) return `<g>${strokes}</g>`;
+    const point = geometry.label.point;
+    const degrees = readableSvgTextAngle(geometry.label.angle * 180 / Math.PI);
+    const anchor = geometry.kind === 'radial' || geometry.kind === 'ordinate' ? 'start' : 'middle';
+    const lineHeight = textSize * 1.08;
+    const width = Math.max(...formatted.lines.map(value => String(value).length), 1) * textSize * 0.58 + textSize * 0.8;
+    const height = formatted.lines.length * lineHeight + textSize * 0.45;
+    const left = anchor === 'start' ? -textSize * 0.22 : -width / 2;
+    const top = -height - textSize * 0.12;
+    const frame = formatted.inspection
+        ? `<rect x="${left}" y="${top}" width="${width}" height="${height}" rx="${textSize * 0.08}" fill="white" fill-opacity="0.9" stroke="${escapeXml(color)}" stroke-width="${Math.max(textSize * 0.08, 0.02)}"/>`
+        : '';
+    const textY = -textSize * 0.35 - (formatted.lines.length - 1) * lineHeight;
+    const tspans = formatted.lines.map((value, index) => (
+        `<tspan x="0"${index ? ` dy="${lineHeight}"` : ''}>${escapeXml(value)}</tspan>`
+    )).join('');
+    return `<g>${strokes}<g transform="translate(${point.x} ${point.y}) rotate(${degrees})">${frame}<text x="0" y="${textY}" text-anchor="${anchor}" fill="${escapeXml(color)}" font-size="${textSize}">${tspans}</text></g></g>`;
+}
+
+function readableSvgTextAngle(degrees) {
+    return degrees > 90 || degrees < -90 ? degrees + 180 : degrees;
 }
 
 function clipboardEntitiesBounds(entities, blocks) {
