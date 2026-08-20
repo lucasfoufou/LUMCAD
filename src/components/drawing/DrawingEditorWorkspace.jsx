@@ -3,6 +3,8 @@ import DrawingEditorBody from '~components/drawing/DrawingEditorBody';
 import DrawingEditorHeader from '~components/drawing/DrawingEditorHeader';
 import DrawingLayoutEditor from '~components/drawing/DrawingLayoutEditor';
 import DrawingPrintPage from '~components/drawing/DrawingPrintPage';
+import DrawingPublishDialog from '~components/drawing/DrawingPublishDialog';
+import DrawingPublishRenderer from '~components/drawing/DrawingPublishRenderer';
 import DrawingWorkspaceTabs from '~components/drawing/DrawingWorkspaceTabs';
 import useDrawingAlignCommand from '~hooks/useDrawingAlignCommand';
 import useDrawingArrayCommand from '~hooks/useDrawingArrayCommand';
@@ -12,6 +14,7 @@ import useDrawingCompoundCommands from '~hooks/useDrawingCompoundCommands';
 import useDrawingCornerCommand from '~hooks/useDrawingCornerCommand';
 import useDrawingEditorShortcuts from '~hooks/useDrawingEditorShortcuts';
 import useDrawingHistory from '~hooks/useDrawingHistory';
+import useAppUpdater from '~hooks/useAppUpdater';
 import useLcadAutosave from '~hooks/useLcadAutosave';
 import useLcadFileCommands from '~hooks/useLcadFileCommands';
 import useLocalDrawingImageImport from '~hooks/useLocalDrawingImageImport';
@@ -54,6 +57,7 @@ import {
 import { isDrawingTextInput } from '~utils/drawingInteraction';
 import {
     createDrawingLayoutFromTemplate,
+    changeDrawingLayoutMargins,
     createDrawingPageSetupFromLayout,
     createDrawingViewportClipPreset,
     duplicateDrawingLayout,
@@ -108,6 +112,7 @@ export default function DrawingEditorWorkspace({
     const layoutCanvasRef = useRef(null);
     const commandBarRef = useRef(null);
     const imageInputRef = useRef(null);
+    const publishRendererRef = useRef(null);
     const inputVariablesRef = useRef({});
     const previousLocaleRef = useRef(locale);
     const hasAppliedRotationRef = useRef(false);
@@ -167,13 +172,22 @@ export default function DrawingEditorWorkspace({
         onPathChange: handlePathChange,
         delayMs: settings.autosaveDelayMs,
     });
+    const updater = useAppUpdater({ beforeInstall: autosave.flushAutosave });
+    const installAvailableUpdate = useCallback(async () => {
+        if (!updater.version || !window.confirm(t('updater.confirmInstall', { version: updater.version }))) return;
+        if (!await updater.installAvailableUpdate()) setMessage(t('updater.installFailed'));
+    }, [t, updater.installAvailableUpdate, updater.version]);
     const {
+        autoPublish,
+        closePublishDialog,
         createNewDrawing,
         exportPageSetups,
         exportPdf,
-        isExporting,
         openDrawing,
+        printPublishedLayouts,
         printJob,
+        publishRenderedLayouts,
+        publishRequest,
         saveDrawingAs,
     } = useLcadFileCommands({
         autosave,
@@ -182,6 +196,7 @@ export default function DrawingEditorWorkspace({
         filePath,
         recovered,
         onReplaceSession,
+        publishRendererRef,
         setMessage,
     });
 
@@ -257,6 +272,19 @@ export default function DrawingEditorWorkspace({
     const commitActiveLayout = (nextLayout, options = {}) => {
         if (!activeLayout) return;
         history.commitLayouts(current => updateDrawingLayout(current, activeLayout.id, nextLayout), options);
+    };
+
+    const applyPublishSettings = (layoutIds, plotSettings, marginsById) => {
+        const requestedIds = new Set(layoutIds);
+        history.commitLayouts(current => current.map(layout => {
+            if (!requestedIds.has(layout.id)) return layout;
+            const next = {
+                ...layout,
+                pageSetupId: null,
+                plotSettings,
+            };
+            return changeDrawingLayoutMargins(next, marginsById[layout.id] || layout.margins);
+        }));
     };
 
     const deleteLayout = (layoutId = activeLayout?.id) => {
@@ -1589,9 +1617,12 @@ export default function DrawingEditorWorkspace({
         else if (parsed.command === 'saveAs') await saveDrawingAs();
         else if (parsed.command === 'new') await createNewDrawing();
         else if (parsed.command === 'open') await openDrawing();
-        else if (parsed.command === 'pdf') await exportPdf(activeLayout ? [activeLayout.id] : []);
+        else if (parsed.command === 'pdf' || parsed.command === 'plot') await exportPdf(activeLayout ? [activeLayout.id] : []);
         else if (parsed.command === 'pdfAll') await exportPdf(layouts.map(layout => layout.id));
         else if (parsed.command === 'pdfSelected') await exportPdf(selectedLayoutIds);
+        else if (parsed.command === 'publish') await exportPdf(layouts.map(layout => layout.id));
+        else if (parsed.command === 'dwfx') await exportPdf(layouts.map(layout => layout.id), { format: 'dwfx' });
+        else if (parsed.command === 'autoPublish') await autoPublish(layouts.map(layout => layout.id));
         else if (parsed.command === 'fit') canvasRef.current?.fit();
         else if (parsed.command === 'zoom' && parsed.args[0]) canvasRef.current?.zoom(1 / parsed.args[0]);
         else setMessage(t('messages.unknownCommand', { command: parsed.alias }));
@@ -1793,8 +1824,11 @@ export default function DrawingEditorWorkspace({
                     lastSavedAt={autosave.lastSavedAt}
                     onNew={() => createNewDrawing().catch(() => {})}
                     onOpen={() => openDrawing().catch(() => {})}
+                    onPlot={() => exportPdf(activeLayout ? [activeLayout.id] : layouts.map(layout => layout.id)).catch(() => {})}
                     onSaveAs={() => saveDrawingAs().catch(() => {})}
                     onOpenSettings={onOpenSettings}
+                    updateState={updater}
+                    onInstallUpdate={() => installAvailableUpdate().catch(() => setMessage(t('updater.installFailed')))}
                 />
                 {workspaceMode === 'model' ? (
                     <DrawingEditorBody
@@ -1859,7 +1893,6 @@ export default function DrawingEditorWorkspace({
                         commandBarRef={commandBarRef}
                         content={history.content}
                         currentModelViewport={viewport}
-                        isExporting={isExporting}
                         layout={activeLayout}
                         layoutCount={layouts.length}
                         message={message}
@@ -1868,8 +1901,6 @@ export default function DrawingEditorWorkspace({
                         onDeleteLayout={() => deleteLayout(activeLayout.id)}
                         onDeletePageSetup={deletePageSetup}
                         onDeleteViewport={deleteSelectedViewport}
-                        onExportAll={() => exportPdf(layouts.map(layout => layout.id)).catch(() => {})}
-                        onExportCurrent={() => exportPdf([activeLayout.id]).catch(() => {})}
                         onExportPageSetups={() => exportPageSetups().catch(() => {})}
                         onImportPageSetups={() => importPageSetups().catch(() => {})}
                         onMaximizeViewport={viewportId => {
@@ -1906,14 +1937,12 @@ export default function DrawingEditorWorkspace({
                 )}
                 <DrawingWorkspaceTabs
                     activeLayoutId={activeLayout?.id || null}
-                    isExporting={isExporting}
                     layouts={layouts}
                     mode={workspaceMode}
                     onAddLayout={addLayout}
                     onAddLayoutFromTemplate={addLayout}
                     onDeleteLayout={deleteLayout}
                     onDuplicateLayout={duplicateLayout}
-                    onExportSelected={ids => exportPdf(ids).catch(() => {})}
                     onMoveLayout={moveLayout}
                     onOpenLayout={openLayoutWorkspace}
                     onOpenModel={openModelWorkspace}
@@ -1924,7 +1953,29 @@ export default function DrawingEditorWorkspace({
                 <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={handleImageFile} disabled={isUploading} />
                 {isUploading && <div className="drawing-upload-indicator">{t('messages.importingImage')}</div>}
             </div>
-            {printJob && <div className="lumcad-print-root"><DrawingPrintPage drawing={printJob.drawing} layouts={printJob.layouts} /></div>}
+            <DrawingPublishRenderer ref={publishRendererRef} drawing={document} layouts={layouts} />
+            {publishRequest && (
+                <DrawingPublishDialog
+                    drawing={document}
+                    initialFormat={publishRequest.format}
+                    initialLayoutIds={publishRequest.layoutIds}
+                    onApplySettings={applyPublishSettings}
+                    onClose={closePublishDialog}
+                    onPublish={publishRenderedLayouts}
+                    onSystemPrint={printPublishedLayouts}
+                    open
+                    pageSetups={pageSetups}
+                />
+            )}
+            {printJob && (
+                <div className="lumcad-print-root">
+                    <DrawingPrintPage
+                        drawing={printJob.drawing}
+                        layouts={printJob.layouts}
+                        plotSettings={printJob.plotSettings}
+                    />
+                </div>
+            )}
         </>
     );
 }

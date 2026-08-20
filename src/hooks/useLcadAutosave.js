@@ -124,6 +124,15 @@ export default function useLcadAutosave({ document, filePath, onPathChange, dela
         return saveAtPath(pathRef.current, snapshot);
     }, [saveAs, saveAtPath]);
 
+    const flushAutosave = useCallback(async () => {
+        if (timerRef.current) window.clearTimeout(timerRef.current);
+        const snapshot = latestRef.current;
+        // Always enqueue the visible snapshot. A previous save may still be queued
+        // with a different document (for example after an undo), so merely waiting
+        // for the queue could leave that intermediate state as the last disk write.
+        return persistAutosave(snapshot);
+    }, [persistAutosave]);
+
     useEffect(() => {
         if (signature === lastSavedSignatureRef.current) {
             if (status === 'dirty') setStatus('saved');
@@ -140,5 +149,5 @@ export default function useLcadAutosave({ document, filePath, onPathChange, dela
         return () => window.clearTimeout(timerRef.current);
     }, [delayMs, persistAutosave, signature, status]);
 
-    return { status, error, lastSavedAt, isRecovery, saveNow, saveAs };
+    return { status, error, lastSavedAt, isRecovery, flushAutosave, saveNow, saveAs };
 }

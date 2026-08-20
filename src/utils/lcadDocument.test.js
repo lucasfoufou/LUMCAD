@@ -9,6 +9,7 @@ import {
     safeLcadFilename,
 } from './lcadDocument.js';
 import { createDrawingLayout, createDrawingViewport } from './drawingLayouts.js';
+import { DEFAULT_DRAWING_PLOT_SETTINGS } from './drawingPlot.js';
 
 test('creates and normalizes a versioned LUMCAD document', () => {
     const document = createLcadDocument({ name: 'Toiture nord' });
@@ -22,6 +23,7 @@ test('creates and normalizes a versioned LUMCAD document', () => {
     assert.equal(normalized.document.layouts.length, 1);
     assert.equal(normalized.document.layouts[0].format, 'A0');
     assert.equal(normalized.document.layouts[0].orientation, 'landscape');
+    assert.deepEqual(normalized.document.layouts[0].plotSettings, DEFAULT_DRAWING_PLOT_SETTINGS);
     assert.equal(normalized.document.updatedAt, '2026-08-10T10:00:00.000Z');
 });
 
@@ -30,14 +32,35 @@ test('rejects foreign and future file formats', () => {
     assert.throws(() => normalizeLcadEnvelope({ format: 'lumcad', formatVersion: 3, document: {} }), /version 3/i);
 });
 
-test('migrates readable version 1 envelopes to the current format', () => {
+test('migrates version 1 and older version 2 plot profiles to the current defaults', () => {
+    const legacyDocument = createLcadDocument({ name: 'Legacy drawing' });
+    delete legacyDocument.layouts[0].plotSettings;
+    legacyDocument.pageSetups = [{
+        id: 'legacy-page-setup',
+        name: 'Legacy setup',
+        format: 'A4',
+        orientation: 'landscape',
+        customPaperSize: { width: 420, height: 297 },
+        margins: { top: 0, right: 0, bottom: 0, left: 0 },
+    }];
     const normalized = normalizeLcadEnvelope({
         format: 'lumcad',
         formatVersion: 1,
-        document: createLcadDocument({ name: 'Legacy drawing' }),
+        document: legacyDocument,
     });
     assert.equal(normalized.formatVersion, 2);
     assert.equal(normalized.document.name, 'Legacy drawing');
+    assert.deepEqual(normalized.document.layouts[0].plotSettings, DEFAULT_DRAWING_PLOT_SETTINGS);
+    assert.deepEqual(normalized.document.pageSetups[0].plotSettings, DEFAULT_DRAWING_PLOT_SETTINGS);
+
+    const normalizedVersion2 = normalizeLcadEnvelope({
+        format: 'lumcad',
+        formatVersion: 2,
+        document: legacyDocument,
+    });
+    assert.equal(normalizedVersion2.formatVersion, 2);
+    assert.deepEqual(normalizedVersion2.document.layouts[0].plotSettings, DEFAULT_DRAWING_PLOT_SETTINGS);
+    assert.deepEqual(normalizedVersion2.document.pageSetups[0].plotSettings, DEFAULT_DRAWING_PLOT_SETTINGS);
 });
 
 test('keeps portable embedded images and drops external references', () => {
@@ -59,6 +82,12 @@ test('preserves layouts and their model viewports in the document envelope', () 
             id: 'layout-a3',
             name: 'Overview',
             format: 'A3',
+            plotSettings: {
+                area: { mode: 'extents' },
+                scale: { mode: 'fixed', denominator: 50 },
+                style: { colorMode: 'grayscale', plotLineweights: false },
+                quality: { mode: 'raster', rasterDpi: 600, imageDpi: 300, jpegQuality: 0.75 },
+            },
             viewports: [createDrawingViewport({
                 id: 'viewport-roof',
                 rect: { x: 20, y: 25, width: 210, height: 140 },
@@ -74,6 +103,8 @@ test('preserves layouts and their model viewports in the document envelope', () 
         ['layout-a3', 'Overview', 'A3'],
         ['layout-a4', 'Detail', 'A4'],
     ]);
+    assert.equal(normalized.document.layouts[0].plotSettings.scale.denominator, 50);
+    assert.equal(normalized.document.layouts[0].plotSettings.style.colorMode, 'grayscale');
     assert.deepEqual(normalized.document.layouts[0].viewports[0], {
         id: 'viewport-roof',
         name: '',

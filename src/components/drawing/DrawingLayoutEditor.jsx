@@ -17,7 +17,6 @@ export default function DrawingLayoutEditor({
     commandBarRef,
     content,
     currentModelViewport,
-    isExporting,
     layout,
     layoutCount,
     maximizedViewportId = null,
@@ -28,8 +27,6 @@ export default function DrawingLayoutEditor({
     onDeleteLayout,
     onDeletePageSetup,
     onDeleteViewport,
-    onExportAll,
-    onExportCurrent,
     onExportPageSetups,
     onImportPageSetups,
     onMaximizeViewport,
@@ -118,15 +115,12 @@ export default function DrawingLayoutEditor({
             <DrawingLayoutSidebar
                 content={content}
                 currentModelViewport={currentModelViewport}
-                isExporting={isExporting}
                 layout={layout}
                 layoutCount={layoutCount}
                 onChange={onChange}
                 onCreatePageSetup={onCreatePageSetup}
                 onDeleteLayout={onDeleteLayout}
                 onDeletePageSetup={onDeletePageSetup}
-                onExportAll={onExportAll}
-                onExportCurrent={onExportCurrent}
                 onExportPageSetups={onExportPageSetups}
                 onImportPageSetups={onImportPageSetups}
                 onSelectedPaperEntityChange={selectPaperEntity}

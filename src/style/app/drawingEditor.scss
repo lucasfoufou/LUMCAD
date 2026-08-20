@@ -140,6 +140,24 @@
   }
 }
 
+.lumcad-update-button {
+  border-color: rgba(#56c78d, 0.4);
+  background: rgba(#1b7c51, 0.2);
+  color: #a9f1c9;
+
+  &:hover,
+  &:focus-visible {
+    border-color: rgba(#7ce0aa, 0.65);
+    background: rgba(#249865, 0.3);
+  }
+
+  &:disabled {
+    border-color: rgba($lum_orange, 0.34);
+    background: rgba($lum_orange, 0.12);
+    color: #ffd199;
+  }
+}
+
 .lumcad-header-icon {
   width: 17px;
   height: 17px;

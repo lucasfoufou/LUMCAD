@@ -44,6 +44,7 @@ import {
     translateDrawingPaperAnnotation,
     viewportModelPointToPaperPoint,
 } from './drawingLayouts.js';
+import { DEFAULT_DRAWING_PLOT_SETTINGS } from './drawingPlot.js';
 
 test('paper formats expose landscape A-series dimensions', () => {
     assert.deepEqual(getDrawingPaperSize('A4'), { width: 297, height: 210 });
@@ -69,6 +70,7 @@ test('drawing layouts normalize to one editable A0 layout', () => {
     assert.equal(layout.orientation, 'landscape');
     assert.equal(layout.name, 'Layout 1');
     assert.deepEqual(layout.viewports, []);
+    assert.deepEqual(layout.plotSettings, DEFAULT_DRAWING_PLOT_SETTINGS);
 });
 
 test('changing orientation keeps viewport placement proportional', () => {
@@ -197,6 +199,10 @@ test('paper and margin changes retain each viewport exact scale', () => {
     const layout = createDrawingLayout({
         format: 'A4',
         margins: { top: 10, right: 10, bottom: 10, left: 10 },
+        plotSettings: {
+            area: { mode: 'extents' },
+            scale: { mode: 'fixed', denominator: 200 },
+        },
         viewports: [createDrawingViewport({
             rect: { x: 20, y: 20, width: 100, height: 50 },
             modelViewBox: { x: 0, y: 0, width: 10, height: 5 },
@@ -207,6 +213,7 @@ test('paper and margin changes retain each viewport exact scale', () => {
         top: 20, right: 25, bottom: 30, left: 35,
     });
     assert.ok(Math.abs(getDrawingViewportScale(resized.viewports[0]) - scale) < 1e-9);
+    assert.deepEqual(resized.plotSettings, layout.plotSettings);
 });
 
 test('page setup snapshots apply and import without duplicate identities or names', () => {
@@ -216,12 +223,28 @@ test('page setup snapshots apply and import without duplicate identities or name
         format: 'CUSTOM',
         customPaperSize: { width: 500, height: 350 },
         margins: { top: 5, right: 6, bottom: 7, left: 8 },
+        plotSettings: {
+            area: { mode: 'window', window: { x: 1, y: 2, width: 30, height: 20 } },
+            scale: {
+                mode: 'fixed', denominator: 200, centered: false, offsetMm: { x: 4, y: -2 },
+            },
+            style: { colorMode: 'monochrome', plotLineweights: false },
+            quality: { mode: 'raster', rasterDpi: 600, imageDpi: 450, jpegQuality: 0.8 },
+        },
     });
     const applied = applyDrawingPageSetup(createDrawingLayout(), source);
     assert.equal(applied.pageSetupId, 'setup-a');
     assert.deepEqual(getDrawingPaperSize(applied), { width: 500, height: 350 });
+    assert.deepEqual(applied.plotSettings, source.plotSettings);
 
-    const conflict = createDrawingPageSetup({ ...source, id: 'setup-b', orientation: 'portrait' });
+    const conflict = createDrawingPageSetup({
+        ...source,
+        id: 'setup-b',
+        plotSettings: {
+            ...source.plotSettings,
+            style: { ...source.plotSettings.style, colorMode: 'grayscale' },
+        },
+    });
     const imported = importDrawingPageSetups([source], [source, conflict]);
     assert.equal(imported.pageSetups.length, 2);
     assert.equal(imported.importedIds[0], 'setup-a');
@@ -235,6 +258,12 @@ test('page setup exports round-trip dedicated JSON and .lcad-compatible document
         format: 'CUSTOM',
         customPaperSize: { width: 630.5, height: 310.25 },
         margins: { top: 5, right: 6, bottom: 7, left: 8 },
+        plotSettings: {
+            area: { mode: 'extents' },
+            scale: { mode: 'fit', centered: false, offsetMm: { x: 2, y: 3 } },
+            style: { colorMode: 'grayscale' },
+            quality: { mode: 'vector', imageDpi: 720 },
+        },
     });
     const payload = createDrawingPageSetupExport([setup], { sourceName: 'Roof plan' });
     assert.equal(payload.format, 'lumcad-page-setups');
@@ -253,6 +282,19 @@ test('page setup exports round-trip dedicated JSON and .lcad-compatible document
     });
     assert.equal(fromLayout.length, 1);
     assert.equal(fromLayout[0].name, 'Layout snapshot');
+    const [legacy] = parseDrawingPageSetups({
+        format: 'lumcad-page-setups',
+        version: 1,
+        pageSetups: [{
+            id: 'legacy-setup',
+            name: 'Legacy',
+            format: 'A4',
+            orientation: 'landscape',
+            customPaperSize: { width: 420, height: 297 },
+            margins: { top: 0, right: 0, bottom: 0, left: 0 },
+        }],
+    });
+    assert.deepEqual(legacy.plotSettings, DEFAULT_DRAWING_PLOT_SETTINGS);
     assert.throws(() => parseDrawingPageSetups('{bad json'), /Invalid page-setup JSON/);
     assert.throws(() => parseDrawingPageSetups({ format: 'lumcad-page-setups', version: 2 }), /Unsupported/);
 });

@@ -11,6 +11,8 @@ use tauri::{Emitter, Manager};
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(mcp::McpBridge::default())
         .manage(mcp::McpRuntimeState::default())
         .manage(storage::PendingOpen::default())
@@ -28,6 +30,7 @@ pub fn run() {
             settings::get_app_settings,
             settings::update_app_settings,
             printing::prepare_print_page,
+            printing::publish_plot_file,
         ])
         .setup(|app| {
             let settings = settings::load(app.handle()).map_err(std::io::Error::other)?;

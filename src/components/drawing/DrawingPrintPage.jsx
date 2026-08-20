@@ -7,7 +7,7 @@ import {
     getDrawingPrintPageName,
 } from '~utils/drawingPrint';
 
-export default function DrawingPrintPage({ drawing, layouts }) {
+export default function DrawingPrintPage({ drawing, layouts, plotSettings = null }) {
     const pageStyle = createDrawingPrintPageStyle(layouts);
     return (
         <div className="drawing-print-document">
@@ -29,6 +29,7 @@ export default function DrawingPrintPage({ drawing, layouts }) {
                             assets={drawing.assets}
                             content={drawing.content}
                             layout={layout}
+                            plotSettings={plotSettings || layout.plotSettings}
                             role="img"
                             aria-label={layout.name}
                         />

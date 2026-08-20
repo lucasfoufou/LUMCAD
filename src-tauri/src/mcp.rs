@@ -686,7 +686,7 @@ mod tests {
     #[test]
     fn shared_command_manifest_is_unique_and_complete() {
         let commands = command_manifest();
-        assert_eq!(commands.len(), 81);
+        assert_eq!(commands.len(), 85);
         assert_eq!(
             commands
                 .iter()
@@ -776,6 +776,7 @@ mod tests {
 
     #[tokio::test]
     async fn streamable_http_exposes_the_complete_tool_registry() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let cancellation = CancellationToken::new();
         let service = StreamableHttpService::new(
             || Ok(LumcadMcpServer::new(None)),
@@ -828,6 +829,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires a running LUMCAD desktop application"]
     async fn running_lumcad_app_answers_and_edits_the_active_drawing() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let endpoint = env::var("LUMCAD_MCP_ENDPOINT")
             .unwrap_or_else(|_| format!("http://127.0.0.1:{DEFAULT_MCP_PORT}/mcp"));
         let client = ClientInfo::default()

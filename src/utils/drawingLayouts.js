@@ -7,6 +7,7 @@ import {
 } from './drawingDocument.js';
 import { isDrawingDimensionEntity, remapDrawingEntityDependencies } from './drawingDimensions.js';
 import { fitViewBox } from './drawingGeometry.js';
+import { normalizeDrawingPlotSettings } from './drawingPlot.js';
 import { normalizeDrawingTextEntity } from './drawingText.js';
 import { editEntityGrip } from './drawingSelection.js';
 
@@ -72,6 +73,7 @@ export function createDrawingLayout({
     orientation = 'landscape',
     customPaperSize = DEFAULT_CUSTOM_PAPER_SIZE,
     margins = DEFAULT_MARGINS,
+    plotSettings,
     pageSetupId = null,
     viewports = [],
     paperEntities = [],
@@ -87,6 +89,7 @@ export function createDrawingLayout({
         orientation: normalizedOrientation,
         customPaperSize: normalizedCustomPaperSize,
         margins: normalizeDrawingPaperMargins(margins, paper),
+        plotSettings: normalizeDrawingPlotSettings(plotSettings),
         pageSetupId: typeof pageSetupId === 'string' && pageSetupId ? pageSetupId : null,
         viewports: Array.isArray(viewports)
             ? viewports.map((viewport, index) => normalizeDrawingViewport(viewport, paper, index))
@@ -112,6 +115,7 @@ export function createDrawingPageSetup({
     orientation = 'landscape',
     customPaperSize = DEFAULT_CUSTOM_PAPER_SIZE,
     margins = DEFAULT_MARGINS,
+    plotSettings,
 } = {}) {
     const normalizedFormat = normalizePaperFormat(format);
     const normalizedOrientation = normalizePaperOrientation(orientation);
@@ -124,6 +128,7 @@ export function createDrawingPageSetup({
         orientation: normalizedOrientation,
         customPaperSize: normalizedCustomPaperSize,
         margins: normalizeDrawingPaperMargins(margins, paper),
+        plotSettings: normalizeDrawingPlotSettings(plotSettings),
     };
 }
 
@@ -135,6 +140,7 @@ export function createDrawingPageSetupFromLayout(layout, { id, name = layout?.na
         orientation: layout?.orientation,
         customPaperSize: layout?.customPaperSize,
         margins: layout?.margins,
+        plotSettings: layout?.plotSettings,
     });
 }
 
@@ -232,6 +238,7 @@ export function applyDrawingPageSetup(layout, pageSetup) {
         orientation: normalized.orientation,
         customPaperSize: normalized.customPaperSize,
         margins: normalized.margins,
+        plotSettings: normalized.plotSettings,
         pageSetupId: normalized.id,
     });
 }
@@ -619,7 +626,14 @@ export function changeDrawingLayoutMargins(layout, margins) {
     });
 }
 
-function resizeDrawingLayoutPaper(layout, { format, orientation, customPaperSize, margins, pageSetupId }) {
+function resizeDrawingLayoutPaper(layout, {
+    format,
+    orientation,
+    customPaperSize,
+    margins,
+    plotSettings = layout.plotSettings,
+    pageSetupId,
+}) {
     const previousPrintable = getDrawingPrintableArea(layout);
     const nextPaper = getDrawingPaperSize(format, orientation, customPaperSize);
     const nextMargins = normalizeDrawingPaperMargins(margins, nextPaper);
@@ -637,6 +651,7 @@ function resizeDrawingLayoutPaper(layout, { format, orientation, customPaperSize
         orientation,
         customPaperSize: normalizeCustomPaperSize(customPaperSize),
         margins: nextMargins,
+        plotSettings: normalizeDrawingPlotSettings(plotSettings),
         pageSetupId: typeof pageSetupId === 'string' && pageSetupId ? pageSetupId : null,
         viewports: layout.viewports.map(viewport => resizeDrawingViewportKeepingScale(viewport, {
             x: nextPrintable.x + (viewport.x - previousPrintable.x) * scaleX,
@@ -1093,7 +1108,13 @@ function pageSetupsEqual(left, right) {
         && left.format === right.format
         && left.orientation === right.orientation
         && pageSizesEqual(left.customPaperSize, right.customPaperSize)
-        && paperMarginsEqual(left.margins, right.margins);
+        && paperMarginsEqual(left.margins, right.margins)
+        && plotSettingsEqual(left.plotSettings, right.plotSettings);
+}
+
+function plotSettingsEqual(left, right) {
+    return JSON.stringify(normalizeDrawingPlotSettings(left))
+        === JSON.stringify(normalizeDrawingPlotSettings(right));
 }
 
 function pageSizesEqual(left, right) {

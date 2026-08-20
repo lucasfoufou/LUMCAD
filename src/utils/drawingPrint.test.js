@@ -111,9 +111,18 @@ test('print rendering waits for fonts and three committed animation frames', asy
 
 test('the print layout remains mounted until afterprint', async () => {
     const listeners = new Map();
+    const printClasses = new Set();
     let printed = false;
     const targetWindow = {
-        document: { fonts: { ready: Promise.resolve() } },
+        document: {
+            documentElement: {
+                classList: {
+                    add(value) { printClasses.add(value); },
+                    remove(value) { printClasses.delete(value); },
+                },
+            },
+            fonts: { ready: Promise.resolve() },
+        },
         requestAnimationFrame(callback) { callback(); },
         setTimeout(callback) { return { callback }; },
         clearTimeout() {},
@@ -126,7 +135,32 @@ test('the print layout remains mounted until afterprint', async () => {
     for (let index = 0; index < 8; index += 1) await Promise.resolve();
     assert.equal(printed, true);
     assert.equal(finished, false);
+    assert.equal(printClasses.has('is-lumcad-printing'), true);
     listeners.get('afterprint')();
     await pending;
     assert.equal(finished, true);
+    assert.equal(printClasses.has('is-lumcad-printing'), false);
+});
+
+test('print mode is cleaned up when the native print call fails', async () => {
+    const printClasses = new Set();
+    const targetWindow = {
+        document: {
+            documentElement: {
+                classList: {
+                    add(value) { printClasses.add(value); },
+                    remove(value) { printClasses.delete(value); },
+                },
+            },
+            fonts: { ready: Promise.resolve() },
+        },
+        requestAnimationFrame(callback) { callback(); },
+        setTimeout(callback) { return { callback }; },
+        clearTimeout() {},
+        addEventListener() {},
+        removeEventListener() {},
+        print() { throw new Error('Print failed'); },
+    };
+    await assert.rejects(printRenderedLayouts(targetWindow), /Print failed/);
+    assert.equal(printClasses.has('is-lumcad-printing'), false);
 });

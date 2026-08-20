@@ -8,6 +8,12 @@ import {
     getDrawingPrintableArea,
     getDrawingViewportClipPoints,
 } from '~utils/drawingLayouts';
+import { getDrawingBounds } from '~utils/drawingGeometry';
+import {
+    applyDrawingPlotStyle,
+    normalizeDrawingPlotSettings,
+    resolveDrawingPlotTransform,
+} from '~utils/drawingPlot';
 
 const DrawingLayoutPage = forwardRef(function DrawingLayoutPage({
     assets,
@@ -21,12 +27,18 @@ const DrawingLayoutPage = forwardRef(function DrawingLayoutPage({
     layout,
     maximizedViewportId = null,
     overlay = null,
+    plotSettings = null,
     selectedPaperEntityId = null,
     selectedViewportId = null,
     ...svgProps
 }, forwardedRef) {
     const paper = getDrawingPaperSize(layout);
     const printableArea = getDrawingPrintableArea(layout);
+    const normalizedPlotSettings = plotSettings ? normalizeDrawingPlotSettings(plotSettings) : null;
+    const plotTransform = useMemo(
+        () => resolveLayoutPlotTransform(layout, paper, printableArea, normalizedPlotSettings, content),
+        [content, layout, normalizedPlotSettings, paper, printableArea],
+    );
     const printableClipId = `layout-printable-${useId().replace(/:/g, '')}`;
     const printableContent = useMemo(() => ({
         ...content,
@@ -36,6 +48,10 @@ const DrawingLayoutPage = forwardRef(function DrawingLayoutPage({
         ...content,
         entities: Array.isArray(layout.paperEntities) ? layout.paperEntities : [],
     }), [content, layout.paperEntities]);
+    const plottedPaperContent = useMemo(
+        () => applyDrawingPlotStyle(paperContent, normalizedPlotSettings?.style),
+        [normalizedPlotSettings?.style, paperContent],
+    );
     const handleSize = Math.max(2.5, (canvasViewBox?.width || paper.width) / 150);
     const renderedViewports = maximizedViewportId
         ? layout.viewports.filter(viewport => viewport.id === maximizedViewportId)
@@ -58,22 +74,28 @@ const DrawingLayoutPage = forwardRef(function DrawingLayoutPage({
             </defs>
             <rect className="drawing-layout-paper" x="0" y="0" width={paper.width} height={paper.height} />
             <g clipPath={interactive ? undefined : `url(#${printableClipId})`}>
+                <g
+                transform={plotTransform
+                    ? `matrix(${plotTransform.matrix.a} ${plotTransform.matrix.b} ${plotTransform.matrix.c} ${plotTransform.matrix.d} ${plotTransform.matrix.e} ${plotTransform.matrix.f})`
+                    : undefined}
+                >
                 {renderedViewports.map(viewport => (
                     <DrawingLayoutViewport
                         key={viewport.id}
                         assets={assets}
                         content={printableContent}
                         interactive={interactive}
+                        plotStyle={normalizedPlotSettings?.style}
                         selected={!maximizedViewportId && selectedViewportId === viewport.id}
                         viewport={viewport}
                         handleSize={handleSize}
                     />
                 ))}
-                {!maximizedViewportId && paperContent.entities.length > 0 && (
+                {!maximizedViewportId && plottedPaperContent.entities.length > 0 && (
                     <g className="drawing-layout-paper-annotations">
                         <DrawingScene
                             assets={assets}
-                            content={paperContent}
+                            content={plottedPaperContent}
                             dimensionTextSize={3}
                             gripSize={handleSize}
                             hiddenIds={editingPaperEntityId ? [editingPaperEntityId] : []}
@@ -84,6 +106,7 @@ const DrawingLayoutPage = forwardRef(function DrawingLayoutPage({
                         />
                     </g>
                 )}
+                </g>
             </g>
             {interactive && !maximizedViewportId && (
                 <rect
@@ -119,14 +142,14 @@ const DrawingLayoutPage = forwardRef(function DrawingLayoutPage({
     );
 });
 
-function DrawingLayoutViewport({ assets, content, handleSize, interactive, selected, viewport }) {
+function DrawingLayoutViewport({ assets, content, handleSize, interactive, plotStyle, selected, viewport }) {
     const viewBox = viewport.modelViewBox;
     const viewportClipId = `layout-viewport-${useId().replace(/:/g, '')}`;
     const clipPoints = getDrawingViewportClipPoints(viewport);
     const clipPointString = clipPoints.map(point => `${point.x},${point.y}`).join(' ');
     const displayContent = useMemo(
-        () => applyDrawingViewportDisplaySettings(content, viewport),
-        [content, viewport],
+        () => applyDrawingPlotStyle(applyDrawingViewportDisplaySettings(content, viewport), plotStyle),
+        [content, plotStyle, viewport],
     );
     const dimensionTextSize = Math.max(
         0.0001,
@@ -182,6 +205,41 @@ function DrawingLayoutViewport({ assets, content, handleSize, interactive, selec
             )}
         </g>
     );
+}
+
+function resolveLayoutPlotTransform(layout, paper, printableArea, settings, content) {
+    if (!settings || settings.area.mode === 'layout') return null;
+    const source = settings.area.mode === 'window'
+        ? settings.area.window
+        : getLayoutContentBounds(layout, content, paper);
+    return resolveDrawingPlotTransform(source, printableArea, settings.scale, { sourceUnit: 'mm' });
+}
+
+function getLayoutContentBounds(layout, content, paper) {
+    const rectangles = (layout.viewports || []).map(viewport => ({
+        minX: viewport.x,
+        minY: viewport.y,
+        maxX: viewport.x + viewport.width,
+        maxY: viewport.y + viewport.height,
+    }));
+    if (layout.paperEntities?.length) {
+        const bounds = getDrawingBounds({
+            ...content,
+            entities: layout.paperEntities,
+        }, { printableOnly: true });
+        if ([bounds.minX, bounds.minY, bounds.maxX, bounds.maxY].every(Number.isFinite)) rectangles.push(bounds);
+    }
+    if (!rectangles.length) return { x: 0, y: 0, width: paper.width, height: paper.height };
+    const minX = Math.min(...rectangles.map(bounds => bounds.minX));
+    const minY = Math.min(...rectangles.map(bounds => bounds.minY));
+    const maxX = Math.max(...rectangles.map(bounds => bounds.maxX));
+    const maxY = Math.max(...rectangles.map(bounds => bounds.maxY));
+    return {
+        x: Math.max(0, minX),
+        y: Math.max(0, minY),
+        width: Math.max(1e-9, Math.min(paper.width, maxX) - Math.max(0, minX)),
+        height: Math.max(1e-9, Math.min(paper.height, maxY) - Math.max(0, minY)),
+    };
 }
 
 function ViewportHandles({ viewport, size }) {

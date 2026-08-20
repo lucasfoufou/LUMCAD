@@ -2,6 +2,7 @@
 @use "./app/drawingLayout.scss";
 @use "./app/drawingArrayControls.scss";
 @use "./app/drawingPrint.scss";
+@use "./app/drawingPublish.scss";
 @use "./app/drawingTextEditor.scss";
 @use "./app/drawingTextStylesPanel.scss";
 @use "./app/settings.scss";
@@ -79,11 +80,16 @@ button {
     background: #fff;
   }
 
-  .drawing-editor-shell {
+  .is-lumcad-printing .drawing-editor-shell {
     display: none !important;
   }
 
-  .lumcad-print-root {
+  .is-lumcad-printing .drawing-publish-backdrop,
+  .is-lumcad-printing .drawing-publish-render-pages {
+    display: none !important;
+  }
+
+  .is-lumcad-printing .lumcad-print-root {
     display: block;
   }
 }

@@ -75,9 +75,13 @@
   { "command": "saveAs", "name": "SAVEAS", "alias": "SA", "labelKey": "commands.saveAs", "alternatives": ["ENREGISTRERSOUS"], "description": "Open the native Save As dialog for the active drawing." },
   { "command": "new", "name": "NEW", "alias": "NEW", "labelKey": "commands.new", "alternatives": ["NOUVEAU"], "description": "Create a new drawing, prompting to save unsaved work when necessary." },
   { "command": "open", "name": "OPEN", "alias": "OPEN", "labelKey": "commands.open", "alternatives": ["OUVRIR"], "description": "Open the native .lcad file chooser." },
-  { "command": "pdf", "name": "PDF", "alias": "PDF", "labelKey": "commands.pdf", "alternatives": ["EXPORT"], "description": "Export the active layout through the native PDF print dialog." },
-  { "command": "pdfAll", "name": "PDFALL", "alias": "PDFA", "labelKey": "commands.pdfAll", "alternatives": ["EXPORTALL"], "description": "Export every layout as pages in one PDF through the native print dialog." },
-  { "command": "pdfSelected", "name": "PDFSELECTED", "alias": "PDFS", "labelKey": "commands.pdfSelected", "alternatives": ["EXPORTSELECTED"], "description": "Export the currently selected layout tabs as pages in one PDF through the native print dialog." },
+  { "command": "plot", "name": "PLOT", "alias": "PT", "labelKey": "commands.plot", "alternatives": ["-PLOT"], "description": "Open the plot preview for the active layout with area, scale, margins, style, and quality controls." },
+  { "command": "pdf", "name": "PDF", "alias": "PDF", "labelKey": "commands.pdf", "alternatives": ["EXPORT", "EXPORTPDF"], "description": "Preview and write the active layout directly to a deterministic PDF file." },
+  { "command": "pdfAll", "name": "PDFALL", "alias": "PDFA", "labelKey": "commands.pdfAll", "alternatives": ["EXPORTALL"], "description": "Preview and write every layout, including mixed paper sizes, as one ordered PDF." },
+  { "command": "pdfSelected", "name": "PDFSELECTED", "alias": "PDFS", "labelKey": "commands.pdfSelected", "alternatives": ["EXPORTSELECTED"], "description": "Preview and write the currently selected layout tabs as one ordered PDF." },
+  { "command": "publish", "name": "PUBLISH", "alias": "PUB", "labelKey": "commands.publish", "alternatives": [], "description": "Open the multi-layout publication preview for all layouts." },
+  { "command": "autoPublish", "name": "AUTOPUBLISH", "alias": "APUB", "labelKey": "commands.autoPublish", "alternatives": [], "description": "Publish all layouts without a dialog to a PDF beside the saved .lcad drawing." },
+  { "command": "dwfx", "name": "DWFXOUT", "alias": "DWFX", "labelKey": "commands.dwfx", "alternatives": ["EXPORTDWFX"], "description": "Preview and publish all layouts as a multi-sheet DWFx/XPS package." },
   { "command": "zoom", "name": "ZOOM", "alias": "ZOOM", "labelKey": "commands.zoom", "alternatives": [], "description": "Set a relative zoom factor using a numeric command input." },
   { "command": "fit", "name": "EXTENTS", "alias": "FIT", "labelKey": "commands.fit", "alternatives": ["EXTENTS"], "description": "Fit all visible drawing content in the canvas." }
 ]

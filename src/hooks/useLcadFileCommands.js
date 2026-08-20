@@ -4,7 +4,13 @@ import useLatestRef from '~hooks/useLatestRef';
 import { useI18n } from '~i18n/I18nProvider';
 import { localizeError } from '~i18n/translator';
 import { createLcadDocument, createLcadEnvelope } from '~utils/lcadDocument';
-import { printRenderedLayouts } from '~utils/drawingPrint';
+import { printRenderedLayouts, waitForPrintRendering } from '~utils/drawingPrint';
+import {
+    createDrawingDwfx,
+    createDrawingPdf,
+    getAutomaticDrawingPublishPath,
+    writeDrawingPublishFile,
+} from '~utils/drawingPublish';
 import {
     clearLcadRecovery,
     exportLcadDocumentAs,
@@ -20,11 +26,13 @@ export default function useLcadFileCommands({
     filePath,
     recovered,
     onReplaceSession,
+    publishRendererRef = null,
     setMessage,
 }) {
     const { t } = useI18n();
     const [isExporting, setIsExporting] = useState(false);
     const [printJob, setPrintJob] = useState(null);
+    const [publishRequest, setPublishRequest] = useState(null);
 
     const saveDrawingAs = useCallback(async () => {
         const result = await autosave.saveAs();
@@ -109,18 +117,61 @@ export default function useLcadFileCommands({
         };
     }, [externalOpenRef]);
 
-    const exportPdf = useCallback(async layoutIds => {
+    const resolveRequestedLayouts = useCallback(layoutIds => {
         const requestedIds = new Set(Array.isArray(layoutIds) ? layoutIds : []);
-        const layouts = requestedIds.size
+        return requestedIds.size
             ? document.layouts.filter(layout => requestedIds.has(layout.id))
             : document.layouts;
+    }, [document.layouts]);
+
+    const exportPdf = useCallback(async (layoutIds, { format = 'pdf' } = {}) => {
+        const layouts = resolveRequestedLayouts(layoutIds);
         if (!layouts.length) {
             setMessage(t('layout.noLayoutsToExport'));
             return false;
         }
+        setPublishRequest({
+            format: format === 'dwfx' ? 'dwfx' : 'pdf',
+            layoutIds: layouts.map(layout => layout.id),
+        });
+        return true;
+    }, [resolveRequestedLayouts, setMessage, t]);
+
+    const closePublishDialog = useCallback(() => setPublishRequest(null), []);
+
+    const publishRenderedLayouts = useCallback(async ({ format, pages, layouts }) => {
+        if (!pages?.length || pages.length !== layouts?.length) {
+            throw new Error(t('publish.renderIncomplete'));
+        }
         setIsExporting(true);
         try {
-            setPrintJob({ drawing: document, layouts });
+            const bytes = format === 'dwfx'
+                ? await createDrawingDwfx(pages, { title: document.name })
+                : await createDrawingPdf(pages, { title: document.name });
+            const result = await writeDrawingPublishFile({
+                bytes,
+                defaultName: document.name,
+                filterName: t(format === 'dwfx' ? 'fileDialog.dwfxDrawing' : 'fileDialog.pdfDrawing'),
+                format,
+            });
+            setMessage(t(result ? 'publish.exported' : 'publish.cancelled', {
+                count: layouts.length,
+                format: format.toUpperCase(),
+            }));
+            return Boolean(result);
+        } catch (error) {
+            setMessage(localizeError(error, t, 'publish.failed'));
+            return false;
+        } finally {
+            setIsExporting(false);
+        }
+    }, [document.name, setMessage, t]);
+
+    const printPublishedLayouts = useCallback(async ({ layouts, plotSettings }) => {
+        if (!layouts?.length) return false;
+        setIsExporting(true);
+        try {
+            setPrintJob({ drawing: document, layouts, plotSettings });
             await printRenderedLayouts(window, { layouts });
             setMessage(t('file.printDialogOpened', { count: layouts.length }));
             return true;
@@ -132,6 +183,42 @@ export default function useLcadFileCommands({
             setIsExporting(false);
         }
     }, [document, setMessage, t]);
+
+    const autoPublish = useCallback(async (layoutIds = null) => {
+        const path = getAutomaticDrawingPublishPath(filePath, 'pdf');
+        if (!path) {
+            setMessage(t('publish.autoRequiresSavedDrawing'));
+            return false;
+        }
+        const layouts = resolveRequestedLayouts(layoutIds);
+        if (!layouts.length) {
+            setMessage(t('layout.noLayoutsToExport'));
+            return false;
+        }
+        setIsExporting(true);
+        try {
+            await waitForPrintRendering(window);
+            const requested = new Set(layouts.map(layout => layout.id));
+            const pages = (publishRendererRef?.current?.getPages?.() || [])
+                .filter(page => requested.has(page.layout.id));
+            if (pages.length !== layouts.length) throw new Error(t('publish.renderIncomplete'));
+            const bytes = await createDrawingPdf(pages, { title: document.name });
+            const result = await writeDrawingPublishFile({
+                bytes,
+                defaultName: document.name,
+                explicitPath: path,
+                filterName: t('fileDialog.pdfDrawing'),
+                format: 'pdf',
+            });
+            setMessage(t('publish.autoPublished', { count: layouts.length, path: result.path }));
+            return true;
+        } catch (error) {
+            setMessage(localizeError(error, t, 'publish.failed'));
+            return false;
+        } finally {
+            setIsExporting(false);
+        }
+    }, [document.name, filePath, publishRendererRef, resolveRequestedLayouts, setMessage, t]);
 
     const exportPageSetups = useCallback(async pageSetupIds => {
         const requestedIds = new Set(Array.isArray(pageSetupIds) ? pageSetupIds : []);
@@ -171,11 +258,16 @@ export default function useLcadFileCommands({
 
     return {
         createNewDrawing,
+        autoPublish,
+        closePublishDialog,
         exportPageSetups,
         exportPdf,
         isExporting,
         openDrawing,
+        printPublishedLayouts,
         printJob,
+        publishRenderedLayouts,
+        publishRequest,
         saveDrawingAs,
     };
 }

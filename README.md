@@ -31,7 +31,7 @@ The project is now open source so that this foundation can grow into a useful ge
 - atomic autosave and automatic recovery for drawings that do not yet have a file path;
 - standard or custom paper layouts with margins, importable/exportable page setups, text/line/rectangle paper annotations, templates, scrollable tabs, and pointer reordering;
 - multiple transparent clipped/rotated model viewports with exact `1/X` scales, locking, maximize/minimize, annotation controls, and per-viewport layer appearance;
-- export of one, every, or a Cmd/Ctrl-selected subset of layouts through the system PDF print dialog;
+- plot preview and ordered current/all/Cmd-or-Ctrl-selected layout publication to direct PDF or Autodesk-compatible XPS/ePlot DWFx, with mixed paper sizes, plot areas, fit/fixed scales, margins, styles, vector/raster quality, reusable page setups, sheet-only system printing, and unattended PDF output;
 - a local Streamable HTTP MCP server for AI-assisted drawing workflows;
 - an English and French interface, with English as the source language.
 
@@ -73,7 +73,9 @@ Tagged versions are published on the [GitHub Releases page](https://github.com/l
 - Windows x64 (NSIS installer);
 - Linux x64 (`.AppImage` and `.deb`).
 
-The initial release workflow uses ad-hoc signing on macOS and does not yet notarize the macOS bundle or sign the Windows installer with an identified developer certificate. Your operating system may therefore display a security warning for downloaded builds.
+Each successful release also publishes a signed Tauri updater manifest. An installed updater-enabled version checks GitHub periodically, offers a newer compatible build in the header, verifies its updater signature, saves the active drawing, and installs only after confirmation. The first updater-enabled version must still be installed manually.
+
+The release workflow uses ad-hoc signing on macOS and does not yet notarize the macOS bundle or sign the Windows installer with an identified developer certificate. Tauri updater signatures protect the update channel, but they do not replace Apple Developer ID or Windows Authenticode signing; the operating system may therefore display a security warning for manually downloaded builds.
 
 ## Development
 
@@ -106,7 +108,9 @@ npm run tauri build -- --debug
 
 ## Releases
 
-Releases are built by [`.github/workflows/release.yml`](./.github/workflows/release.yml) whenever a tag matching `v*` is pushed. The workflow validates and tests the source, builds every supported desktop target sequentially into one draft GitHub release, verifies the expected artifacts, and publishes the release only after every platform succeeds.
+Releases are built by [`.github/workflows/release.yml`](./.github/workflows/release.yml) whenever a tag matching `v*` is pushed. The workflow validates and tests the source, builds every supported desktop target sequentially into one draft GitHub release, signs the updater artifacts, verifies every installer, signature, URL, architecture, and `latest.json` entry, and publishes the release only after every platform succeeds.
+
+The workflow requires the repository secret `TAURI_SIGNING_PRIVATE_KEY`. The matching public key is embedded in LUMCAD; never commit or lose the private key. See [RELEASING.md](./RELEASING.md) for key custody, local signed builds, the complete release sequence, expected artifacts, and end-to-end update validation.
 
 Before creating `vX.Y.Z`, update the same version in:
 
@@ -115,7 +119,7 @@ Before creating `vX.Y.Z`, update the same version in:
 - `src-tauri/tauri.conf.json`;
 - `src/utils/lcadDocument.js`.
 
-Then run `npm run check`, create the matching Git tag, and push that tag. `scripts/check-release-version.mjs` rejects a release if any declared version differs from the tag.
+Then run `npm run check`, merge or push the release commit to `main`, create the matching Git tag from that published commit, and push the tag separately. `scripts/check-release-version.mjs` rejects a release if any declared version differs from the tag. Do not create the tag before the workflow and signing secret are available on `main`.
 
 ## Translations
 

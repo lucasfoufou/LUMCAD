@@ -78,6 +78,10 @@ test('CAD aliases and numeric inputs are recognized', () => {
     assert.equal(parseDrawingCommand('VIEWPOINT').command, 'viewport');
     assert.equal(parseDrawingCommand('PDFA').command, 'pdfAll');
     assert.equal(parseDrawingCommand('PDFALL').command, 'pdfAll');
+    assert.equal(parseDrawingCommand('-PLOT').command, 'plot');
+    assert.equal(parseDrawingCommand('PUBLISH').command, 'publish');
+    assert.equal(parseDrawingCommand('AUTOPUBLISH').command, 'autoPublish');
+    assert.equal(parseDrawingCommand('EXPORTDWFX').command, 'dwfx');
     assert.equal(parseDrawingCommand('SAVE').command, 'unknown');
     ['TR', 'TRIM', 'CUT', 'COUPER', 'AJUSTER'].forEach(alias => assert.equal(parseDrawingCommand(alias).command, 'trim'));
     assert.equal(isNumericDrawingInput('12,5'), true);

@@ -9,6 +9,9 @@ concurrency:
   group: lumcad-release
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   validate:
     name: Validate release
@@ -41,6 +44,11 @@ jobs:
       - name: Check tag and declared versions
         run: node scripts/check-release-version.mjs "$GITHUB_REF_NAME"
 
+      - name: Check updater signing secret
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: test -n "$TAURI_SIGNING_PRIVATE_KEY"
+
       - name: Run frontend and Rust checks
         run: npm run check
 
@@ -58,10 +66,10 @@ jobs:
         include:
           - label: macOS Apple Silicon
             platform: macos-latest
-            args: --target aarch64-apple-darwin --bundles dmg
+            args: --target aarch64-apple-darwin
           - label: macOS Intel
             platform: macos-latest
-            args: --target x86_64-apple-darwin --bundles dmg
+            args: --target x86_64-apple-darwin
           - label: Linux x64
             platform: ubuntu-22.04
             args: --bundles appimage,deb
@@ -101,6 +109,8 @@ jobs:
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
           APPLE_SIGNING_IDENTITY: ${{ startsWith(matrix.platform, 'macos-') && '-' || '' }}
         with:
           tagName: ${{ github.ref_name }}
@@ -110,7 +120,7 @@ jobs:
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           retryAttempts: 2
-          releaseAssetNamePattern: "[name]_[version]_[platform]_[arch][setup].[ext]"
+          updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
 
   publish:
@@ -122,13 +132,15 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Verify all expected installers
+      - uses: actions/checkout@v7
+
+      - name: Download draft release assets
         run: |
-          assets="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
-          test "$(printf '%s\n' "$assets" | grep -c '\.dmg$')" -ge 2
-          printf '%s\n' "$assets" | grep -q '\.AppImage$'
-          printf '%s\n' "$assets" | grep -q '\.deb$'
-          printf '%s\n' "$assets" | grep -q '\.exe$'
+          mkdir release-assets
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --dir release-assets
+
+      - name: Verify installers and signed updater manifest
+        run: node scripts/verify-release-assets.mjs release-assets "$GITHUB_REF_NAME"
 
       - name: Publish release
         run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false

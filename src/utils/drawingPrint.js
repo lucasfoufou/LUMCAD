@@ -84,6 +84,8 @@ export async function printRenderedLayouts(targetWindow = window, { layouts = []
     await new Promise((resolve, reject) => {
         let settled = false;
         let blurred = false;
+        const documentElement = targetWindow.document?.documentElement;
+        documentElement?.classList?.add('is-lumcad-printing');
         const timeout = targetWindow.setTimeout(finish, timeoutMs);
 
         function cleanup() {
@@ -91,6 +93,7 @@ export async function printRenderedLayouts(targetWindow = window, { layouts = []
             targetWindow.removeEventListener('afterprint', finish);
             targetWindow.removeEventListener('blur', handleBlur);
             targetWindow.removeEventListener('focus', handleFocus);
+            documentElement?.classList?.remove('is-lumcad-printing');
         }
 
         function finish() {

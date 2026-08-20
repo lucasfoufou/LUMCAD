@@ -123,6 +123,8 @@ Example — offset two known entities by one metre toward the upper side:
 
 Selection-driven annotation commands such as `QDIM`, `DIMBASELINE`, `DIMCONTINUE`, and `CENTERMARK` can complete in one call. `QDIM` accepts `CONTINUOUS` or `BASELINE`, while a baseline accepts `FIRST` or `LAST` to choose its editable reference end. Interactive `TEXT`, `MTEXT`, and dimension variants accept the same ordered point actions as the canvas. Layout commands (`LAYOUT`, `PAGESETUP`, `PSETUPIN`, `PSETOUT`, `MODEL`, `PSPACE`, `MVIEW`, `VPCLIP`, `VPLAYER`, `VPMAX`, and `VPMIN`) share the command-bar implementation; commands that open native file dialogs still require the user or a desktop-automation harness to finish that dialog.
 
+Publishing commands use the same renderer and ordered layout selection as the interface. `PLOT`/`-PLOT`, `PDF`/`EXPORTPDF`, `PDFALL`, `PDFSELECTED`, `PUBLISH`, and `DWFXOUT` open the in-application publication preview; saving the resulting PDF or DWFx then uses a native destination dialog. `AUTOPUBLISH` is the unattended variant: it requires a saved `.lcad` path and atomically writes every layout to the adjacent `.pdf` file before the MCP request returns.
+
 ### `interact`
 
 Continues the currently active command without restarting it. This is useful when an agent deliberately works in several MCP calls, inspecting state between stages.
@@ -199,7 +201,7 @@ Cancels the current command and clears the selection.
 
 ## Native-dialog commands
 
-`SAVEAS`, `OPEN`, `PSETOUT`, `PDF`, `PDFALL`, and `PDFSELECTED` intentionally open native system dialogs, just as they do from the interface. `PDFSELECTED` uses the layout tabs selected through Cmd/Ctrl-click, in their current document order. The MCP call activates the command, but the user or a desktop-automation harness must finish the native dialog. Regular persistence is handled continuously by autosave.
+`SAVEAS`, `OPEN`, and `PSETOUT` intentionally open native system dialogs, just as they do from the interface. Plot and publish commands first open LUMCAD's preview/configuration dialog; PDF and DWFx destination selection is native only after the user confirms that preview. `PDFSELECTED` uses the layout tabs selected through Cmd/Ctrl-click, in their current document order. The MCP call activates an interactive dialog but cannot choose a destination on the user's behalf. Use `AUTOPUBLISH` when a saved drawing must publish without any dialog. Regular drawing persistence is handled continuously by autosave.
 
 ## Tests and command coverage
 

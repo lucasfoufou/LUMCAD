@@ -351,29 +351,9 @@
   line-height: 1.45;
 }
 
-.drawing-layout-export-panel {
-  padding-top: 0.75rem;
-  border-top: 1px solid #dce3e7;
-
-  button {
-    width: 100%;
-    min-height: 36px;
-    margin-bottom: 0.45rem;
-    border: 1px solid rgba($lum_orange, 0.75);
-    border-radius: 6px;
-    background: $lum_orange;
-    color: #172033;
-    font-size: 0.76rem;
-    font-weight: 700;
-
-    + button { background: #fff; color: $lum_body; }
-    &:disabled { cursor: wait; opacity: 0.5; }
-  }
-}
-
 .drawing-workspace-tabs {
   display: grid;
-  grid-template-columns: auto 30px minmax(0, 1fr) 30px auto auto;
+  grid-template-columns: auto 30px minmax(0, 1fr) 30px auto;
   align-items: end;
   gap: 0.2rem;
   min-width: 0;
@@ -415,15 +395,6 @@
       border-radius: 7px 7px 0 0;
       color: #ffc17a;
       font-size: 1.2rem;
-    }
-    &.is-export-selected {
-      min-width: 104px;
-      max-width: 154px;
-      border-color: rgba($lum_orange, 0.58);
-      background: rgba($lum_orange, 0.16);
-      color: #ffd09a;
-
-      &:disabled { opacity: 0.42; }
     }
   }
 }

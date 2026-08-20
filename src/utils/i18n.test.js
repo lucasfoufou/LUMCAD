@@ -36,6 +36,10 @@ test('translations interpolate values, pluralize, and localize structured errors
     assert.equal(fr('messages.objectsCopied', { count: 2 }), '2 objets copiés.');
     assert.equal(fr('sidebar.objectCount', { count: 0 }), '0 objets');
     assert.equal(localizeError({ code: 'unsupported_version', expectedVersion: 1 }, en), 'Unsupported .lcad file version (expected version: 1).');
+    assert.equal(
+        localizeError('{"code":"invalid_dwfx","path":"/tmp/drawing.dwfx"}', fr),
+        'Le paquet DWFx généré a échoué à la validation native et n’a pas été écrit.',
+    );
 });
 
 test('every literal translation key used by the interface exists in English', async () => {

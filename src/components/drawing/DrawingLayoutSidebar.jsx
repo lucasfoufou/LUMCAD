@@ -35,13 +35,10 @@ import {
 export default function DrawingLayoutSidebar({
     content,
     currentModelViewport,
-    isExporting,
     layout,
     layoutCount,
     onChange,
     onDeleteLayout,
-    onExportAll,
-    onExportCurrent,
     onExportPageSetups,
     onCreatePageSetup,
     onDeletePageSetup,
@@ -170,16 +167,6 @@ export default function DrawingLayoutSidebar({
                 ) : (
                     <p className="drawing-sidebar-empty">{t('layout.selectViewport')}</p>
                 )}
-
-                <section className="drawing-layout-export-panel">
-                    <h3>{t('layout.exportTitle')}</h3>
-                    <button type="button" disabled={isExporting} onClick={onExportCurrent}>
-                        {isExporting ? t('header.preparing') : t('layout.exportCurrent')}
-                    </button>
-                    <button type="button" disabled={isExporting} onClick={onExportAll}>
-                        {t('layout.exportAll')}
-                    </button>
-                </section>
             </div>
         </aside>
     );

@@ -68,6 +68,12 @@ test('.lcad ZIP round-trips layouts and viewports', () => {
         id: 'layout-a2',
         name: 'Roof plan',
         format: 'A2',
+        plotSettings: {
+            area: { mode: 'extents' },
+            scale: { mode: 'fixed', denominator: 100 },
+            style: { colorMode: 'monochrome', plotLineweights: false },
+            quality: { mode: 'vector', imageDpi: 600 },
+        },
         viewports: [createDrawingViewport({
             id: 'viewport-main',
             rect: { x: 12, y: 18, width: 300, height: 200 },
@@ -77,6 +83,8 @@ test('.lcad ZIP round-trips layouts and viewports', () => {
 
     const restored = readLcadArchive(createLcadArchive(createLcadEnvelope(document)));
     assert.equal(restored.document.layouts[0].format, 'A2');
+    assert.equal(restored.document.layouts[0].plotSettings.scale.denominator, 100);
+    assert.equal(restored.document.layouts[0].plotSettings.style.colorMode, 'monochrome');
     assert.equal(restored.document.layouts[0].viewports[0].id, 'viewport-main');
     assert.deepEqual(restored.document.layouts[0].viewports[0].modelViewBox, {
         x: 1,
@@ -151,6 +159,12 @@ test('version 2 archives preserve rich text, every dimension family, page setups
         format: 'CUSTOM',
         customPaperSize: { width: 610, height: 330 },
         margins: { top: 8, right: 9, bottom: 10, left: 11 },
+        plotSettings: {
+            area: { mode: 'window', window: { x: 1, y: 2, width: 20, height: 10 } },
+            scale: { mode: 'fixed', denominator: 200, centered: false, offsetMm: { x: 4, y: 5 } },
+            style: { colorMode: 'grayscale', plotLineweights: false },
+            quality: { mode: 'raster', rasterDpi: 600, imageDpi: 450, jpegQuality: 0.8 },
+        },
     })];
     document.layouts = [createDrawingLayout({
         id: 'layout-production',
@@ -158,6 +172,12 @@ test('version 2 archives preserve rich text, every dimension family, page setups
         format: 'CUSTOM',
         customPaperSize: { width: 610, height: 330 },
         margins: { top: 8, right: 9, bottom: 10, left: 11 },
+        plotSettings: {
+            area: { mode: 'layout' },
+            scale: { mode: 'fit', centered: true },
+            style: { colorMode: 'asDisplayed', plotLineweights: true },
+            quality: { mode: 'vector', rasterDpi: 300, imageDpi: 600, jpegQuality: 0.9 },
+        },
         pageSetupId: 'setup-custom',
         paperEntities: [
             {
@@ -202,6 +222,10 @@ test('version 2 archives preserve rich text, every dimension family, page setups
     assert.equal(linear.dimensionFormat.inspection.label, 'A');
     assert.deepEqual(restored.content.entities.find(entity => entity.id === 'dim-angular').sourceIds, ['line-a', 'line-b']);
     assert.equal(restored.pageSetups[0].id, 'setup-custom');
+    assert.equal(restored.pageSetups[0].plotSettings.area.mode, 'window');
+    assert.equal(restored.pageSetups[0].plotSettings.quality.rasterDpi, 600);
+    assert.equal(restored.layouts[0].plotSettings.area.mode, 'layout');
+    assert.equal(restored.layouts[0].plotSettings.quality.imageDpi, 600);
     assert.equal(restored.layouts[0].paperEntities[0].text, 'Issue for construction');
     const viewport = restored.layouts[0].viewports[0];
     assert.equal(viewport.locked, true);

@@ -52,7 +52,26 @@ The manifest is UTF-8 JSON. Its top-level structure is:
         "format": "CUSTOM",
         "orientation": "landscape",
         "customPaperSize": { "width": 610, "height": 330 },
-        "margins": { "top": 8, "right": 9, "bottom": 10, "left": 11 }
+        "margins": { "top": 8, "right": 9, "bottom": 10, "left": 11 },
+        "plotSettings": {
+          "area": {
+            "mode": "window",
+            "window": { "x": 1, "y": 2, "width": 20, "height": 10 }
+          },
+          "scale": {
+            "mode": "fixed",
+            "denominator": 200,
+            "centered": false,
+            "offsetMm": { "x": 4, "y": 5 }
+          },
+          "style": { "colorMode": "grayscale", "plotLineweights": false },
+          "quality": {
+            "mode": "raster",
+            "rasterDpi": 600,
+            "imageDpi": 450,
+            "jpegQuality": 0.8
+          }
+        }
       }
     ],
     "layouts": [
@@ -63,6 +82,25 @@ The manifest is UTF-8 JSON. Its top-level structure is:
         "orientation": "landscape",
         "customPaperSize": { "width": 610, "height": 330 },
         "margins": { "top": 8, "right": 9, "bottom": 10, "left": 11 },
+        "plotSettings": {
+          "area": {
+            "mode": "layout",
+            "window": { "x": 0, "y": 0, "width": 1, "height": 1 }
+          },
+          "scale": {
+            "mode": "fit",
+            "denominator": 1,
+            "centered": true,
+            "offsetMm": { "x": 0, "y": 0 }
+          },
+          "style": { "colorMode": "asDisplayed", "plotLineweights": true },
+          "quality": {
+            "mode": "vector",
+            "rasterDpi": 300,
+            "imageDpi": 300,
+            "jpegQuality": 0.9
+          }
+        },
         "pageSetupId": "page-setup-…",
         "paperEntities": [],
         "viewports": [
@@ -111,6 +149,15 @@ The manifest is UTF-8 JSON. Its top-level structure is:
 ```
 
 Each layout uses one ISO A-series format (`A4`, `A3`, `A2`, `A1`, or `A0`) or `CUSTOM`, plus an `orientation` of `landscape` or `portrait`. `customPaperSize` and `margins` are expressed in paper millimetres. A reusable entry in `pageSetups` stores the same paper properties; `pageSetupId` records which profile supplied a layout's current setup. The layout retains its normalized paper values even if that profile is later removed.
+
+Layouts and reusable page setups also store the same normalized `plotSettings` object:
+
+- `area.mode` is `layout`, `extents`, or `window`. Because these settings belong to a paper layout, a window rectangle uses paper-space millimetres; it remains present with safe defaults when another mode is active.
+- `scale.mode` is `fit` or `fixed`. A fixed scale stores an exact `1/X` `denominator` of at least `1`; `centered` controls automatic placement and `offsetMm` applies a paper-space offset in millimetres.
+- `style.colorMode` is `asDisplayed`, `grayscale`, or `monochrome`; `plotLineweights` controls whether stored lineweights affect output.
+- `quality.mode` is `vector` or `raster`. `rasterDpi` controls the complete page bitmap used by raster PDF and DWFx output. `imageDpi` limits embedded bitmap assets without upscaling them; vector paths and text remain vector in a vector PDF. Both DPI values are clamped from `72` through `1200` when editing finishes, while `jpegQuality` is clamped from `0.1` through `1`. Safe canvas limits can reduce the effective full-page DPI for unusually large sheets.
+
+Missing plot settings normalize to `layout`, fit-to-paper at a nominal `1/100`, centred with zero offset, as-displayed colours, enabled lineweights, vector output, `300` DPI for raster and image content, and JPEG quality `0.9`. This is an additive version 2 field: existing version 1 and version 2 manifests without it remain readable and receive those defaults.
 
 `paperEntities` contains text, line, and rectangle annotations in paper millimetres. They use the same normalized entity/editing primitives as their model-space counterparts while remaining scoped to one layout. Viewport rectangle coordinates and dimensions also use paper millimetres. `modelViewBox` points to the visible model-space rectangle in metres; its aspect ratio is normalized to the paper viewport so printed geometry is not distorted. `hiddenLayerIds` hides layers only inside that viewport and does not change their model-space visibility.
 
@@ -265,7 +312,7 @@ Duplicate paths, missing files, unreferenced entries, unsupported image types, m
 
 ## Versioning
 
-The current writer emits `formatVersion: 2`. Readers accept versions 1 and 2; version 1 documents receive default text-style, page-setup, paper-annotation, and extended viewport fields during normalization. The original IDs and all unaffected geometry are retained. Versions below 1 and future versions above 2 are rejected so later schema changes can be handled explicitly.
+The current writer emits `formatVersion: 2`. Readers accept versions 1 and 2; version 1 documents receive default text-style, page-setup, paper-annotation, plot-setting, and extended viewport fields during normalization. Older version 2 documents that predate `plotSettings` receive the same plot defaults. The original IDs and all unaffected geometry are retained. Versions below 1 and future versions above 2 are rejected so later schema changes can be handled explicitly.
 
 ## Atomic writes and recovery
 

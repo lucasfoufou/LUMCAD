@@ -5,14 +5,12 @@ import { DRAWING_LAYOUT_TEMPLATE_OPTIONS } from '~utils/drawingLayouts';
 
 export default function DrawingWorkspaceTabs({
     activeLayoutId,
-    isExporting = false,
     layouts,
     mode,
     onAddLayout,
     onAddLayoutFromTemplate,
     onDeleteLayout,
     onDuplicateLayout,
-    onExportSelected,
     onMoveLayout,
     onOpenLayout,
     onOpenModel,
@@ -33,7 +31,6 @@ export default function DrawingWorkspaceTabs({
     ));
     const selection = Array.isArray(selectedLayoutIds) ? selectedLayoutIds : internalSelectedIds;
     const selectedSet = new Set(selection);
-    const selectedInOrder = layouts.filter(layout => selectedSet.has(layout.id)).map(layout => layout.id);
 
     useEffect(() => {
         if (!menu) return undefined;
@@ -253,17 +250,6 @@ export default function DrawingWorkspaceTabs({
                     </div>
                 )}
             </div>
-            {onExportSelected && (
-                <button
-                    type="button"
-                    className="is-export-selected"
-                    disabled={isExporting || selectedInOrder.length === 0}
-                    onClick={() => onExportSelected(selectedInOrder)}
-                    title={t('layout.exportSelected', { count: selectedInOrder.length })}
-                >
-                    {t('layout.exportSelected', { count: selectedInOrder.length })}
-                </button>
-            )}
             {menuLayout && (
                 <div
                     className="drawing-workspace-layout-menu is-floating"
