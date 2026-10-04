@@ -1,9 +1,20 @@
+import { normalizeDimensionStyles, normalizeDimensionStyleValues } from './drawingDimensionStyles.js';
+import { createDimensionSourceMap } from './drawingDimensionSources.js';
+import { presentDrawingDimension } from './drawingDimensionPresentation.js';
+import { drawingAffineFrame, drawingRectTransform } from './drawingAffineFrame.js';
+import { affineMatrixToSvg } from './drawingAffine.js';
+import { hasImageAdjustments, imageAdjustmentFilterMarkup } from './drawingImageAdjustments.js';
+import { getImageClipPoints } from './drawingImageClip.js';
+import { isDrawingWipeout } from './drawingWipeout.js';
+import { isConstructionLine, constructionLineViewportSegment } from './drawingConstructionLines.js';
 import {
+    resolveDrawingBlockChild,
     collectDrawingBlockDependencies,
     createAnonymousDrawingBlock,
     createAnonymousDrawingBlockReference,
     getDrawingBlockReferenceBounds,
     multiplyAffineMatrices,
+    inverseAffineViewBox,
     rotationAffineMatrix,
     remapDrawingBlockDefinition,
     remapDrawingBlockEntity,
@@ -54,6 +65,7 @@ export const DRAWING_CLIPBOARD_LIMITS = Object.freeze({
 export function createDrawingClipboardPayload(source, selectedIds, {
     basePoint = null,
     sourceDocumentId = source?.id || null,
+    limits = DRAWING_CLIPBOARD_LIMITS,
 } = {}) {
     const content = source?.content || source;
     const assets = Array.isArray(source?.assets) ? source.assets : [];
@@ -71,6 +83,8 @@ export function createDrawingClipboardPayload(source, selectedIds, {
     const layerIds = collectPropertyValues(dependencyEntities, 'layerId');
     const assetIds = collectPropertyValues(dependencyEntities, 'assetId');
     const layers = (content.layers || []).filter(layer => layerIds.has(layer.id)).map(cloneJson);
+    const styleIds = collectPropertyValues(dependencyEntities, 'dimensionStyleId');
+    const dimensionStyles = normalizeDimensionStyles(content.dimensionStyles).filter(style => styleIds.has(style.id));
     const selectedAssets = assets.filter(asset => assetIds.has(asset.id)).map(cloneJson);
     const bounds = clipboardEntitiesBounds(entities, blocks);
     const resolvedBasePoint = normalizePoint(basePoint)
@@ -79,16 +93,18 @@ export function createDrawingClipboardPayload(source, selectedIds, {
         format: DRAWING_CLIPBOARD_FORMAT,
         version: DRAWING_CLIPBOARD_VERSION,
         unit: 'm',
+        attributeDisplay: content.settings?.attributeDisplay || 'normal',
         basePoint: resolvedBasePoint,
         originalBounds: bounds,
         selectionIds: requestedIds,
         entities,
         layers,
         assets: selectedAssets,
+        dimensionStyles,
         blocks,
         ...(typeof sourceDocumentId === 'string' && sourceDocumentId ? { sourceDocumentId } : {}),
     };
-    return validateDrawingClipboardPayload(payload);
+    return validateDrawingClipboardPayload(payload, limits);
 }
 
 export function validateDrawingClipboardPayload(candidate, limits = DRAWING_CLIPBOARD_LIMITS) {
@@ -99,6 +115,10 @@ export function validateDrawingClipboardPayload(candidate, limits = DRAWING_CLIP
     if (candidate.unit !== 'm') throw clipboardError('unsupported-unit');
     if (!normalizePoint(candidate.basePoint)) throw clipboardError('invalid-base-point');
 
+    const dimensionStyles = requireObjectArray(candidate.dimensionStyles ?? [], 'dimensionStyles', 128);
+    assertUniqueStringIds(dimensionStyles, 'dimension-style');
+    const validStyles = normalizeDimensionStyles(dimensionStyles);
+    if (dimensionStyles.some(style => !validStyles.some(valid => valid.id === style.id && valid.name === style.name?.trim()))) throw clipboardError('invalid-payload');
     const entities = requireObjectArray(candidate.entities, 'entities', limits.entities);
     const layers = requireObjectArray(candidate.layers, 'layers', limits.layers);
     const assets = requireObjectArray(candidate.assets, 'assets', limits.assets);
@@ -151,6 +171,7 @@ export function validateDrawingClipboardPayload(candidate, limits = DRAWING_CLIP
         basePoint: normalizePoint(candidate.basePoint),
         originalBounds: normalizeBounds(candidate.originalBounds),
         selectionIds,
+        dimensionStyles: dimensionStyles.map(style => ({ id: style.id, name: style.name.trim(), ...normalizeDimensionStyleValues(style) })),
         entities,
         layers,
         assets,
@@ -212,8 +233,9 @@ export function pasteDrawingClipboardPayload(target, payload, {
     mode = 'insert',
     insertionPoint = null,
     blockLayerId = null,
+    limits = DRAWING_CLIPBOARD_LIMITS,
 } = {}) {
-    const normalized = validateDrawingClipboardPayload(payload);
+    const normalized = validateDrawingClipboardPayload(payload, limits);
     const content = target?.content || target;
     const targetAssets = Array.isArray(target?.assets) ? target.assets : [];
     if (!content || !Array.isArray(content.entities) || !Array.isArray(content.layers)) throw clipboardError('invalid-target');
@@ -221,12 +243,15 @@ export function pasteDrawingClipboardPayload(target, payload, {
 
     const layerMerge = mergeClipboardLayers(content.layers, normalized.layers);
     const assetMerge = mergeClipboardAssets(targetAssets, normalized.assets);
-    const blockMerge = mergeClipboardBlocks(content.blocks || [], normalized.blocks, {
+    const styleMerge = mergeClipboardDimensionStyles(content.dimensionStyles, normalized.dimensionStyles);
+    const remapStyle = entity => remapClipboardDimensionStyle(entity, styleMerge.idMap);
+    const incomingBlocks = normalized.blocks.map(block => ({ ...block, entities: block.entities.map(remapStyle) }));
+    const blockMerge = mergeClipboardBlocks(content.blocks || [], incomingBlocks, {
         layerIdMap: layerMerge.idMap,
         assetIdMap: assetMerge.idMap,
     });
     const entityIdMap = new Map(normalized.entities.map(entity => [entity.id, createDrawingId(entity.type || 'entity')]));
-    const remappedEntities = normalized.entities.map(entity => remapDrawingBlockEntity(entity, {
+    const remappedEntities = normalized.entities.map(entity => remapDrawingBlockEntity(remapStyle(entity), {
         blockIdMap: blockMerge.idMap,
         entityIdMap,
         layerIdMap: layerMerge.idMap,
@@ -247,6 +272,7 @@ export function pasteDrawingClipboardPayload(target, payload, {
             content: {
                 ...content,
                 layers: layerMerge.layers,
+                dimensionStyles: styleMerge.styles,
                 blocks: [...blockMerge.blocks, definition],
                 entities: [...content.entities, reference],
             },
@@ -269,6 +295,7 @@ export function pasteDrawingClipboardPayload(target, payload, {
         content: {
             ...content,
             layers: layerMerge.layers,
+            dimensionStyles: styleMerge.styles,
             blocks: blockMerge.blocks,
             entities: [...content.entities, ...pasted],
         },
@@ -293,8 +320,12 @@ export function drawingClipboardPayloadToSvg(payload, serialized = null) {
     const blockMap = new Map(normalized.blocks.map(block => [block.id, block]));
     const layerMap = new Map(normalized.layers.map(layer => [layer.id, layer]));
     const assetMap = new Map(normalized.assets.map(asset => [asset.id, asset]));
-    const entityMap = new Map(normalized.entities.map(entity => [entity.id, entity]));
+    const entityMap = createDimensionSourceMap(normalized.entities, normalized.blocks, normalized);
+    const paintIds = { next: 0 };
     const body = normalized.entities.map(entity => entityToSvg(entity, {
+        viewBox: { x: bounds.minX, y: bounds.minY, width, height },
+        paintIds,
+        attributeDisplay: normalized.attributeDisplay || 'normal',
         assetMap,
         blockMap,
         entityMap,
@@ -392,6 +423,39 @@ function mergeClipboardAssets(existingAssets, incomingAssets) {
     return { assets, idMap };
 }
 
+function mergeClipboardDimensionStyles(existing, incoming) {
+    const styles = normalizeDimensionStyles(existing);
+    const idMap = new Map();
+    for (const style of incoming) {
+        const matching = styles.find(candidate => candidate.id === style.id
+            && candidate.name === style.name
+            && JSON.stringify(normalizeDimensionStyleValues(candidate)) === JSON.stringify(normalizeDimensionStyleValues(style)));
+        if (matching) { idMap.set(style.id, matching.id); continue; }
+        if (styles.length >= 128) throw clipboardError('invalid-payload');
+        const id = styles.some(candidate => candidate.id === style.id) ? createDrawingId('dimension-style') : style.id;
+        let name = style.name;
+        for (let suffix = 2; styles.some(candidate => candidate.name.toLowerCase() === name.toLowerCase()); suffix++) {
+            const ending = ` (${suffix})`;
+            name = `${style.name.slice(0, 128 - ending.length)}${ending}`;
+        }
+        styles.push({ ...style, id, name });
+        idMap.set(style.id, id);
+    }
+    return { styles, idMap };
+}
+
+function remapClipboardDimensionStyle(entity, idMap) {
+    const result = { ...entity };
+    if (entity.dimensionStyleId) {
+        // Old clipboard payloads may carry snapshots without a catalog. Do not
+        // accidentally bind those snapshots to an unrelated destination style.
+        if (idMap.has(entity.dimensionStyleId)) result.dimensionStyleId = idMap.get(entity.dimensionStyleId);
+        else delete result.dimensionStyleId;
+    }
+    if (Array.isArray(entity.parts)) result.parts = entity.parts.map(part => remapClipboardDimensionStyle(part, idMap));
+    return result;
+}
+
 function mergeClipboardBlocks(existingBlocks, incomingBlocks, mappings) {
     const blocks = existingBlocks.map(cloneJson);
     const idMap = new Map();
@@ -408,7 +472,14 @@ function mergeClipboardBlocks(existingBlocks, incomingBlocks, mappings) {
     incomingBlocks.forEach(block => {
         const id = idMap.get(block.id);
         if (blocks.some(candidate => candidate.id === id)) return;
-        blocks.push(remapDrawingBlockDefinition(block, { ...mappings, blockIdMap: idMap }));
+        const remapped = remapDrawingBlockDefinition(block, { ...mappings, blockIdMap: idMap });
+        if (!remapped.name.startsWith('*')) {
+            const names = new Set(blocks.map(candidate => candidate.name.toLowerCase()));
+            const baseName = remapped.name;
+            let suffix = 2;
+            while (names.has(remapped.name.toLowerCase())) remapped.name = `${baseName.slice(0, 110)} (${suffix++})`;
+        }
+        blocks.push(remapped);
     });
     return { blocks, idMap };
 }
@@ -905,6 +976,15 @@ function isIdentitySvgMatrix(matrix) {
 }
 
 function entityToSvg(entity, context) {
+    const frame = drawingAffineFrame(entity);
+    if (frame) {
+        const { affineFrame, ...local } = entity;
+        return `<g transform="${affineMatrixToSvg(frame)}">${entityToSvg(local, context)}</g>`;
+    }
+    if (isConstructionLine(entity)) {
+        const segment = constructionLineViewportSegment(entity, context.viewBox);
+        return segment ? entityToSvg({ ...entity, type: 'line', x1: segment.start.x, y1: segment.start.y, x2: segment.end.x, y2: segment.end.y }, context) : '';
+    }
     const appearance = entityAppearance(entity, context.layerMap.get(entity.layerId));
     const common = ` fill="none" stroke="${escapeXml(appearance.color)}" stroke-width="${appearance.lineWeight}" opacity="${appearance.opacity}"`;
     if (entity.type === 'line') return `<line x1="${entity.x1}" y1="${entity.y1}" x2="${entity.x2}" y2="${entity.y2}"${common}/>`;
@@ -933,13 +1013,40 @@ function entityToSvg(entity, context) {
     if (entity.type === 'path' && Array.isArray(entity.parts)) {
         return `<path d="${escapeXml(curvePathToSvgData(entity))}"${common}/>`;
     }
+    if (isDrawingWipeout(entity)) return `<polygon points="${svgPoints(entity.points)}" fill="#ffffff" stroke="${entity.wipeout.frame === false ? 'none' : escapeXml(appearance.color)}" stroke-width="${appearance.lineWeight}" opacity="${appearance.opacity}"/>`;
     if (entity.type === 'polyline') {
         if (Array.isArray(entity.parts)) return `<g>${entity.parts.map(part => entityToSvg({ ...part, layerId: entity.layerId }, context)).join('')}</g>`;
         const tag = entity.closed ? 'polygon' : 'polyline';
         return `<${tag} points="${svgPoints(entity.points || [])}"${common}/>`;
     }
-    if (entity.type === 'text') return `<text x="${entity.x}" y="${Number(entity.y) + (Number(entity.fontSize) || 0.35)}" fill="${escapeXml(appearance.color)}">${escapeXml(entity.text || '')}</text>`;
-    if (entity.type === 'hatch' || entity.type === 'block') {
+    if (entity.type === 'text') return `<text transform="${drawingRectTransform(entity) || ''}" font-size="${Number(entity.fontSize) || 0.35}" x="${entity.x}" y="${Number(entity.y) + (Number(entity.fontSize) || 0.35)}" fill="${escapeXml(appearance.color)}">${escapeXml(entity.text || '')}</text>`;
+    if (entity.type === 'region') {
+        const d = extractEntityPaths(entity).map(path => curvePathToSvgData(path)).join(' ');
+        return `<path d="${d}"${common} fill-rule="evenodd"/>`;
+    }
+    if (entity.type === 'hatch') {
+        const paths = extractEntityPaths(entity, { boundaryExtractor: candidate => candidate?.boundaries || candidate?.loops });
+        const d = paths.map(path => curvePathToSvgData(path)).join(' ');
+        const pattern = entity.pattern || {};
+        const name = pattern.name || 'solid';
+        const id = `clipboard-paint-${context.paintIds.next++}`;
+        const color = escapeXml(appearance.color);
+        const endColor = /^#[0-9a-f]{6}$/i.test(pattern.endColor || '') ? pattern.endColor : '#ffffff';
+        const angle = Number(pattern.angle) || 0;
+        let definition = '';
+        if (name === 'gradient' || name === 'radial') {
+            const tag = name === 'radial' ? 'radialGradient' : 'linearGradient';
+            const attributes = name === 'radial' ? '' : ` x1="0" y1="0.5" x2="1" y2="0.5" gradientTransform="rotate(${angle} 0.5 0.5)"`;
+            definition = `<${tag} id="${id}"${attributes}><stop offset="0%" stop-color="${color}"/><stop offset="100%" stop-color="${endColor}"/></${tag}>`;
+        } else if (name !== 'solid') {
+            const spacing = Math.max(0.02, Math.abs(Number(pattern.spacing) || Number(pattern.scale) || 0.25));
+            const x = Number(pattern.origin?.x) || 0; const y = Number(pattern.origin?.y) || 0;
+            const cross = name === 'cross' ? `<line x1="0" y1="0" x2="0" y2="${spacing}" stroke="${color}" stroke-width="${appearance.lineWeight}"/>` : '';
+            definition = `<pattern id="${id}" patternUnits="userSpaceOnUse" x="${x}" y="${y}" width="${spacing}" height="${spacing}" patternTransform="rotate(${angle} ${x} ${y})"><line x1="0" y1="0" x2="${spacing}" y2="0" stroke="${color}" stroke-width="${appearance.lineWeight}"/>${cross}</pattern>`;
+        }
+        return `${definition ? `<defs>${definition}</defs>` : ''}<path d="${escapeXml(d)}" fill="${name === 'solid' ? color : `url(#${id})`}" fill-rule="evenodd" stroke="${color}" stroke-width="${appearance.lineWeight}" opacity="${appearance.opacity}"/>`;
+    }
+    if (entity.type === 'block') {
         const paths = extractEntityPaths(entity, {
             boundaryExtractor: candidate => candidate?.boundaries || candidate?.loops,
         });
@@ -951,7 +1058,13 @@ function entityToSvg(entity, context) {
     if (entity.type === 'image') {
         const link = entity.link || context.assetMap.get(entity.assetId)?.link;
         if (typeof link === 'string') {
-            return `<image x="${entity.x}" y="${entity.y}" width="${entity.width}" height="${entity.height}" href="${escapeXml(link)}"/>`;
+            const id = `clipboard-image-${context.paintIds.next++}`;
+            const adjusted = hasImageAdjustments(entity.imageAdjustments);
+            const clip = getImageClipPoints(entity);
+            const defs = `<defs>${adjusted ? imageAdjustmentFilterMarkup(id, entity.imageAdjustments) : ''}${clip ? `<clipPath id="${id}-clip" clipPathUnits="userSpaceOnUse"><polygon points="${svgPoints(clip)}"/></clipPath>` : ''}</defs>`;
+            const rectTransform = drawingRectTransform(entity);
+            const transform = rectTransform ? ` transform="${rectTransform}"` : '';
+            return `${defs}<image x="${entity.x}" y="${entity.y}" width="${entity.width}" height="${entity.height}" href="${escapeXml(link)}" opacity="${(entity.opacity ?? 0.55) * appearance.opacity}" preserveAspectRatio="none"${transform}${adjusted ? ` filter="url(#${id})"` : ''}${clip ? ` clip-path="url(#${id}-clip)"` : ''}/>`;
         }
     }
     if (entity.type === 'blockReference') {
@@ -960,11 +1073,14 @@ function entityToSvg(entity, context) {
         if (!definition) return '';
         const next = {
             ...context,
-            entityMap: new Map(definition.entities.map(child => [child.id, child])),
+            entityMap: createDimensionSourceMap(definition.entities, context.blockMap, { layers: [...context.layerMap.values()] }),
             visited: new Set(context.visited).add(entity.blockId),
+            viewBox: inverseAffineViewBox(context.viewBox, entity.transform),
         };
         const matrix = entity.transform || { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
-        return `<g transform="matrix(${matrix.a} ${matrix.b} ${matrix.c} ${matrix.d} ${matrix.e} ${matrix.f})">${definition.entities.map(child => entityToSvg(child, next)).join('')}</g>`;
+        return `<g transform="matrix(${matrix.a} ${matrix.b} ${matrix.c} ${matrix.d} ${matrix.e} ${matrix.f})">${definition.entities.map(child => resolveDrawingBlockChild(child, entity, context.attributeDisplay))
+            .filter(child => child && context.layerMap.get(child.layerId)?.visible !== false)
+            .map(child => entityToSvg(child, next)).join('')}</g>`;
     }
     return '';
 }
@@ -1040,16 +1156,10 @@ function curveSweepValue(entity) {
 }
 
 function dimensionToSvg(entity, sources, common, color) {
-    const geometry = getDimensionGeometry(entity, sources);
-    if (!geometry) return '';
     const textSize = Math.max(0.01, Number(entity.textSize) || 0.35);
+    const geometry = presentDrawingDimension(getDimensionGeometry(entity, sources), entity, textSize);
+    if (!geometry) return '';
     const line = (first, second) => `<line x1="${first.x}" y1="${first.y}" x2="${second.x}" y2="${second.y}"${common}/>`;
-    const tick = (point, angle) => {
-        const tickAngle = angle + Math.PI / 4;
-        const dx = Math.cos(tickAngle) * textSize * 0.35;
-        const dy = Math.sin(tickAngle) * textSize * 0.35;
-        return line({ x: point.x - dx, y: point.y - dy }, { x: point.x + dx, y: point.y + dy });
-    };
     const arc = value => {
         const first = {
             x: value.center.x + Math.cos(value.startAngle) * value.radius,
@@ -1067,7 +1177,9 @@ function dimensionToSvg(entity, sources, common, color) {
     const strokes = [
         ...geometry.lines.map(value => line(value.start, value.end)),
         ...geometry.arcs.map(arc),
-        ...geometry.ticks.map(value => tick(value.point, value.angle - Math.PI / 2)),
+        ...geometry.markers.map(marker => marker.type === 'polygon'
+            ? `<polygon points="${svgPoints(marker.points)}"${common} style="fill:${escapeXml(color)}"/>`
+            : `<polyline points="${svgPoints(marker.points)}"${common}/>`),
     ].join('');
     if (!geometry.label || geometry.value === null) return `<g>${strokes}</g>`;
     const formatted = formatDrawingDimensionLabel(geometry, entity, 'en');
@@ -1095,7 +1207,7 @@ function readableSvgTextAngle(degrees) {
 }
 
 function clipboardEntitiesBounds(entities, blocks) {
-    const entityMap = new Map((entities || []).map(entity => [entity.id, entity]));
+    const entityMap = createDimensionSourceMap(entities || [], blocks);
     return (entities || []).reduce((combined, entity) => {
         const bounds = entity.type === 'blockReference'
             ? getDrawingBlockReferenceBounds(entity, blocks)
@@ -1112,7 +1224,7 @@ function clipboardEntityBounds(entity, entityMap = new Map()) {
     if (entity?.type === 'path' || (entity?.type === 'polyline' && Array.isArray(entity.parts))) {
         return (entity.parts || []).reduce((combined, part) => combineBounds(combined, clipboardEntityBounds(part, entityMap)), null);
     }
-    if (entity?.type === 'hatch' || entity?.type === 'block') {
+    if (['hatch', 'region', 'block'].includes(entity?.type)) {
         const paths = extractEntityPaths(entity, {
             boundaryExtractor: candidate => candidate?.boundaries || candidate?.loops,
         });

@@ -67,6 +67,10 @@ test('CAD aliases and numeric inputs are recognized', () => {
     assert.equal(parseDrawingCommand('RO').command, 'rotate');
     assert.equal(parseDrawingCommand('CP').command, 'copy');
     assert.equal(parseDrawingCommand('DDI').command, 'diameterDimension');
+    assert.equal(parseDrawingCommand('CENTERMARK').command, 'centerMark');
+    assert.equal(parseDrawingCommand('CENTERREASSOCIATE').command, 'centerReassociate');
+    assert.equal(parseDrawingCommand('CENTERDISASSOCIATE').command, 'centerDisassociate');
+    assert.equal(parseDrawingCommand('CENTERRESET').command, 'centerReset');
     assert.equal(parseDrawingCommand('SA').command, 'saveAs');
     assert.equal(parseDrawingCommand('mirror').command, 'mirror');
     assert.equal(parseDrawingCommand('J').command, 'join');
@@ -93,7 +97,7 @@ test('CAD aliases and numeric inputs are recognized', () => {
     assert.deepEqual(getDrawingCommandSuggestions('sav').map(item => item.name), ['SAVEAS']);
     assert.deepEqual(getDrawingCommandSuggestions('c').slice(0, 2).map(item => [item.name, item.alias]), [
         ['CIRCLE', 'C'],
-        ['CENTERMARK', 'CM'],
+        ['CENTERDISASSOCIATE', 'CENTERDISASSOCIATE'],
     ]);
     assert.equal(resolveDrawingAutocompleteSubmission('sca', getDrawingCommandSuggestions('sca')), 'SCALE');
     assert.equal(resolveDrawingAutocompleteSubmission('SC', getDrawingCommandSuggestions('SC')), 'SC');

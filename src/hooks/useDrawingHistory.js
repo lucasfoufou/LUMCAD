@@ -1,3 +1,6 @@
+import { applyCurrentStyleToNewDimensions } from '~utils/drawingDimensionStyles';
+import { refreshDrawingHatches } from '~utils/drawingHatches';
+import { refreshPathArrays } from '~utils/drawingPathArray';
 import { useCallback, useState } from 'react';
 
 const HISTORY_LIMIT = 100;
@@ -6,7 +9,7 @@ export default function useDrawingHistory(initialContent) {
     const documentMode = isDocumentHistoryState(initialContent);
     const [history, setHistory] = useState({ past: [], present: initialContent, future: [], coalesceKey: null });
 
-    const commitPresent = useCallback((nextOrUpdater, { coalesceKey = null } = {}) => {
+    const commitPresent = useCallback((nextOrUpdater, { coalesceKey = null, applyCreationStyles = true } = {}) => {
         setHistory(current => {
             const next = typeof nextOrUpdater === 'function'
                 ? nextOrUpdater(current.present)
@@ -16,7 +19,9 @@ export default function useDrawingHistory(initialContent) {
                 past: coalesceKey && current.coalesceKey === coalesceKey
                     ? current.past
                     : [...current.past, current.present].slice(-HISTORY_LIMIT),
-                present: next,
+                present: next.content
+                    ? { ...next, content: refreshDrawingHatches(refreshPathArrays((applyCreationStyles ? applyCurrentStyleToNewDimensions(next.content, current.present.content) : next.content), current.present.content), current.present.content) }
+                    : refreshDrawingHatches(refreshPathArrays((applyCreationStyles ? applyCurrentStyleToNewDimensions(next, current.present) : next), current.present), current.present),
                 future: [],
                 coalesceKey,
             };
@@ -89,7 +94,10 @@ export default function useDrawingHistory(initialContent) {
         });
     }, []);
 
+    const reset = useCallback(present => setHistory({ past: [], present, future: [], coalesceKey: null }), []);
+
     return {
+        reset,
         content: documentMode ? history.present.content : history.present,
         layouts: documentMode ? history.present.layouts : null,
         pageSetups: documentMode ? history.present.pageSetups || [] : null,

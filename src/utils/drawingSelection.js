@@ -1,3 +1,9 @@
+import { presentDrawingDimension, drawingDimensionTextPoints } from './drawingDimensionPresentation.js';
+import { drawingAffineFrame, unframeDrawingPoint, framedDrawingPoint } from './drawingAffineFrame.js';
+import { getClosedBoundarySegments } from './drawingPrimitives.js';
+import { getImageClipPoints } from './drawingImageClip.js';
+import { createDrawingWipeout, isDrawingWipeout } from './drawingWipeout.js';
+import { isConstructionLine, clipConstructionLine, constructionLineGeometry } from './drawingConstructionLines.js';
 import {
     arcEndPoint,
     arcMidpoint,
@@ -13,6 +19,7 @@ import {
     getRectEntityCorners,
     pointDistance,
     rotatePoint,
+    translateEntity,
 } from './drawingGeometry.js';
 import {
     getDrawingBlockReferenceBounds,
@@ -21,6 +28,7 @@ import {
 } from './drawingBlocks.js';
 import { getHatchBoundaryEntities } from './drawingAdvancedEntities.js';
 import { curvePointAt, normalizeCurvePrimitive } from './drawingCurveKernel.js';
+import { editSplineDefinitionPoint, editSplinePathControl, isDuplicateSplineJointGrip } from './drawingSplineEditing.js';
 import { DRAWING_QDIM_GRIP_IDS, isDrawingDimensionEntity } from './drawingDimensions.js';
 
 const EPSILON = 1e-9;
@@ -58,12 +66,25 @@ export function entityMatchesSelectionWindow(entity, selectionWindow, entityMap 
  * normalized corners so negatively drawn rectangles behave identically.
  */
 export function getEntityGrips(entity, source = null) {
+    if (drawingAffineFrame(entity)) {
+        const { affineFrame, ...local } = entity;
+        return getEntityGrips(local, source).map(grip => ({ ...grip, ...framedDrawingPoint(entity, grip) }));
+    }
+    if (entity?.type === 'region') {
+        const bounds = getEntityBounds(entity);
+        return bounds ? [{ id: 'region-origin', x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 }] : [];
+    }
     if (!entity) return [];
+    if (entity.splineDefinition) return entity.splineDefinition.points.map((point, index) => ({ id: `spline-point-${index}`, ...point }));
+    if (entity.type === 'polyline' && entity.array) {
+        const bounds = getEntityBounds(entity);
+        return bounds ? [{ id: 'array-origin', x: bounds.minX, y: bounds.minY }] : [];
+    }
     if (entity.type === 'blockReference') {
         const insertion = getDrawingBlockReferenceInsertionPoint(entity);
         return insertion ? [{ id: 'insertion', ...insertion }] : [];
     }
-    if (entity.type === 'line') {
+    if (entity.type === 'line' || isConstructionLine(entity)) {
         return [
             { id: 'start', x: entity.x1, y: entity.y1 },
             { id: 'end', x: entity.x2, y: entity.y2 },
@@ -79,24 +100,23 @@ export function getEntityGrips(entity, source = null) {
         const ellipse = normalizeCurvePrimitive(entity);
         if (ellipse?.type !== 'ellipse') return [];
         const grips = [{ id: 'center', x: ellipse.cx, y: ellipse.cy }];
-        if (ellipse.fullEllipse) {
-            grips.push({ id: 'radius-x', ...ellipseLocalPoint(ellipse, ellipse.rx, 0) });
-            grips.push({ id: 'radius-y', ...ellipseLocalPoint(ellipse, 0, ellipse.ry) });
-        } else {
+        grips.push({ id: 'radius-x', ...ellipseLocalPoint(ellipse, ellipse.rx, 0) });
+        grips.push({ id: 'radius-y', ...ellipseLocalPoint(ellipse, 0, ellipse.ry) });
+        if (!ellipse.fullEllipse) {
             grips.push({ id: 'start', ...curvePointAt(ellipse, 0) });
             grips.push({ id: 'end', ...curvePointAt(ellipse, 1) });
-            grips.push({ id: 'midpoint', ...curvePointAt(ellipse, 0.5) });
         }
         return grips;
     }
-    if (entity.type === 'hatch') {
+    if (['hatch', 'region'].includes(entity.type)) {
         return getHatchBoundaryEntities(entity).flatMap((boundary, boundaryIndex) => (
             getEntityGrips(boundary).map(grip => ({ ...grip, id: `boundary-${boundaryIndex}:${grip.id}` }))
         ));
     }
     if (entity.type === 'polyline') {
         if (Array.isArray(entity.parts)) return entity.parts.flatMap((part, partIndex) => (
-            getEntityGrips(part).map(grip => ({ ...grip, id: `part-${partIndex}:${grip.id}` }))
+            getEntityGrips(part).filter(grip => !isDuplicateSplineJointGrip(entity, partIndex, grip.id))
+                .map(grip => ({ ...grip, id: `part-${partIndex}:${grip.id}` }))
         ));
         return (entity.points || []).map((point, index) => ({ id: `vertex-${index}`, ...point }));
     }
@@ -136,6 +156,7 @@ export function getEntityGrips(entity, source = null) {
             { id: 'ordinate-feature', ...geometry.feature },
             { id: 'dimension-position', ...geometry.text },
         ];
+        if (geometry.kind === 'centerLine') return [{ id: 'center-line-extension', ...geometry.second }];
         if (geometry.kind === 'centerMark') return [
             { id: 'center-mark-size', x: geometry.center.x + geometry.size, y: geometry.center.y },
         ];
@@ -158,9 +179,34 @@ export function getEntityGrips(entity, source = null) {
  * including when the dragged corner crosses it and produces negative extents.
  */
 export function editEntityGrip(entity, gripId, point, source = null) {
+    const frame = drawingAffineFrame(entity);
+    if (frame && point) {
+        const { affineFrame, ...local } = entity;
+        return { ...editEntityGrip(local, gripId, unframeDrawingPoint(point, frame), source), affineFrame };
+    }
+    if (gripId.startsWith('spline-point-')) return editSplineDefinitionPoint(entity, Number(gripId.slice('spline-point-'.length)), point);
     if (!entity || !point) return entity;
+    if (isDrawingWipeout(entity)) {
+        if (!gripId.startsWith('vertex-')) return entity;
+        const index = Number(gripId.slice(7));
+        const candidate = createDrawingWipeout(entity.points.map((current, currentIndex) => currentIndex === index ? point : current), entity.layerId, entity.id, entity.wipeout.frame);
+        return candidate ? { ...entity, points: candidate.points } : entity;
+    }
+    if (entity.type === 'region') {
+        const origin = getEntityGrips(entity)[0];
+        return gripId === 'region-origin' && origin ? translateEntity(entity, point.x - origin.x, point.y - origin.y) : entity;
+    }
+    if (entity.type === 'polyline' && entity.array) {
+        const origin = getEntityGrips(entity)[0];
+        return gripId === 'array-origin' && origin ? translateEntity(entity, point.x - origin.x, point.y - origin.y) : entity;
+    }
     if (entity.type === 'blockReference') {
         return gripId === 'insertion' ? moveDrawingBlockReferenceInsertion(entity, point) : entity;
+    }
+    if (isConstructionLine(entity)) {
+        if (gripId === 'start') return translateEntity(entity, point.x - entity.x1, point.y - entity.y1);
+        const candidate = { ...entity, x2: point.x, y2: point.y };
+        return gripId === 'end' && constructionLineGeometry(candidate) ? candidate : entity;
     }
     if (entity.type === 'line') {
         if (gripId === 'start') return { ...entity, x1: point.x, y1: point.y };
@@ -184,15 +230,19 @@ export function editEntityGrip(entity, gripId, point, source = null) {
         if (ellipse?.type !== 'ellipse') return entity;
         if (gripId === 'center') return { ...entity, cx: point.x, cy: point.y };
         const local = ellipseWorldToLocal(ellipse, point);
-        if (gripId === 'radius-x' && Math.abs(local.x) > EPSILON) return { ...entity, rx: Math.abs(local.x) };
+        if (gripId === 'radius-x') {
+            const rx = Math.hypot(point.x - ellipse.cx, point.y - ellipse.cy);
+            return rx > EPSILON ? { ...entity, rx, rotation: Math.atan2(point.y - ellipse.cy, point.x - ellipse.cx) * 180 / Math.PI } : entity;
+        }
         if (gripId === 'radius-y' && Math.abs(local.y) > EPSILON) return { ...entity, ry: Math.abs(local.y) };
         if (gripId === 'start' || gripId === 'end') {
             const angle = Math.atan2(local.y / ellipse.ry, local.x / ellipse.rx);
-            return gripId === 'start' ? { ...entity, startAngle: angle } : { ...entity, endAngle: angle };
+            const candidate = gripId === 'start' ? { ...entity, startAngle: angle } : { ...entity, endAngle: angle };
+            return normalizeCurvePrimitive(candidate) ? candidate : entity;
         }
         return entity;
     }
-    if (entity.type === 'hatch' && gripId.startsWith('boundary-')) {
+    if (['hatch', 'region'].includes(entity.type) && gripId.startsWith('boundary-')) {
         const match = /^boundary-(\d+):(.+)$/.exec(gripId);
         const boundaryIndex = Number.parseInt(match?.[1], 10);
         const boundaries = getHatchBoundaryEntities(entity);
@@ -208,6 +258,9 @@ export function editEntityGrip(entity, gripId, point, source = null) {
         const match = /^part-(\d+):(.+)$/.exec(gripId);
         const partIndex = Number.parseInt(match?.[1], 10);
         if (!match || !Number.isInteger(partIndex) || !entity.parts[partIndex]) return entity;
+        const control = /^control-([0-3])$/.exec(match[2]);
+        const splineEdit = control ? editSplinePathControl(entity, partIndex, Number(control[1]), point) : null;
+        if (splineEdit) return splineEdit;
         return {
             ...entity,
             parts: entity.parts.map((part, index) => index === partIndex ? editEntityGrip(part, match[2], point) : part),
@@ -290,6 +343,11 @@ export function editEntityGrip(entity, gripId, point, source = null) {
     if (gripId === 'dimension-position' && entity.type === 'arcLengthDimension') {
         const geometry = getDimensionGeometry(entity, source);
         if (!geometry) return entity;
+        if (geometry.offsetNormal && geometry.offsetOrigin) {
+            const offset = (point.x - geometry.offsetOrigin.x) * geometry.offsetNormal.x + (point.y - geometry.offsetOrigin.y) * geometry.offsetNormal.y;
+            const candidate = { ...entity, offset };
+            return getDimensionGeometry(candidate, source) ? candidate : entity;
+        }
         const radius = pointDistance(geometry.center, point);
         const currentOffset = Number.isFinite(Number(entity.offset)) ? Number(entity.offset) : 0.6;
         const sourceRadius = geometry.radius - currentOffset;
@@ -299,6 +357,15 @@ export function editEntityGrip(entity, gripId, point, source = null) {
         if (gripId === 'ordinate-origin') return { ...entity, origin: { x: point.x, y: point.y } };
         if (gripId === 'ordinate-feature') return { ...entity, featurePoint: { x: point.x, y: point.y } };
         if (gripId === 'dimension-position') return { ...entity, leaderPoint: { x: point.x, y: point.y } };
+    }
+    if (gripId === 'center-line-extension' && entity.type === 'centerLine') {
+        const geometry = getDimensionGeometry(entity, source);
+        if (!geometry) return entity;
+        const dx = geometry.sourceSecond.x - geometry.sourceFirst.x;
+        const dy = geometry.sourceSecond.y - geometry.sourceFirst.y;
+        const length = Math.hypot(dx, dy);
+        const extension = ((point.x - geometry.sourceSecond.x) * dx + (point.y - geometry.sourceSecond.y) * dy) / length;
+        return Number.isFinite(extension) ? { ...entity, extension: Math.max(0, Math.min(1e6, extension)) } : entity;
     }
     if (gripId === 'center-mark-size' && entity.type === 'centerMark') {
         const geometry = getDimensionGeometry(entity, source);
@@ -340,6 +407,7 @@ export function constrainLineGripPoint(entity, gripId, point) {
 }
 
 function entityIsContainedByBounds(entity, bounds, entityMap) {
+    if (isConstructionLine(entity)) return false;
     if (entity.type === 'blockReference') {
         return boundsContainBounds(bounds, getDrawingBlockReferenceBounds(entity));
     }
@@ -347,7 +415,7 @@ function entityIsContainedByBounds(entity, bounds, entityMap) {
         return pointIsInBounds({ x: entity.x1, y: entity.y1 }, bounds)
             && pointIsInBounds({ x: entity.x2, y: entity.y2 }, bounds);
     }
-    if (['ellipse', 'spline', 'hatch'].includes(entity.type)) {
+    if (['ellipse', 'spline', 'hatch', 'region'].includes(entity.type)) {
         return boundsContainBounds(bounds, getEntityBounds(entity, entityMap));
     }
     if (entity.type === 'polyline') {
@@ -377,6 +445,12 @@ function entityIsContainedByBounds(entity, bounds, entityMap) {
 }
 
 function entityCrossesBounds(entity, bounds, entityMap) {
+    if (isDrawingWipeout(entity)) {
+        const segments = getEntitySegments(entity);
+        return segments.some(([a, b]) => segmentIntersectsBounds(a, b, bounds))
+            || boundsCorners(bounds).some(point => pointIsInsideHatch(point, [segments]));
+    }
+    if (isConstructionLine(entity)) return Boolean(clipConstructionLine(entity, bounds));
     if (entity.type === 'blockReference') {
         return boundsOverlap(getDrawingBlockReferenceBounds(entity), bounds);
     }
@@ -390,12 +464,12 @@ function entityCrossesBounds(entity, bounds, entityMap) {
     if (entity.type === 'ellipse' || entity.type === 'spline') {
         return getEntitySegments(entity).some(segment => segmentIntersectsBounds(segment[0], segment[1], bounds));
     }
-    if (entity.type === 'hatch') {
+    if (['hatch', 'region'].includes(entity.type)) {
         const boundaries = getHatchBoundaryEntities(entity);
-        if (boundaries.some(boundary => entityCrossesBounds(boundary, bounds, entityMap))) return true;
-        if (entity.pattern?.name !== 'solid') return false;
+        const segments = boundaries.map(getClosedBoundarySegments);
+        if (segments.some(loop => loop.some(segment => segmentIntersectsBounds(segment[0], segment[1], bounds)))) return true;
+        if (!['solid', 'gradient', 'radial'].includes(entity.pattern?.name || 'solid')) return false;
         const corners = boundsCorners(bounds);
-        const segments = boundaries.map(boundary => getEntitySegments(boundary));
         return corners.some(point => pointIsInsideHatch(point, segments));
     }
     if (entity.type === 'polyline') {
@@ -403,6 +477,11 @@ function entityCrossesBounds(entity, bounds, entityMap) {
         return getEntitySegments(entity).some(segment => segmentIntersectsBounds(segment[0], segment[1], bounds));
     }
     if (['rectangle', 'polygon', 'arc'].includes(entity.type)) return getEntitySegments(entity).some(segment => segmentIntersectsBounds(segment[0], segment[1], bounds));
+    if (entity.type === 'image' && getImageClipPoints(entity)) {
+        const segments = getEntitySegments(entity);
+        return segments.some(([a, b]) => segmentIntersectsBounds(a, b, bounds))
+            || boundsCorners(bounds).some(point => pointIsInsideHatch(point, [segments]));
+    }
     if (entity.type === 'image' || entity.type === 'text') return boundsOverlap(getEntityBounds(entity, entityMap), bounds);
     if (entity.type === 'circle') return isFiniteBoundedCircle(entity) && circleIntersectsBounds(entity, bounds);
     return dimensionSegments(entity, entityMap)
@@ -454,7 +533,9 @@ function segmentsIntersect(a, b, c, d) {
 }
 
 function pointIsOnSegment(point, first, second) {
-    return point.x >= Math.min(first.x, second.x) - EPSILON && point.x <= Math.max(first.x, second.x) + EPSILON
+    const cross = (second.x - first.x) * (point.y - first.y) - (second.y - first.y) * (point.x - first.x);
+    return Math.abs(cross) <= EPSILON * Math.max(1, Math.hypot(second.x - first.x, second.y - first.y))
+        && point.x >= Math.min(first.x, second.x) - EPSILON && point.x <= Math.max(first.x, second.x) + EPSILON
         && point.y >= Math.min(first.y, second.y) - EPSILON && point.y <= Math.max(first.y, second.y) + EPSILON;
 }
 
@@ -477,7 +558,7 @@ function circleIntersectsBounds(circle, bounds) {
 }
 
 function dimensionSegments(entity, sources) {
-    const geometry = getDimensionGeometry(entity, sources);
+    const geometry = presentDrawingDimension(getDimensionGeometry(entity, sources), entity, entity.textSize);
     if (!geometry) return [];
     const lines = geometry.lines.map(line => [line.start, line.end]);
     const arcs = geometry.arcs.flatMap(arc => {
@@ -494,7 +575,13 @@ function dimensionSegments(entity, sources) {
         });
         return points.slice(0, -1).map((point, index) => [point, points[index + 1]]);
     });
-    return [...lines, ...arcs];
+    const markers = geometry.markers.flatMap(marker => {
+        const points = marker.type === 'polygon' ? [...marker.points, marker.points[0]] : marker.points;
+        return points.slice(1).map((point, index) => [points[index], point]);
+    });
+    const text = drawingDimensionTextPoints(geometry, entity);
+    const textSegments = text.map((point, index) => [point, text[(index + 1) % text.length]]);
+    return [...lines, ...arcs, ...markers, ...textSegments];
 }
 
 function ellipseLocalPoint(ellipse, x, y) {

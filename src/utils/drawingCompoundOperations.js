@@ -1,6 +1,10 @@
+import { drawingAffineFrame } from './drawingAffineFrame.js';
+import { createPathArrayDraft } from './drawingPathArray.js';
+import { createPolarArrayDraft } from './drawingPolarArray.js';
 import { canEditEntity, createDrawingId } from './drawingDocument.js';
 import {
     getDimensionGeometry,
+    getEntityBounds,
     mirrorEntity,
     pointDistance,
     translateEntity,
@@ -11,7 +15,7 @@ import {
     getCurveStart,
     reversePath,
 } from './drawingCurveKernel.js';
-import { materializeDrawingBlockReference } from './drawingBlocks.js';
+import { materializeDrawingBlockReference, transformDrawingEntityAffine } from './drawingBlocks.js';
 import { getDrawingTextLayout } from './drawingText.js';
 import {
     formatDrawingDimensionLabel,
@@ -85,6 +89,7 @@ export function explodeDrawingEntities(content, entityIds, options = {}) {
     return explodeDrawingEntitiesWithAppearance(content, entityIds, {
         ...options,
         appearanceMode: 'parent',
+        preserveBlockAppearance: true,
     });
 }
 
@@ -128,7 +133,7 @@ function explodeDrawingEntitiesWithAppearance(content, entityIds, options) {
 
     const sourceIds = new Set(sources.map(entity => entity.id));
     const replacements = exploded.flatMap(({ source, replacements: raw }) => (
-        assignExplodedEntityIds(raw.map(part => applyExplodedAppearance(part, source, options.appearanceMode)))
+        assignExplodedEntityIds(raw.map(part => applyExplodedAppearance(part, source, options.preserveBlockAppearance && source.type === 'blockReference' ? 'parts' : options.appearanceMode)))
     ));
     const entities = content.entities.filter(entity => (
         !sourceIds.has(entity.id)
@@ -170,7 +175,7 @@ export function mirrorDrawingEntities(content, entityIds, axisFirst, axisSecond,
     const copies = originals.map(entity => {
         const mirrored = mirrorEntity(entity, axisFirst, axisSecond, { mirrorTextGlyphs });
         return {
-            ...remapDrawingEntityDependencies(mirrored, idMap),
+            ...remapDrawingEntityDependencies(mirrored, idMap, { preserveAppearance: true }),
             id: idMap.get(entity.id),
         };
     });
@@ -190,7 +195,7 @@ export function createMirrorPreviewEntities(content, entityIds, axisFirst, axisS
     return originals.map(entity => {
         const mirrored = mirrorEntity(entity, axisFirst, axisSecond, { mirrorTextGlyphs });
         return {
-            ...remapDrawingEntityDependencies(mirrored, idMap),
+            ...remapDrawingEntityDependencies(mirrored, idMap, { preserveAppearance: true }),
             id: idMap.get(entity.id),
             previewMode: 'mirror',
         };
@@ -222,6 +227,70 @@ export function createMirrorDraftEntities(content, operation, livePoint) {
     })];
 }
 
+export function beginRectangularArrayOperation(content, entityIds, defaults = {}) {
+    const sources = arrayOperationSources(content, entityIds);
+    const bounds = sources.map(entity => getEntityBounds(entity)).filter(bound => (
+        bound && Object.values(bound).every(Number.isFinite)
+    ));
+    if (!sources.length || bounds.length !== sources.length) return null;
+    const minX = Math.min(...bounds.map(bound => bound.minX));
+    const minY = Math.min(...bounds.map(bound => bound.minY));
+    const width = Math.max(...bounds.map(bound => bound.maxX)) - minX;
+    const height = Math.max(...bounds.map(bound => bound.maxY)) - minY;
+    const fallback = Math.max(width, height, 1);
+    const basePoint = { x: minX, y: minY };
+    return {
+        type: 'array',
+        stage: 'array-edit',
+        entityIds: sources.map(entity => entity.id),
+        basePoint,
+        sourceBasePoint: { ...basePoint },
+        horizontalPoint: { x: minX + Math.max((width || fallback) * 1.5, DEFAULT_JOIN_TOLERANCE * 10), y: minY },
+        verticalPoint: { x: minX, y: minY + Math.max((height || fallback) * 1.5, DEFAULT_JOIN_TOLERANCE * 10) },
+        columns: normalizeArrayQuantity(defaults.columns) || 2,
+        rows: normalizeArrayQuantity(defaults.rows) || 2,
+    };
+}
+
+export function beginRectangularArrayEdit(content, entityIds) {
+    if (entityIds?.length !== 1) return null;
+    const entity = content.entities.find(item => item.id === entityIds[0]);
+    if (!entity || !canEditEntity(content, entity) || entity.type !== 'polyline' || !entity.array) return null;
+    const { columns, rows, horizontal, vertical } = entity.array;
+    if (!normalizeArrayQuantity(columns) || !normalizeArrayQuantity(rows)
+        || ![horizontal?.x, horizontal?.y, vertical?.x, vertical?.y].every(Number.isFinite)
+        || !Array.isArray(entity.parts) || !entity.parts.length
+        || entity.parts.length % (columns * rows)) return null;
+    const seed = { ...entity, parts: entity.parts.slice(0, entity.parts.length / (columns * rows)) };
+    delete seed.array;
+    const bounds = getEntityBounds(seed);
+    if (!bounds || !Object.values(bounds).every(Number.isFinite)) return null;
+    const basePoint = { x: bounds.minX, y: bounds.minY };
+    return {
+        type: 'array', stage: 'array-edit', editingId: entity.id, entityIds: [entity.id],
+        seed, columns, rows, basePoint, sourceBasePoint: { ...basePoint },
+        horizontalPoint: translatePoint(basePoint, horizontal.x, horizontal.y),
+        verticalPoint: translatePoint(basePoint, vertical.x, vertical.y),
+    };
+}
+
+export function commitRectangularArrayOperation(content, operation) {
+    if (!operation.editingId) return createRectangularArray(content, operation.entityIds,
+        operation.basePoint, operation.horizontalPoint, operation.verticalPoint, operation.columns, operation.rows,
+        { sourceBasePoint: operation.sourceBasePoint });
+    const original = content.entities.find(entity => entity.id === operation.editingId);
+    if (!original || !canEditEntity(content, original)) return { changed: false, content };
+    const result = createRectangularArray({ ...content, entities: [operation.seed] }, [operation.seed.id],
+        operation.basePoint, operation.horizontalPoint, operation.verticalPoint, operation.columns, operation.rows,
+        { sourceBasePoint: operation.sourceBasePoint });
+    if (!result.changed) return { ...result, content };
+    const entity = { ...original, parts: result.entity.parts, array: result.entity.array };
+    return {
+        changed: true, entity, selectedIds: [original.id],
+        content: { ...content, entities: content.entities.map(item => item.id === original.id ? entity : item) },
+    };
+}
+
 export function createRectangularArray(content, entityIds, basePoint, horizontalPoint, verticalPoint, columns, rows, options = {}) {
     const sources = arrayOperationSources(content, entityIds);
     const normalizedColumns = normalizeArrayQuantity(columns);
@@ -231,8 +300,9 @@ export function createRectangularArray(content, entityIds, basePoint, horizontal
     }
     const horizontal = { x: horizontalPoint.x - basePoint.x, y: horizontalPoint.y - basePoint.y };
     const vertical = { x: verticalPoint.x - basePoint.x, y: verticalPoint.y - basePoint.y };
-    if ((normalizedColumns > 1 && Math.abs(horizontal.x) <= DEFAULT_JOIN_TOLERANCE)
-        || (normalizedRows > 1 && Math.abs(vertical.y) <= DEFAULT_JOIN_TOLERANCE)) {
+    if (![basePoint, horizontalPoint, verticalPoint].every(point => [point.x, point.y].every(Number.isFinite))
+        || (normalizedColumns > 1 && Math.hypot(horizontal.x, horizontal.y) <= DEFAULT_JOIN_TOLERANCE)
+        || (normalizedRows > 1 && Math.hypot(vertical.x, vertical.y) <= DEFAULT_JOIN_TOLERANCE)) {
         return { changed: false, content, selectedIds: entityIds || [], reason: 'invalid-spacing' };
     }
     const origin = arrayOrigin(basePoint, options.sourceBasePoint);
@@ -252,6 +322,8 @@ export function createRectangularArray(content, entityIds, basePoint, horizontal
 }
 
 export function createArrayDraftEntities(content, operation, livePoint) {
+    if (operation?.arrayKind === 'path') return createPathArrayDraft(content, operation);
+    if (operation?.arrayKind === 'polar') return createPolarArrayDraft(content, operation, livePoint);
     if (operation?.type !== 'array' || !operation.basePoint) return [];
     const basePoint = operation.basePoint;
     const horizontalPoint = operation.horizontalPoint || (operation.stage === 'array-horizontal' && livePoint
@@ -264,10 +336,10 @@ export function createArrayDraftEntities(content, operation, livePoint) {
     if (horizontalPoint) drafts.push(arrayGuide('array-horizontal-guide', content.activeLayerId, basePoint, horizontalPoint));
     if (verticalPoint) drafts.push(arrayGuide('array-vertical-guide', content.activeLayerId, basePoint, verticalPoint));
     if (!horizontalPoint) return drafts;
-    const sources = arrayOperationSources(content, operation.entityIds);
+    const sources = operation.editingId ? [operation.seed] : arrayOperationSources(content, operation.entityIds);
     if (!sources.length) return drafts;
-    const horizontal = { x: horizontalPoint.x - basePoint.x, y: 0 };
-    const vertical = verticalPoint ? { x: 0, y: verticalPoint.y - basePoint.y } : { x: 0, y: 0 };
+    const horizontal = { x: horizontalPoint.x - basePoint.x, y: horizontalPoint.y - basePoint.y };
+    const vertical = verticalPoint ? { x: verticalPoint.x - basePoint.x, y: verticalPoint.y - basePoint.y } : { x: 0, y: 0 };
     const columns = normalizeArrayQuantity(operation.columns || operation.defaultColumns) || 2;
     const rows = verticalPoint ? (normalizeArrayQuantity(operation.rows || operation.defaultRows) || 2) : 1;
     const origin = arrayOrigin(basePoint, operation.sourceBasePoint);
@@ -321,20 +393,22 @@ export function editArrayOperation(operation, handle, point) {
             verticalPoint: translatePoint(operation.verticalPoint, dx, dy),
         };
     }
-    if (handle === 'x-spacing' && Math.abs(point.x - geometry.base.x) > DEFAULT_JOIN_TOLERANCE) {
-        return { ...operation, horizontalPoint: { x: point.x, y: geometry.base.y } };
-    }
-    if (handle === 'y-spacing' && Math.abs(point.y - geometry.base.y) > DEFAULT_JOIN_TOLERANCE) {
-        return { ...operation, verticalPoint: { x: geometry.base.x, y: point.y } };
+    const vector = ['x-spacing', 'columns'].includes(handle) ? geometry.horizontal : geometry.vertical;
+    const lengthSquared = vector.x ** 2 + vector.y ** 2;
+    const projection = lengthSquared > DEFAULT_JOIN_TOLERANCE ** 2
+        ? ((point.x - geometry.base.x) * vector.x + (point.y - geometry.base.y) * vector.y) / lengthSquared : 0;
+    if (['x-spacing', 'y-spacing'].includes(handle) && Math.abs(projection) * Math.sqrt(lengthSquared) > DEFAULT_JOIN_TOLERANCE) {
+        const key = handle === 'x-spacing' ? 'horizontalPoint' : 'verticalPoint';
+        return { ...operation, [key]: translatePoint(geometry.base, vector.x * projection, vector.y * projection) };
     }
     if (handle === 'columns') {
-        if (Math.abs(geometry.horizontal.x) <= DEFAULT_JOIN_TOLERANCE) return operation;
-        const quantity = Math.round((point.x - geometry.base.x) / geometry.horizontal.x) + 1;
+        if (lengthSquared <= DEFAULT_JOIN_TOLERANCE ** 2) return operation;
+        const quantity = Math.round(projection) + 1;
         return { ...operation, columns: clampArrayQuantity(quantity) };
     }
     if (handle === 'rows') {
-        if (Math.abs(geometry.vertical.y) <= DEFAULT_JOIN_TOLERANCE) return operation;
-        const quantity = Math.round((point.y - geometry.base.y) / geometry.vertical.y) + 1;
+        if (lengthSquared <= DEFAULT_JOIN_TOLERANCE ** 2) return operation;
+        const quantity = Math.round(projection) + 1;
         return { ...operation, rows: clampArrayQuantity(quantity) };
     }
     return operation;
@@ -423,18 +497,24 @@ function explodeDrawingSource(source, content, options) {
     if (source.type === 'blockReference') {
         return materializeDrawingBlockReference(source, content.blocks || [], {
             recursive: Boolean(options.recursiveBlocks),
+            textStyles: content.textStyles,
             maxDepth: Math.max(1, Math.min(64, Number(options.maxBlockDepth) || 16)),
         });
     }
-    if (source.type === 'text') return explodeTextEntity(source);
+    if (source.type === 'text') {
+        const frame = drawingAffineFrame(source);
+        const { affineFrame, ...local } = source;
+        const parts = explodeTextEntity(local);
+        return frame ? parts.map(part => transformDrawingEntityAffine(part, frame)) : parts;
+    }
     if (isDrawingDimensionEntity(source)) {
         if (isDrawingQdimSeriesEntity(source)) return [detachDrawingQdimDimension(source)];
         return explodeDimensionEntity(source, new Map(content.entities.map(entity => [entity.id, entity])), options);
     }
-    if (!['path', 'polyline', 'rectangle', 'polygon', 'hatch', 'block'].includes(source.type)) return [];
+    if (!['path', 'polyline', 'rectangle', 'polygon', 'hatch', 'region', 'block'].includes(source.type)) return [];
     const paths = extractEntityPaths(source, {
         boundaryExtractor: entity => {
-            if (!['hatch', 'block'].includes(entity?.type)) return undefined;
+            if (!['hatch', 'region', 'block'].includes(entity?.type)) return undefined;
             return entity.boundaries || entity.loops;
         },
     });
@@ -470,6 +550,7 @@ function applyExplodedAppearance(part, parent, appearanceMode) {
         APPEARANCE_PROPERTIES.forEach(property => delete next[property]);
         return { ...next, ...parentAppearance };
     }
+    if (parent.type === 'blockReference') return next;
     APPEARANCE_PROPERTIES.forEach(property => {
         if (!Object.hasOwn(next, property) && Object.hasOwn(parentAppearance, property)) {
             next[property] = parentAppearance[property];
@@ -486,7 +567,7 @@ function assignExplodedEntityIds(parts) {
         }
     });
     return parts.map(part => ({
-        ...remapDrawingEntityDependencies(part, idMap),
+        ...remapDrawingEntityDependencies(part, idMap, { preserveAppearance: true }),
         id: idMap.get(part.id) || createDrawingId(part.type || 'entity'),
     }));
 }

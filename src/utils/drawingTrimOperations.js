@@ -714,7 +714,7 @@ function drawingBoundaryExtractionOptions(content, options) {
                 content.blocks || [],
                 { recursive: true, maxDepth: 8 },
             );
-            if (entity?.type !== 'hatch') return undefined;
+            if (!['hatch', 'region'].includes(entity?.type)) return undefined;
             if (Array.isArray(entity.boundaries)) return entity.boundaries;
             if (Array.isArray(entity.loops)) return entity.loops.map(loop => loop?.points || loop?.boundary || loop);
             if (Array.isArray(entity.boundaryIds)) return entity.boundaryIds.map(id => entityMap.get(id)).filter(Boolean);

@@ -1,3 +1,4 @@
+import { createDimensionSourceMap } from './drawingDimensionSources.js';
 import { canSelectEntity } from './drawingDocument.js';
 import { entityMatchesSelectionWindow } from './drawingSelection.js';
 
@@ -23,7 +24,7 @@ export function getTrimExtendPointMode(type, {
 }
 
 export function getInteractiveOperationPointMode(type, options = {}) {
-    if (['fillet', 'chamfer', 'blend'].includes(type)) return 'raw';
+    if (['fillet', 'chamfer', 'blend', 'hatch', 'boundary', 'region', 'drawOrder'].includes(type)) return 'raw';
     return getTrimExtendPointMode(type, options);
 }
 
@@ -34,7 +35,7 @@ export function getDrawingEntityRenderMode(entityId, hiddenIds, hitOnlyIds) {
 }
 
 export function isDimensionableDrawingEntity(entity) {
-    return ['line', 'rectangle', 'polygon', 'circle', 'arc'].includes(entity?.type);
+    return ['line', 'rectangle', 'polygon', 'circle', 'arc', 'ellipse'].includes(entity?.type);
 }
 
 export function isDimensionPointSnap(point) {
@@ -42,7 +43,7 @@ export function isDimensionPointSnap(point) {
 }
 
 export function drawingSelectionCandidates(content, selectionWindow) {
-    const entityMap = new Map(content.entities.map(entity => [entity.id, entity]));
+    const entityMap = createDimensionSourceMap(content.entities, content.blocks, content);
     return content.entities
         .filter(entity => canSelectEntity(content, entity) && entityMatchesSelectionWindow(entity, selectionWindow, entityMap))
         .map(entity => entity.id);

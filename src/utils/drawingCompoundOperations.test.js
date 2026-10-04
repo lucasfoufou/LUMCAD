@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 
 import { createDefaultDrawingContent } from './drawingDocument.js';
 import {
+    beginRectangularArrayOperation,
+    beginRectangularArrayEdit,
+    commitRectangularArrayOperation,
     createArrayDraftEntities,
     createMirrorDraftEntities,
     createRectangularArray,
@@ -14,7 +17,7 @@ import {
     xplodeDrawingEntities,
 } from './drawingCompoundOperations.js';
 import { createAnonymousDrawingBlock, createAnonymousDrawingBlockReference } from './drawingBlocks.js';
-import { mirrorEntity, translateEntity } from './drawingGeometry.js';
+import { mirrorEntity, rotateEntity, scaleEntity, translateEntity } from './drawingGeometry.js';
 
 test('mirror reflects geometry across the reference line and can copy or replace sources', () => {
     const axisFirst = { x: 0, y: 0 };
@@ -433,4 +436,116 @@ test('rectangular array stays a draft while all five controls remain editable', 
     );
     assert.equal(created.entity.parts[0].x1, 1);
     assert.equal(created.entity.parts.length, 10);
+});
+
+
+test('array starts with an editable preview fitted to the selected motif without changing content', () => {
+    const content = createDefaultDrawingContent();
+    content.entities = [{ id: 'line', type: 'line', layerId: 'geometry', x1: 10, y1: -2, x2: 14, y2: 0 }];
+    const before = structuredClone(content);
+    const operation = beginRectangularArrayOperation(content, ['line']);
+    assert.equal(operation.stage, 'array-edit');
+    assert.deepEqual(operation.basePoint, { x: 10, y: -2 });
+    assert.deepEqual(operation.horizontalPoint, { x: 16, y: -2 });
+    assert.deepEqual(operation.verticalPoint, { x: 10, y: 1 });
+    assert.equal(operation.columns, 2);
+    assert.equal(operation.rows, 2);
+    assert.ok(getArrayControlGeometry(operation));
+    const preview = createArrayDraftEntities(content, operation, null).find(entity => entity.id === 'array-preview');
+    assert.equal(preview.parts.length, 4);
+    assert.deepEqual(content, before);
+    const edited = editArrayOperation(operation, 'columns', { x: 22, y: -2 });
+    const result = createRectangularArray(content, edited.entityIds, edited.basePoint,
+        edited.horizontalPoint, edited.verticalPoint, edited.columns, edited.rows);
+    assert.equal(result.changed, true);
+    assert.equal(result.entity.parts.length, 6);
+});
+
+test('array defaults handle flat motifs, remembered counts and unsupported selections', () => {
+    const content = createDefaultDrawingContent();
+    content.entities = [{ id: 'line', type: 'line', layerId: 'geometry', x1: 0, y1: 0, x2: 4, y2: 0 }];
+    const operation = beginRectangularArrayOperation(content, ['line'], { columns: 5, rows: 3 });
+    assert.equal(operation.columns, 5);
+    assert.equal(operation.rows, 3);
+    assert.equal(operation.verticalPoint.y, 6);
+    assert.equal(beginRectangularArrayOperation(content, []), null);
+    content.entities[0].locked = true;
+    assert.equal(beginRectangularArrayOperation(content, ['line']), null);
+});
+
+
+test('array defaults keep very small motifs creatable and ignore invalid remembered quantities', () => {
+    const content = createDefaultDrawingContent();
+    content.entities = [{ id: 'line', type: 'line', layerId: 'geometry', x1: 0, y1: 0, x2: 1e-8, y2: 1e-8 }];
+    const operation = beginRectangularArrayOperation(content, ['line'], { columns: 101, rows: -1 });
+    assert.equal(operation.columns, 2);
+    assert.equal(operation.rows, 2);
+    const result = createRectangularArray(content, operation.entityIds, operation.basePoint,
+        operation.horizontalPoint, operation.verticalPoint, operation.columns, operation.rows);
+    assert.equal(result.changed, true);
+});
+
+
+test('editing an existing array preserves its identity, appearance and unrelated entities', () => {
+    const content = createDefaultDrawingContent();
+    content.entities = [{ id: 'line', type: 'line', layerId: 'geometry', x1: 0, y1: 0, x2: 2, y2: 1 }];
+    const created = commitRectangularArrayOperation(content, beginRectangularArrayOperation(content, ['line']));
+    const unrelated = { id: 'other', type: 'circle', layerId: 'geometry', cx: 30, cy: 20, r: 2 };
+    created.entity.color = '#ff0000';
+    created.content.entities.push(unrelated);
+    const before = structuredClone(created.content);
+    const operation = beginRectangularArrayEdit(created.content, created.selectedIds);
+    assert.ok(operation);
+    const preview = createArrayDraftEntities(created.content, operation, null).find(entity => entity.id === 'array-preview');
+    assert.deepEqual(preview.parts, created.entity.parts);
+    assert.deepEqual(created.content, before);
+    const edited = commitRectangularArrayOperation(created.content, { ...operation, columns: 3, rows: 4 });
+    assert.equal(edited.entity.id, created.entity.id);
+    assert.equal(edited.entity.color, '#ff0000');
+    assert.equal(edited.entity.parts.length, 12);
+    assert.equal(edited.content.entities[1], unrelated);
+    assert.deepEqual(created.content, before);
+    assert.equal(beginRectangularArrayEdit(edited.content, [unrelated.id]), null);
+    assert.equal(beginRectangularArrayEdit(edited.content, [unrelated.id, edited.entity.id]), null);
+});
+
+test('array parameters follow rotation, scale, mirror and translation before editing', () => {
+    const content = createDefaultDrawingContent();
+    content.entities = [{ id: 'line', type: 'line', layerId: 'geometry', x1: 1, y1: 2, x2: 4, y2: 3 }];
+    const created = commitRectangularArrayOperation(content, beginRectangularArrayOperation(content, ['line']));
+    const transforms = [
+        entity => rotateEntity(entity, 90, { x: 0, y: 0 }),
+        entity => scaleEntity(entity, { scaleX: 2, scaleY: 3, origin: { x: 0, y: 0 } }),
+        entity => mirrorEntity(entity, { x: 0, y: 0 }, { x: 2, y: 3 }),
+        entity => translateEntity(entity, 6, -4),
+    ];
+    for (const transform of transforms) {
+        const entity = transform(created.entity);
+        const transformed = { ...created.content, entities: [entity] };
+        const operation = beginRectangularArrayEdit(transformed, [entity.id]);
+        const rebuilt = commitRectangularArrayOperation(transformed, operation);
+        assert.equal(rebuilt.changed, true);
+        rebuilt.entity.parts.forEach((part, index) => {
+            for (const coordinate of ['x1', 'y1', 'x2', 'y2']) {
+                assert.ok(Math.abs(part[coordinate] - entity.parts[index][coordinate]) < 1e-8);
+            }
+        });
+        const vector = entity.array.horizontal;
+        const resized = editArrayOperation(operation, 'columns', {
+            x: operation.basePoint.x + vector.x * 3,
+            y: operation.basePoint.y + vector.y * 3,
+        });
+        assert.equal(resized.columns, 4);
+        assert.equal(commitRectangularArrayOperation(transformed, resized).entity.parts.length, 8);
+    }
+});
+
+test('malformed and locked arrays cannot enter associative editing', () => {
+    const content = createDefaultDrawingContent();
+    content.entities = [{ id: 'array', type: 'polyline', layerId: 'geometry', parts: [], array: {} }];
+    assert.equal(beginRectangularArrayEdit(content, ['array']), null);
+    content.entities = [{ id: 'line', type: 'line', layerId: 'geometry', x1: 0, y1: 0, x2: 4, y2: 2 }];
+    const created = commitRectangularArrayOperation(content, beginRectangularArrayOperation(content, ['line']));
+    created.entity.locked = true;
+    assert.equal(beginRectangularArrayEdit(created.content, created.selectedIds), null);
 });

@@ -1,3 +1,4 @@
+import { getEllipseAxisSegments, nearestEllipseAxis } from './drawingEllipseGeometry.js';
 import {
     DEFAULT_DRAWING_QDIM_BASELINE_SPACING,
     DRAWING_QDIM_GRIP_IDS,
@@ -388,7 +389,7 @@ export function createAngularDimensionResult(content, selectedIds, options = {})
 
 export function createArcLengthDimensionResult(content, selectedIds, options = {}) {
     const descriptors = selectedEntities(content, selectedIds)
-        .filter(entity => entity.type === 'arc')
+        .filter(entity => entity.type === 'arc' || (entity.type === 'ellipse' && !entity.fullEllipse))
         .map((source, index) => withCommonFormat({
             type: 'arcLengthDimension',
             sourceId: source.id,
@@ -550,10 +551,11 @@ function collectLinearDimensionCandidates(content, selectedIds, options) {
                 pointReference(source, { x: source.x2, y: source.y2 }, 1),
             ],
         }];
-        if (!['rectangle', 'polygon'].includes(source.type)) return [];
-        const segments = getEntitySegments(source);
+        if (!['rectangle', 'polygon', 'ellipse'].includes(source.type)) return [];
+        const segments = source.type === 'ellipse' ? getEllipseAxisSegments(source) : getEntitySegments(source);
         if (!segments.length) return [];
-        const requested = resolveSourceOption(options.edgeIndex, source, 0);
+        const requested = resolveSourceOption(options.edgeIndex, source, 0)
+            ?? (source.type === 'ellipse' ? nearestEllipseAxis(source, resolveSourceOption(options.placementPoint, source, 0)) : 0);
         const edgeIndex = Math.max(0, Math.min(segments.length - 1, Math.trunc(finiteOr(requested, 0))));
         return [{
             source,

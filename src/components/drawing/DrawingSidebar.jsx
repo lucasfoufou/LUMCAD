@@ -1,3 +1,9 @@
+import { createDimensionSourceMap } from '~utils/drawingDimensionSources';
+import { presentDrawingDimension } from '~utils/drawingDimensionPresentation';
+import { retainDimensionStyleOverrides } from '~utils/drawingDimensionStyles';
+import DrawingDimensionStylesPanel from '~components/drawing/DrawingDimensionStylesPanel';
+import DrawingBlockAttributeFields from '~components/drawing/DrawingBlockAttributeFields';
+import DrawingBlocksPanel from '~components/drawing/DrawingBlocksPanel';
 import React, { useEffect, useMemo, useState } from 'react';
 
 import { DrawingEntityAppearanceFields, DrawingLayerAppearanceFields } from '~components/drawing/DrawingAppearanceFields';
@@ -15,10 +21,11 @@ import {
 import {
     DEFAULT_DRAWING_QDIM_BASELINE_SPACING,
     isDrawingDimensionEntity,
+    getDimensionGeometry,
 } from '~utils/drawingDimensions';
 import { rebuildQdimSeriesResult } from '~utils/drawingDimensionCommands';
 
-export default function DrawingSidebar({ content, selectedIds, onCommit, panel, onPanelChange }) {
+export default function DrawingSidebar({ content, selectedIds, onCommit, panel, onPanelChange, blockSearch, onBlockSearch, onBlockDefine, onBlockInsert, onBlockEdit, onBlockImport, onBlockExport, onManageAttribute, onDefineAttribute, onDimensionStyleCommand }) {
     const { t } = useI18n();
     const [internalTab, setInternalTab] = useState('layers');
     const tab = panel || internalTab;
@@ -36,11 +43,15 @@ export default function DrawingSidebar({ content, selectedIds, onCommit, panel, 
                 <button type="button" className={tab === 'layers' ? 'is-active' : ''} onClick={() => setTab('layers')}>{t('sidebar.layers')}</button>
                 <button type="button" className={tab === 'selection' ? 'is-active' : ''} onClick={() => setTab('selection')}>{t('sidebar.selection')}</button>
                 <button type="button" className={tab === 'textStyles' ? 'is-active' : ''} onClick={() => setTab('textStyles')}>{t('sidebar.textStyles')}</button>
+                <button type="button" className={tab === 'dimensionStyles' ? 'is-active' : ''} onClick={() => setTab('dimensionStyles')}>{t('commands.dimensionStyle')}</button>
+                <button type="button" className={tab === 'blocks' ? 'is-active' : ''} onClick={() => setTab('blocks')}>{t('block.palette')}</button>
             </div>
             <div className="drawing-sidebar-content">
                 {tab === 'layers' && <LayersPanel content={content} onCommit={onCommit} t={t} />}
                 {tab === 'selection' && <SelectionPanel content={content} selectedIds={selectedIds} onCommit={onCommit} t={t} />}
                 {tab === 'textStyles' && <TextStylesPanel content={content} onCommit={onCommit} t={t} />}
+                {tab === 'dimensionStyles' && <DrawingDimensionStylesPanel content={content} selectedIds={selectedIds} onCommand={onDimensionStyleCommand} t={t} />}
+                {tab === 'blocks' && <DrawingBlocksPanel content={content} selectedIds={selectedIds} search={blockSearch} onSearch={onBlockSearch} onDefine={onBlockDefine} onInsert={onBlockInsert} onEdit={onBlockEdit} onImport={onBlockImport} onExport={onBlockExport} onManageAttribute={onManageAttribute} onDefineAttribute={onDefineAttribute} />}
             </div>
         </aside>
     );
@@ -234,6 +245,7 @@ function SelectionPanel({ content, selectedIds, onCommit, t }) {
                     {content.layers.map(layer => <option key={layer.id} value={layer.id}>{layer.name}</option>)}
                 </select>
             </label>
+            {single?.type === 'blockReference' && <DrawingBlockAttributeFields content={content} reference={single} disabled={selectionLocked} onCommit={onCommit} t={t} />}
             <DrawingEntityAppearanceFields
                 content={content}
                 disabled={selectionLocked}
@@ -243,9 +255,10 @@ function SelectionPanel({ content, selectedIds, onCommit, t }) {
             />
             {single && isDrawingDimensionEntity(single) && !qdimSeriesAnchor && (
                 <DrawingDimensionFields
+                    automaticBreakTruncated={Boolean(single.dimensionAutoBreak && presentDrawingDimension(getDimensionGeometry(single, createDimensionSourceMap(content.entities, content.blocks, content)), single)?.automaticBreakTruncated)}
                     dimension={single}
                     disabled={selectionLocked}
-                    onChange={nextDimension => setSelected(() => nextDimension)}
+                    onChange={(nextDimension, patch) => setSelected(() => retainDimensionStyleOverrides(nextDimension, patch))}
                     t={t}
                 />
             )}

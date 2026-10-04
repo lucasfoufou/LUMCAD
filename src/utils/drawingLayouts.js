@@ -253,7 +253,7 @@ export function duplicateDrawingLayout(layout, layouts = [], { name } = {}) {
         name: nextName,
         viewports: source.viewports.map(viewport => ({ ...viewport, id: createDrawingId('viewport') })),
         paperEntities: source.paperEntities.map(entity => ({
-            ...remapDrawingEntityDependencies(cloneSerializable(entity), paperEntityIds),
+            ...remapDrawingEntityDependencies(cloneSerializable(entity), paperEntityIds, { preserveAppearance: true }),
             id: paperEntityIds.get(entity.id) || createDrawingId(entity.type || 'paper-entity'),
         })),
     });

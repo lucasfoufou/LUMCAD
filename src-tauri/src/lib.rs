@@ -1,4 +1,5 @@
 mod clipboard;
+mod image_source;
 mod mcp;
 mod native_menu;
 mod printing;
@@ -17,6 +18,7 @@ pub fn run() {
         .manage(mcp::McpRuntimeState::default())
         .manage(storage::PendingOpen::default())
         .invoke_handler(tauri::generate_handler![
+            image_source::read_image_source,
             clipboard::write_drawing_clipboard,
             clipboard::read_drawing_clipboard,
             storage::read_lcad_document,
@@ -31,6 +33,7 @@ pub fn run() {
             settings::update_app_settings,
             printing::prepare_print_page,
             printing::publish_plot_file,
+            printing::write_attribute_export,
         ])
         .setup(|app| {
             let settings = settings::load(app.handle()).map_err(std::io::Error::other)?;

@@ -1,3 +1,11 @@
+import { createDimensionSourceMap } from '~utils/drawingDimensionSources';
+import { applyCurrentStyleToNewDimensions } from '~utils/drawingDimensionStyles';
+import { presentDrawingDimension } from '~utils/drawingDimensionPresentation';
+import { drawingRectTransform } from '~utils/drawingAffineFrame';
+import { hasImageAdjustments, imageAdjustmentTransfer, imageTransparencyKey } from '~utils/drawingImageAdjustments';
+import { getImageClipPoints } from '~utils/drawingImageClip';
+import { isDrawingWipeout } from '~utils/drawingWipeout';
+import { isConstructionLine, constructionLineViewportSegment } from '~utils/drawingConstructionLines';
 import React, { useId, useMemo } from 'react';
 
 import { useI18n } from '~i18n/I18nProvider';
@@ -15,7 +23,7 @@ import { getEntityGrips } from '~utils/drawingSelection';
 import { canEditEntity, getEntityAppearance } from '~utils/drawingDocument';
 import { DRAWING_QDIM_GRIP_IDS } from '~utils/drawingDimensions';
 import { getDrawingTextLayout } from '~utils/drawingText';
-import { affineMatrixToSvg, getDrawingBlockReferenceBounds } from '~utils/drawingBlocks';
+import { affineMatrixToSvg, getDrawingBlockReferenceBounds, inverseAffineViewBox, resolveDrawingBlockChild } from '~utils/drawingBlocks';
 import { getDrawingEntityRenderMode } from '~utils/drawingInteraction';
 
 export default function DrawingScene({
@@ -36,11 +44,11 @@ export default function DrawingScene({
     viewBox = null,
 }) {
     const { locale, t } = useI18n();
-    const draftList = useMemo(() => [...(draftEntity ? [draftEntity] : []), ...draftEntities], [draftEntities, draftEntity]);
+    const draftList = useMemo(() => applyCurrentStyleToNewDimensions({ ...content, entities: [...(draftEntity ? [draftEntity] : []), ...draftEntities] }, content).entities, [content, draftEntities, draftEntity]);
     const layerMap = useMemo(() => new Map(content.layers.map(layer => [layer.id, layer])), [content.layers]);
-    const entityMap = useMemo(() => new Map(content.entities.map(entity => [entity.id, entity])), [content.entities]);
+    const entityMap = useMemo(() => createDimensionSourceMap(content.entities, content.blocks, content), [content.entities, content.blocks, content.layers, content.textStyles]);
     const blockMap = useMemo(() => new Map((content.blocks || []).map(block => [block.id, block])), [content.blocks]);
-    const renderEntityMap = useMemo(() => new Map([...entityMap, ...draftList.map(entity => [entity.id, entity])]), [draftList, entityMap]);
+    const renderEntityMap = useMemo(() => createDimensionSourceMap([...new Map([...entityMap, ...draftList.map(entity => [entity.id, entity])]).values()], content.blocks, content), [draftList, entityMap, content.blocks, content.layers, content.textStyles]);
     const assetMap = useMemo(() => new Map(assets.map(asset => [asset.id, asset])), [assets]);
     const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
     const selectedQdimGripSeries = useMemo(() => {
@@ -79,7 +87,7 @@ export default function DrawingScene({
                     <DrawingEntity
                         key={entity.id}
                         entity={entity}
-                        sources={getDrawingEntityDependencyIds(entity).map(id => entityMap.get(id)).filter(Boolean)}
+                        sources={entityMap}
                         asset={entity.assetId ? assetMap.get(entity.assetId) : null}
                         appearance={getEntityAppearance(content, entity)}
                         selected={previewSelected ? previewSelected.has(entity.id) : selected.has(entity.id)}
@@ -103,6 +111,7 @@ export default function DrawingScene({
                         hiddenLayers={hiddenLayers}
                         visualHidden={visualHidden}
                         textStyles={content.textStyles}
+                        attributeDisplay={content.settings?.attributeDisplay}
                     />
                 );
             })}
@@ -110,7 +119,7 @@ export default function DrawingScene({
                 <DrawingEntity
                     key={entity.id || `draft-${index}`}
                     entity={entity}
-                    sources={getDrawingEntityDependencyIds(entity).map(id => renderEntityMap.get(id)).filter(Boolean)}
+                    sources={renderEntityMap}
                     asset={entity.assetId ? assetMap.get(entity.assetId) : null}
                     appearance={getEntityAppearance(content, entity)}
                     interactive={false}
@@ -127,6 +136,7 @@ export default function DrawingScene({
                     layerMap={layerMap}
                     hiddenLayers={hiddenLayers}
                     textStyles={content.textStyles}
+                    attributeDisplay={content.settings?.attributeDisplay}
                 />
             ))}
         </g>
@@ -159,6 +169,7 @@ function DrawingEntity({
     visitedBlockIds = new Set(),
     visualHidden = false,
     textStyles = [],
+    attributeDisplay = 'normal',
 }) {
     const isTrimPreview = draft && entity.previewMode === 'trim';
     const appearanceOpacity = draft ? 1 : transparencyToOpacity(appearance.transparency);
@@ -180,8 +191,12 @@ function DrawingEntity({
     };
 
     let shape = null;
-    if (entity.type === 'line') {
+    if (isConstructionLine(entity)) {
+        shape = <ConstructionLineGeometry entity={entity} viewBox={viewBox} shapeProps={shapeProps} />;
+    } else if (entity.type === 'line') {
         shape = <line x1={entity.x1} y1={entity.y1} x2={entity.x2} y2={entity.y2} {...shapeProps} />;
+    } else if (isDrawingWipeout(entity)) {
+        shape = <polygon points={polylinePoints(entity)} {...shapeProps} fill="#ffffff" stroke={entity.wipeout.frame === false ? 'none' : shapeProps.stroke} />;
     } else if (entity.type === 'polyline') {
         shape = <PolylineGeometry
             entity={entity}
@@ -204,16 +219,12 @@ function DrawingEntity({
         shape = <SplineGeometry entity={entity} shapeProps={shapeProps} />;
     } else if (entity.type === 'hatch') {
         shape = <HatchGeometry entity={entity} shapeProps={shapeProps} />;
+    } else if (entity.type === 'region') {
+        shape = <path d={hatchPath(entity)} {...shapeProps} fill="none" />;
     } else if (entity.type === 'image') {
         const rect = normalizedRect(entity);
         shape = asset?.link ? (
-            <image
-                href={asset.link}
-                {...rect}
-                opacity={(entity.opacity ?? 0.55) * appearanceOpacity}
-                preserveAspectRatio="none"
-                transform={rectTransform(entity)}
-            />
+            <ReferenceImage entity={entity} href={asset.link} rect={rect} opacity={(entity.opacity ?? 0.55) * appearanceOpacity} />
         ) : <rect {...rect} {...shapeProps} strokeDasharray="4 4" transform={rectTransform(entity)} />;
     } else if (entity.type === 'text') {
         const rect = normalizedRect(entity);
@@ -248,6 +259,7 @@ function DrawingEntity({
             circleGeometryCache={circleGeometryCache}
             visitedBlockIds={visitedBlockIds}
             textStyles={textStyles}
+            attributeDisplay={attributeDisplay}
         />;
     }
 
@@ -277,21 +289,25 @@ function BlockReferenceGeometry({
     circleGeometryCache,
     visitedBlockIds,
     textStyles,
+    attributeDisplay,
 }) {
     if (!block || visitedBlockIds.has(block.id)) return null;
-    const childMap = new Map(block.entities.map(entity => [entity.id, entity]));
+    const childMap = createDimensionSourceMap(block.entities, blockMap, { layers: [...layerMap.values()], textStyles });
+    const localViewBox = inverseAffineViewBox(viewBox, reference.transform);
     const nextVisited = new Set(visitedBlockIds);
     nextVisited.add(block.id);
     return (
         <g transform={affineMatrixToSvg(reference.transform)}>
-            {block.entities.map(entity => {
+            {block.entities.map(child => {
+                const entity = resolveDrawingBlockChild(child, reference, attributeDisplay);
+                if (!entity) return null;
                 const layer = layerMap.get(entity.layerId);
                 if (!layer?.visible || hiddenLayers.has(entity.layerId)) return null;
                 return (
                     <DrawingEntity
                         key={entity.id}
                         entity={entity}
-                        sources={getDrawingEntityDependencyIds(entity).map(id => childMap.get(id)).filter(Boolean)}
+                        sources={childMap}
                         asset={entity.assetId ? assetMap.get(entity.assetId) : null}
                         appearance={getEntityAppearance({ layers: [...layerMap.values()] }, entity)}
                         interactive={false}
@@ -300,7 +316,7 @@ function BlockReferenceGeometry({
                         gripSize={0}
                         locale={locale}
                         t={t}
-                        viewBox={viewBox}
+                        viewBox={localViewBox}
                         circleGeometryCache={circleGeometryCache}
                         block={entity.blockId ? blockMap.get(entity.blockId) : null}
                         blockMap={blockMap}
@@ -310,6 +326,7 @@ function BlockReferenceGeometry({
                         nested
                         visitedBlockIds={nextVisited}
                         textStyles={textStyles}
+                        attributeDisplay={attributeDisplay}
                     />
                 );
             })}
@@ -328,7 +345,9 @@ function GripHandles({ entity, sources, size, t }) {
 }
 
 function GripHandle({ entity, grip, size, t }) {
-    const label = gripName(grip.id, t);
+    const label = isConstructionLine(entity)
+        ? t(grip.id === 'start' ? 'grip.constructionOrigin' : 'grip.constructionDirection')
+        : gripName(grip.id, t);
     const shared = {
         'data-entity-id': entity.id,
         'data-grip-id': grip.id,
@@ -396,6 +415,7 @@ function normalizedRect(entity) {
 
 function gripName(id, t) {
     const directKey = ({
+        'array-origin': 'grip.arrayOrigin',
         start: 'grip.start',
         end: 'grip.end',
         'top-left': 'grip.topLeft',
@@ -416,14 +436,7 @@ function gripName(id, t) {
     return t('grip.point');
 }
 
-function rectTransform(entity) {
-    const rotation = Number(entity.rotation) || 0;
-    const mirrored = Boolean(entity.mirrored);
-    if (!rotation && !mirrored) return undefined;
-    const centerX = entity.x + entity.width / 2;
-    const centerY = entity.y + entity.height / 2;
-    return `translate(${centerX} ${centerY}) rotate(${rotation}) scale(1 ${mirrored ? -1 : 1}) translate(${-centerX} ${-centerY})`;
-}
+const rectTransform = drawingRectTransform;
 
 function RectangleGeometry({ entity, shapeProps }) {
     if (entity.cornerStyle === 'chamfer' || entity.cornerStyle === 'fillet') {
@@ -497,7 +510,7 @@ function DrawingTextShape({ entity, color, opacity, textStyles }) {
                 </clipPath>
             </defs>
             <text
-                clipPath={`url(#${clipId})`}
+                clipPath={layout.textMode === 'singleLine' ? undefined : `url(#${clipId})`}
                 x={layout.textX}
                 fill={color}
                 fontFamily={layout.baseStyle.cssFontFamily}
@@ -540,25 +553,28 @@ function HitShape({ entity, sources, viewBox, circleGeometryCache }) {
         fill: 'none',
         pointerEvents: 'stroke',
     };
+    if (isConstructionLine(entity)) return <ConstructionLineGeometry entity={entity} viewBox={viewBox} shapeProps={hitProps} />;
     if (entity.type === 'line') return <line x1={entity.x1} y1={entity.y1} x2={entity.x2} y2={entity.y2} {...hitProps} />;
+    if (isDrawingWipeout(entity)) return <polygon points={polylinePoints(entity)} {...hitProps} pointerEvents="all" />;
     if (entity.type === 'polyline') return <PolylineGeometry entity={entity} shapeProps={hitProps} viewBox={viewBox} circleGeometryCache={circleGeometryCache} />;
     if (entity.type === 'rectangle') return entity.cornerStyle === 'chamfer' || entity.cornerStyle === 'fillet'
         ? <path d={getRectangleOutlinePath(entity)} {...hitProps} transform={rectTransform(entity)} />
         : <rect {...normalizedRect(entity)} {...hitProps} transform={rectTransform(entity)} />;
+    if (entity.type === 'image' && getImageClipPoints(entity)) return <polygon points={getImageClipPoints(entity).map(point => `${point.x},${point.y}`).join(' ')} {...hitProps} transform={rectTransform(entity)} pointerEvents="all" />;
     if (entity.type === 'image' || entity.type === 'text') return <rect {...normalizedRect(entity)} {...hitProps} transform={rectTransform(entity)} pointerEvents="all" />;
     if (entity.type === 'circle') return circleViewportShape(entity, viewBox, hitProps, undefined, circleGeometryCache);
     if (entity.type === 'polygon') return <polygon points={polygonPoints(entity)} {...hitProps} />;
     if (entity.type === 'arc') return <path d={getArcPath(entity)} {...hitProps} />;
     if (entity.type === 'ellipse') return <EllipseGeometry entity={entity} shapeProps={hitProps} />;
     if (entity.type === 'spline') return <SplineGeometry entity={entity} shapeProps={hitProps} />;
-    if (entity.type === 'hatch') return <path d={hatchPath(entity)} {...hitProps} pointerEvents="all" />;
+    if (['hatch', 'region'].includes(entity.type)) return <path d={hatchPath(entity)} {...hitProps} fillRule="evenodd" pointerEvents="all" />;
     if (entity.type === 'blockReference') {
         const bounds = getDrawingBlockReferenceBounds(entity);
         return bounds ? <rect {...rectFromBounds(bounds)} {...hitProps} pointerEvents="all" /> : null;
     }
-    const geometry = getDimensionGeometry(entity, sources);
+    const geometry = presentDrawingDimension(getDimensionGeometry(entity, sources), entity, entity.textSize);
     if (!geometry) return null;
-    return <DimensionPrimitiveGeometry geometry={geometry} lineProps={hitProps} includeTicks={false} />;
+    return <DimensionPrimitiveGeometry geometry={geometry} lineProps={hitProps} />;
 }
 
 function SelectionShape({ entity, sources, preview = false, viewBox, circleGeometryCache }) {
@@ -571,25 +587,32 @@ function SelectionShape({ entity, sources, preview = false, viewBox, circleGeome
         opacity: preview ? 0.9 : undefined,
         pointerEvents: 'none',
     };
+    if (isConstructionLine(entity)) return <ConstructionLineGeometry entity={entity} viewBox={viewBox} shapeProps={props} />;
     if (entity.type === 'line') return <line x1={entity.x1} y1={entity.y1} x2={entity.x2} y2={entity.y2} {...props} />;
     if (entity.type === 'polyline') return <PolylineGeometry entity={entity} shapeProps={props} viewBox={viewBox} circleGeometryCache={circleGeometryCache} />;
     if (entity.type === 'rectangle') return entity.cornerStyle === 'chamfer' || entity.cornerStyle === 'fillet'
         ? <path d={getRectangleOutlinePath(entity)} {...props} transform={rectTransform(entity)} />
         : <rect {...normalizedRect(entity)} {...props} transform={rectTransform(entity)} />;
+    if (entity.type === 'image' && getImageClipPoints(entity)) return <polygon points={getImageClipPoints(entity).map(point => `${point.x},${point.y}`).join(' ')} {...props} transform={rectTransform(entity)} />;
     if (entity.type === 'image' || entity.type === 'text') return <rect {...normalizedRect(entity)} {...props} transform={rectTransform(entity)} />;
     if (entity.type === 'circle') return circleViewportShape(entity, viewBox, props, undefined, circleGeometryCache);
     if (entity.type === 'polygon') return <polygon points={polygonPoints(entity)} {...props} />;
     if (entity.type === 'arc') return <path d={getArcPath(entity)} {...props} />;
     if (entity.type === 'ellipse') return <EllipseGeometry entity={entity} shapeProps={props} />;
     if (entity.type === 'spline') return <SplineGeometry entity={entity} shapeProps={props} />;
-    if (entity.type === 'hatch') return <path d={hatchPath(entity)} {...props} />;
+    if (['hatch', 'region'].includes(entity.type)) return <path d={hatchPath(entity)} {...props} />;
     if (entity.type === 'blockReference') {
         const bounds = getDrawingBlockReferenceBounds(entity);
         return bounds ? <rect {...rectFromBounds(bounds)} {...props} /> : null;
     }
-    const geometry = getDimensionGeometry(entity, sources);
+    const geometry = presentDrawingDimension(getDimensionGeometry(entity, sources), entity, entity.textSize);
     if (!geometry) return null;
-    return <DimensionPrimitiveGeometry geometry={geometry} lineProps={props} includeTicks={false} />;
+    return <DimensionPrimitiveGeometry geometry={geometry} lineProps={props} />;
+}
+
+function ConstructionLineGeometry({ entity, viewBox, shapeProps }) {
+    const segment = constructionLineViewportSegment(entity, viewBox);
+    return segment ? <line x1={segment.start.x} y1={segment.start.y} x2={segment.end.x} y2={segment.end.y} {...shapeProps} /> : null;
 }
 
 function rectFromBounds(bounds) {
@@ -633,33 +656,79 @@ function HatchGeometry({ entity, shapeProps }) {
     const d = hatchPath(entity);
     if (!d) return null;
     const pattern = entity.pattern || {};
+    const gradient = ['gradient', 'radial'].includes(pattern.name);
     const solid = String(pattern.name || 'solid').toLowerCase() === 'solid';
     const spacing = Math.max(0.02, Math.abs(Number(pattern.spacing) || Number(pattern.scale) || 0.25));
     const fill = solid ? shapeProps.stroke : `url(#${patternId})`;
     return (
         <>
-            {!solid && (
+            {!solid && !gradient && (
                 <defs>
                     <pattern
                         id={patternId}
                         patternUnits="userSpaceOnUse"
                         width={spacing}
                         height={spacing}
-                        patternTransform={`rotate(${Number(pattern.angle) || 0})`}
+                        x={Number(pattern.origin?.x) || 0}
+                        y={Number(pattern.origin?.y) || 0}
+                        patternTransform={`rotate(${Number(pattern.angle) || 0} ${Number(pattern.origin?.x) || 0} ${Number(pattern.origin?.y) || 0})`}
                     >
                         <line x1="0" y1="0" x2={spacing} y2="0" stroke={shapeProps.stroke} strokeWidth={shapeProps.strokeWidth} vectorEffect="non-scaling-stroke" />
+                        {pattern.name === 'cross' && <line x1="0" y1="0" x2="0" y2={spacing} stroke={shapeProps.stroke} strokeWidth={shapeProps.strokeWidth} vectorEffect="non-scaling-stroke" />}
                     </pattern>
                 </defs>
             )}
+            {gradient && <defs>
+                {pattern.name === 'radial' ? <radialGradient id={patternId}>
+                    <stop offset="0%" stopColor={shapeProps.stroke} /><stop offset="100%" stopColor={pattern.endColor || '#ffffff'} />
+                </radialGradient> : <linearGradient id={patternId} x1="0" y1="0.5" x2="1" y2="0.5" gradientTransform={`rotate(${Number(pattern.angle) || 0} 0.5 0.5)`}>
+                    <stop offset="0%" stopColor={shapeProps.stroke} /><stop offset="100%" stopColor={pattern.endColor || '#ffffff'} />
+                </linearGradient>}
+            </defs>}
             <path
                 d={d}
                 {...shapeProps}
                 fill={fill}
                 fillRule="evenodd"
-                fillOpacity={solid ? 0.22 : 0.72}
+                fillOpacity={1}
             />
         </>
     );
+}
+
+function ReferenceImage({ entity, href, rect, opacity }) {
+    const id = `image-adjust-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
+    const settings = imageAdjustmentTransfer(entity.imageAdjustments);
+    const adjusted = hasImageAdjustments(settings);
+    const key = imageTransparencyKey(settings);
+    const clip = getImageClipPoints(entity);
+    return <>
+        {clip && <defs><clipPath id={`${id}-clip`} clipPathUnits="userSpaceOnUse"><polygon points={clip.map(point => `${point.x},${point.y}`).join(' ')} /></clipPath></defs>}
+        {adjusted && <defs><filter id={id} colorInterpolationFilters="sRGB">
+            {key && <>
+                <feComponentTransfer in="SourceGraphic">
+                    <feFuncR type="discrete" tableValues={key.tables[0]} />
+                    <feFuncG type="discrete" tableValues={key.tables[1]} />
+                    <feFuncB type="discrete" tableValues={key.tables[2]} />
+                    <feFuncA type="linear" slope="0" intercept="1" />
+                </feComponentTransfer>
+                <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 0 -2" />
+                <feComponentTransfer result="keyMask"><feFuncA type="table" tableValues="1 0" /></feComponentTransfer>
+                <feComposite in="SourceGraphic" in2="keyMask" operator="in" />
+            </>}
+            <feComponentTransfer>
+                <feFuncR type="linear" slope={settings.slope} intercept={settings.intercept} />
+                <feFuncG type="linear" slope={settings.slope} intercept={settings.intercept} />
+                <feFuncB type="linear" slope={settings.slope} intercept={settings.intercept} />
+            </feComponentTransfer>
+            {settings.monochrome && <feColorMatrix type="saturate" values="0" />}
+        </filter></defs>}
+        <image href={href} {...rect} opacity={opacity} preserveAspectRatio="none" transform={rectTransform(entity)}
+            clipPath={clip ? `url(#${id}-clip)` : undefined}
+            filter={adjusted ? `url(#${id})` : undefined}
+            data-image-key={settings.transparentColor} data-image-key-tolerance={settings.colorTolerance}
+            data-image-brightness={settings.brightness} data-image-contrast={settings.contrast} data-image-monochrome={settings.monochrome ? 'true' : 'false'} />
+    </>;
 }
 
 function hatchPath(entity) {
@@ -767,7 +836,7 @@ function angularSweep(entity) {
 }
 
 function DimensionShape({ entity, sources, appearance, opacity, textSize, locale }) {
-    const geometry = getDimensionGeometry(entity, sources);
+    const geometry = presentDrawingDimension(getDimensionGeometry(entity, sources), entity, textSize);
     if (!geometry) return null;
     const color = appearance.color;
     const lineProps = {
@@ -782,7 +851,7 @@ function DimensionShape({ entity, sources, appearance, opacity, textSize, locale
     const labelLines = formatted.lines;
     return (
         <g className="drawing-dimension" opacity={opacity}>
-            <DimensionPrimitiveGeometry geometry={geometry} lineProps={lineProps} tickSize={textSize * 0.7} />
+            <DimensionPrimitiveGeometry geometry={geometry} lineProps={lineProps} />
             {geometry.label && labelLines.length > 0 && (
                 <DimensionText
                     point={geometry.label.point}
@@ -798,7 +867,7 @@ function DimensionShape({ entity, sources, appearance, opacity, textSize, locale
     );
 }
 
-function DimensionPrimitiveGeometry({ geometry, lineProps, includeTicks = true, tickSize = 0.2 }) {
+function DimensionPrimitiveGeometry({ geometry, lineProps, includeTicks = true }) {
     return (
         <>
             {(geometry.lines || []).map((line, index) => (
@@ -826,28 +895,14 @@ function DimensionPrimitiveGeometry({ geometry, lineProps, includeTicks = true, 
                     {...lineProps}
                 />
             ))}
-            {includeTicks && (geometry.ticks || []).map((tick, index) => (
-                <DimensionTick
-                    key={`tick-${index}`}
-                    point={tick.point}
-                    angle={tick.angle}
-                    lineProps={lineProps}
-                    size={tickSize}
-                />
-            ))}
-        </>
-    );
-}
+            {includeTicks && geometry.markers?.map((marker, index) => {
+                const points = marker.points.map(point => `${point.x},${point.y}`).join(' ');
+                return marker.type === 'polygon'
+                    ? <polygon key={`marker-${index}`} points={points} {...lineProps} fill={lineProps.stroke} />
+                    : <polyline key={`marker-${index}`} points={points} {...lineProps} />;
+            })}
 
-function DimensionTick({ point, angle, lineProps, size }) {
-    const tickAngle = angle + Math.PI / 4;
-    const dx = Math.cos(tickAngle) * size / 2;
-    const dy = Math.sin(tickAngle) * size / 2;
-    return (
-        <line
-            x1={point.x - dx} y1={point.y - dy} x2={point.x + dx} y2={point.y + dy}
-            {...lineProps}
-        />
+        </>
     );
 }
 

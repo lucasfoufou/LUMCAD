@@ -162,7 +162,7 @@ export function createAlignPreviewEntities(content, entityIds, pairs, options = 
     if (!result.changed) return [];
     const idMap = new Map(result.entities.map(entity => [entity.id, `align-preview-${entity.id}`]));
     return result.entities.map(entity => ({
-        ...remapDrawingEntityDependencies(entity, idMap),
+        ...remapDrawingEntityDependencies(entity, idMap, { preserveAppearance: true }),
         id: idMap.get(entity.id),
         previewMode: 'align',
     }));

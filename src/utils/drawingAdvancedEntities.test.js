@@ -235,7 +235,7 @@ test('ellipse and spline base, nearest, and intersection snaps use exact curve m
     const ellipseCandidates = baseSnapCandidates(fullEllipse, {
         endpoint: true, midpoint: true, center: true,
     });
-    assert.deepEqual(ellipseCandidates.map(candidate => candidate.type), ['midpoint', 'center']);
+    assert.deepEqual(ellipseCandidates.map(candidate => candidate.type), ['center']);
     const nearestEllipse = nearestSnapCandidate({ x: 0.1, y: 2.2 }, fullEllipse);
     assert.equal(nearestEllipse.type, 'nearest');
     assert.ok(closestPointOnCurve(fullEllipse, nearestEllipse).distance < EPSILON);

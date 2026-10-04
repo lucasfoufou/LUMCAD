@@ -816,6 +816,254 @@ mod tests {
     }
 
     #[test]
+    fn preserves_elliptical_axis_dimension_associations() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("ellipse-dimensions.lcad");
+        let mut envelope = valid_envelope("Ellipse dimensions");
+        let entities = json!([
+            { "id": "ellipse", "type": "ellipse", "layerId": "geometry", "cx": 0, "cy": 0,
+              "rx": 4, "ry": 2, "rotation": 30, "fullEllipse": true },
+            { "id": "dimension", "type": "linearDimension", "layerId": "dimensions",
+              "sourceId": "ellipse", "edgeIndex": 1, "measurementMode": "aligned", "offset": 0.6 },
+            { "id": "series", "type": "linearDimension", "layerId": "dimensions",
+              "sourcePointReferences": [
+                  { "sourceId": "ellipse", "sourceType": "ellipse", "edgeIndex": 0, "endpointIndex": 0 },
+                  { "sourceId": "ellipse", "sourceType": "ellipse", "edgeIndex": 0, "endpointIndex": 1 }
+              ] }
+        ]);
+        envelope["document"]["content"]["entities"] = entities.clone();
+        atomic_write(&path, &envelope).unwrap();
+        let loaded = read_envelope(&path).unwrap();
+        assert_eq!(loaded["document"]["content"]["entities"], entities);
+    }
+
+    #[test]
+    fn preserves_construction_lines_and_rays() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("construction.lcad");
+        let mut envelope = valid_envelope("Construction");
+        let entities = json!([
+            { "id": "xline-1", "type": "xline", "layerId": "geometry", "x1": 0, "y1": 0, "x2": 1, "y2": 2 },
+            { "id": "ray-1", "type": "ray", "layerId": "geometry", "x1": 4, "y1": 5, "x2": 3, "y2": 6 }
+        ]);
+        envelope["document"]["content"]["entities"] = entities.clone();
+        atomic_write(&path, &envelope).unwrap();
+        let loaded = read_envelope(&path).unwrap();
+        assert_eq!(loaded["document"]["content"]["entities"], entities);
+    }
+
+    #[test]
+    fn preserves_dimension_styles_and_detached_sources() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("dimensions.lcad");
+        let mut envelope = valid_envelope("Dimensions");
+        let styles = json!([{"id":"plans", "name":"Plans", "textSize":0.5, "arrowType":"closed"}]);
+        let entities = json!([{"id":"radius", "type":"radialDimension", "layerId":"dimensions",
+            "dimensionStyleId":"plans", "textSize":0.7, "dimensionStyleOverrides":{"textSize":0.7}, "dimensionTextOverride":"Value: <>", "dimensionTextPosition":{"x":12,"y":8}, "dimensionTextAngle":0.5, "dimensionExtensionAngle":0.8, "dimensionAutoBreak":{"gap":0.3,"sourceIds":["crossing"]}, "dimensionBreaks":[{"kind":"line","index":0,"start":0.2,"end":0.4}],
+            "detachedSource":{"type":"circle", "cx":2, "cy":3, "r":4}},
+            {"id":"centreline", "type":"centerLine", "layerId":"dimensions", "p1":{"x":0,"y":2}, "p2":{"x":10,"y":2}, "extension":0.25, "alternateBisector":false}]);
+        envelope["document"]["content"]["dimensionStyles"] = styles.clone();
+        envelope["document"]["content"]["activeDimensionStyleId"] = json!("plans");
+        envelope["document"]["content"]["entities"] = entities.clone();
+        atomic_write(&path, &envelope).unwrap();
+        let loaded = read_envelope(&path).unwrap();
+        assert_eq!(loaded["document"]["content"]["dimensionStyles"], styles);
+        assert_eq!(loaded["document"]["content"]["activeDimensionStyleId"], "plans");
+        assert_eq!(loaded["document"]["content"]["entities"], entities);
+    }
+
+    #[test]
+    fn preserves_block_attribute_definitions_and_values() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("attributes.lcad");
+        let mut envelope = valid_envelope("Attributes");
+        let blocks = json!([{"id": "door", "name": "Door", "entities": [
+            {"id": "code", "type": "text", "text": "D-01", "layerId": "geometry", "x": 0, "y": 0, "width": 4, "height": 1,
+                "attributeDefinition": {"tag": "CODE", "prompt": "Door number", "constant": false, "invisible": true}}
+        ]}]);
+        let entities = json!([{"id": "instance", "type": "blockReference", "blockId": "door", "layerId": "geometry",
+            "transform": {"a": 1, "b": 0, "c": 0, "d": 1, "e": 0, "f": 0}, "attributeValues": {"CODE": "D-02"}}]);
+        envelope["document"]["content"]["blocks"] = blocks.clone();
+        envelope["document"]["content"]["entities"] = entities.clone();
+        atomic_write(&path, &envelope).unwrap();
+        let loaded = read_envelope(&path).unwrap();
+        assert_eq!(loaded["document"]["content"]["blocks"], blocks);
+        assert_eq!(loaded["document"]["content"]["entities"], entities);
+    }
+
+    #[test]
+    fn preserves_image_and_text_affine_frames() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("affine-frames.lcad");
+        let mut envelope = valid_envelope("Affine frames");
+        let entities = json!([
+            {"id": "image", "type": "image", "layerId": "geometry", "x": 1, "y": 2, "width": 4, "height": 3,
+                "affineFrame": {"a": 2, "b": 0.5, "c": 0.75, "d": 1, "e": 10, "f": -3}},
+            {"id": "text", "type": "text", "layerId": "geometry", "text": "Affine", "x": 1, "y": 2, "width": 4, "height": 3,
+                "affineFrame": {"a": 2, "b": 0.5, "c": 0.75, "d": 1, "e": 10, "f": -3}}
+        ]);
+        envelope["document"]["content"]["entities"] = entities.clone();
+        atomic_write(&path, &envelope).unwrap();
+        assert_eq!(read_envelope(&path).unwrap()["document"]["content"]["entities"], entities);
+    }
+
+    #[test]
+    fn preserves_block_library_metadata_and_base_point() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("library.lcad");
+        let mut envelope = valid_envelope("Library");
+        let metadata = json!({"basePoint": {"x": 12, "y": -3},
+            "blockLibrary": {"version": 1, "entryBlockIds": ["symbol"]}});
+        envelope["document"]["content"]["metadata"] = metadata.clone();
+        envelope["document"]["content"]["blocks"] = json!([{"id": "symbol", "name": "Symbol", "entities": []}]);
+        atomic_write(&path, &envelope).unwrap();
+        assert_eq!(read_envelope(&path).unwrap()["document"]["content"]["metadata"], metadata);
+    }
+
+    #[test]
+    fn preserves_wipeout_and_painter_order() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("wipeout.lcad");
+        let mut envelope = valid_envelope("Wipeout");
+        let entities = json!([
+            {"id": "line", "type": "line", "layerId": "geometry", "x1": 0, "y1": 2, "x2": 8, "y2": 2},
+            {"id": "mask", "type": "polyline", "layerId": "geometry", "closed": true, "wipeout": {"frame": false},
+             "points": [{"x": 1, "y": 1}, {"x": 4, "y": 1}, {"x": 4, "y": 4}, {"x": 1, "y": 4}]}
+        ]);
+        envelope["document"]["content"]["entities"] = entities.clone();
+        atomic_write(&path, &envelope).unwrap();
+        assert_eq!(read_envelope(&path).unwrap()["document"]["content"]["entities"], entities);
+    }
+
+    #[test]
+    fn preserves_nondestructive_image_adjustments() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("image-adjustments.lcad");
+        let mut envelope = valid_envelope("Image adjustments");
+        let entities = json!([{
+            "id": "image", "type": "image", "layerId": "references", "x": 0, "y": 0, "width": 4, "height": 3,
+            "imageSource": {"mode": "linked", "path": "/missing/reference.png"},
+            "imageAdjustments": {"brightness": 130, "contrast": 80, "monochrome": true, "transparentColor": "#ffffff", "colorTolerance": 3},
+            "imageClip": {"enabled": true, "points": [{"x": 0.1, "y": 0.2}, {"x": 0.9, "y": 0.2}, {"x": 0.1, "y": 0.8}]}
+        }]);
+        envelope["document"]["content"]["entities"] = entities.clone();
+        atomic_write(&path, &envelope).unwrap();
+        assert_eq!(read_envelope(&path).unwrap()["document"]["content"]["entities"], entities);
+    }
+
+    #[test]
+    fn preserves_native_region_loops() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("region.lcad");
+        let mut envelope = valid_envelope("Region");
+        let entities = json!([{
+            "id": "region", "type": "region", "layerId": "geometry",
+            "boundaries": [
+                {"type": "polyline", "closed": true, "parts": [{"type": "circle", "cx": 0, "cy": 0, "r": 5}]},
+                {"type": "polyline", "closed": true, "parts": [{"type": "circle", "cx": 0, "cy": 0, "r": 1}]}
+            ]
+        }]);
+        envelope["document"]["content"]["entities"] = entities.clone();
+        atomic_write(&path, &envelope).unwrap();
+        assert_eq!(read_envelope(&path).unwrap()["document"]["content"]["entities"], entities);
+    }
+
+    #[test]
+    fn preserves_associative_hatch_pattern_and_boundaries() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("hatch.lcad");
+        let mut envelope = valid_envelope("Hatch");
+        let entities = json!([
+            {"id": "circle", "type": "circle", "layerId": "geometry", "cx": 3, "cy": 4, "r": 2},
+            {"id": "hatch", "type": "hatch", "layerId": "geometry", "sourceIds": ["circle"],
+                "boundaries": [{"type": "polyline", "closed": true, "parts": [{"type": "circle", "cx": 3, "cy": 4, "r": 2}]}],
+                "pattern": {"name": "gradient", "endColor": "#112233", "angle": 30, "spacing": 0.25, "origin": {"x": 1, "y": 2}}}
+        ]);
+        envelope["document"]["content"]["entities"] = entities.clone();
+        atomic_write(&path, &envelope).unwrap();
+        let loaded = read_envelope(&path).unwrap();
+        assert_eq!(loaded["document"]["content"]["entities"], entities);
+    }
+
+    #[test]
+    fn preserves_editable_spline_definition() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("spline.lcad");
+        let mut envelope = valid_envelope("Spline");
+        let entities = json!([{
+            "id": "spline-1", "type": "spline", "degree": 3, "layerId": "geometry",
+            "controlPoints": [{"x": 0, "y": 0}, {"x": 1, "y": 0}, {"x": 2, "y": 0}, {"x": 3, "y": 0}],
+            "splineDefinition": { "mode": "fit", "points": [{"x": 0, "y": 0}, {"x": 3, "y": 0}], "knots": [0, 1], "startTangent": {"x": 3, "y": 0} }
+        }]);
+        envelope["document"]["content"]["entities"] = entities.clone();
+        atomic_write(&path, &envelope).unwrap();
+        let loaded = read_envelope(&path).unwrap();
+        assert_eq!(loaded["document"]["content"]["entities"], entities);
+    }
+
+    #[test]
+    fn preserves_rectangular_array_parameters_and_ordered_parts() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("array.lcad");
+        let mut envelope = valid_envelope("Array");
+        let entity = json!({
+            "id": "array-1", "type": "polyline", "layerId": "geometry",
+            "array": { "columns": 2, "rows": 1,
+                "horizontal": { "x": 0, "y": 3 }, "vertical": { "x": -2, "y": 0 } },
+            "parts": [
+                { "type": "line", "x1": 0, "y1": 0, "x2": 1, "y2": 1 },
+                { "type": "line", "x1": 0, "y1": 3, "x2": 1, "y2": 4 }
+            ]
+        });
+        envelope["document"]["content"]["entities"] = json!([entity.clone()]);
+        atomic_write(&path, &envelope).unwrap();
+        let loaded = read_envelope(&path).unwrap();
+        assert_eq!(loaded["document"]["content"]["entities"][0], entity);
+    }
+
+    #[test]
+    fn preserves_polar_array_seed_and_affine_frame() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("polar.lcad");
+        let mut envelope = valid_envelope("Polar");
+        let entity = json!({
+            "id": "polar-1", "type": "polyline", "layerId": "geometry",
+            "array": { "kind": "polar", "count": 4, "angle": 360, "rotateItems": true,
+                "center": { "x": 0, "y": 0 }, "basePoint": { "x": 2, "y": 0 },
+                "seedParts": [{ "type": "line", "x1": 2, "y1": 0, "x2": 3, "y2": 0 }],
+                "transform": { "a": 2, "b": 0, "c": 0, "d": 3, "e": 5, "f": -1 } },
+            "parts": [{ "type": "line", "x1": 9, "y1": -1, "x2": 11, "y2": -1 }]
+        });
+        envelope["document"]["content"]["entities"] = json!([entity.clone()]);
+        atomic_write(&path, &envelope).unwrap();
+        let loaded = read_envelope(&path).unwrap();
+        assert_eq!(loaded["document"]["content"]["entities"][0], entity);
+    }
+
+    #[test]
+    fn preserves_path_array_association_and_spacing() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("path-array.lcad");
+        let mut envelope = valid_envelope("Path array");
+        let source = json!({ "id": "path-1", "type": "line", "layerId": "geometry",
+            "x1": 0, "y1": 0, "x2": 5, "y2": 0 });
+        let entity = json!({ "id": "array-1", "type": "polyline", "layerId": "geometry", "sourceId": "path-1",
+            "array": { "kind": "path", "count": 2, "mode": "measure", "spacing": 3, "offset": 1,
+                "align": true, "reverse": false, "basePoint": { "x": 0, "y": 0 },
+                "path": { "type": "path", "closed": false, "parts": [source.clone()] },
+                "seedParts": [{ "type": "line", "x1": 0, "y1": 0, "x2": 1, "y2": 0 }],
+                "transform": { "a": 1, "b": 0, "c": 0, "d": 1, "e": 0, "f": 0 } },
+            "parts": [
+                { "type": "line", "x1": 1, "y1": 0, "x2": 2, "y2": 0 },
+                { "type": "line", "x1": 4, "y1": 0, "x2": 5, "y2": 0 }
+            ] });
+        envelope["document"]["content"]["entities"] = json!([source.clone(), entity.clone()]);
+        atomic_write(&path, &envelope).unwrap();
+        let loaded = read_envelope(&path).unwrap();
+        assert_eq!(loaded["document"]["content"]["entities"], json!([source, entity]));
+    }
+
+    #[test]
     fn rejects_non_zip_lcad_data() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("invalid.lcad");

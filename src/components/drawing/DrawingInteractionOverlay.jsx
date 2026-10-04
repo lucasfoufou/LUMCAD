@@ -1,6 +1,8 @@
+import { pathArrayControlGeometry } from '~utils/drawingPathArray';
 import React, { useRef } from 'react';
 
 import { useI18n } from '~i18n/I18nProvider';
+import { polarArrayControlGeometry } from '~utils/drawingPolarArray';
 import { getArrayControlGeometry } from '~utils/drawingCompoundOperations';
 
 export default function DrawingInteractionOverlay({
@@ -185,7 +187,7 @@ export function DrawingReferenceControls({ operation, currentPoint, markerSize }
 
 function ArrayControls({ operation, markerSize, onChange, t }) {
     const activeHandleRef = useRef(null);
-    const geometry = getArrayControlGeometry(operation);
+    const geometry = getArrayControlGeometry(operation) || polarArrayControlGeometry(operation) || pathArrayControlGeometry(operation);
     if (!geometry) return null;
     const handleEvents = handle => ({
         onPointerDown: event => {
@@ -209,6 +211,20 @@ function ArrayControls({ operation, markerSize, onChange, t }) {
         onPointerCancel: () => { activeHandleRef.current = null; },
     });
     const size = markerSize * 0.72;
+    if (operation.arrayKind === 'path') return (
+        <g className="drawing-array-controls">
+            <ArraySquareHandle point={geometry.start} size={size} label={t('arrayControls.offset')} events={handleEvents('offset')} />
+            {geometry.spacing && <ArrayCircleHandle point={geometry.spacing} size={size} label={t('arrayControls.spacing')} events={handleEvents('spacing')} />}
+        </g>
+    );
+    if (operation.arrayKind === 'polar') return (
+        <g className="drawing-array-controls">
+            <line className="drawing-array-control-guide" x1={geometry.center.x} y1={geometry.center.y} x2={geometry.base.x} y2={geometry.base.y} />
+            <line className="drawing-array-control-guide" x1={geometry.center.x} y1={geometry.center.y} x2={geometry.end.x} y2={geometry.end.y} />
+            <ArraySquareHandle point={geometry.center} size={size} label={t('arrayControls.center')} events={handleEvents('center')} />
+            <ArrayCircleHandle point={geometry.end} size={size} label={t('arrayControls.angle')} events={handleEvents('angle')} />
+        </g>
+    );
     const xQuantityVisual = { x: geometry.xQuantity.x, y: geometry.xQuantity.y - markerSize * 1.25 };
     const yQuantityVisual = { x: geometry.yQuantity.x + markerSize * 1.25, y: geometry.yQuantity.y };
     return (

@@ -1,3 +1,4 @@
+import { isConstructionLine, constructionLineGeometry, closestPointOnConstructionLine } from './drawingConstructionLines.js';
 import { getEntitySegments, pointDistance } from './drawingPrimitives.js';
 import { arcContainsAngle, arcMidpoint, arcStartPoint, arcEndPoint, pointAngle } from './drawingCurves.js';
 import { getHatchBoundaryEntities } from './drawingAdvancedEntities.js';
@@ -11,7 +12,13 @@ import {
 const EPSILON = 1e-9;
 
 export function baseSnapCandidates(entity, snaps) {
-    if (entity.type === 'hatch') {
+    if (isConstructionLine(entity)) {
+        const geometry = constructionLineGeometry(entity);
+        if (!geometry || entity.type !== 'ray' || !snaps.endpoint) return [];
+        const angle = Math.atan2(geometry.direction.y, geometry.direction.x);
+        return [{ ...geometry.origin, type: 'endpoint', entityId: entity.id, guideAngles: [angle], trackingDirections: lineTrackingDirections(angle) }];
+    }
+    if (['hatch', 'region'].includes(entity.type)) {
         return getHatchBoundaryEntities(entity).flatMap(boundary => baseSnapCandidates(boundary, snaps)
             .map(candidate => ({ ...candidate, entityId: entity.id })));
     }
@@ -40,7 +47,10 @@ export function baseSnapCandidates(entity, snaps) {
             appendCurvePoint(0, 'endpoint');
             appendCurvePoint(1, 'endpoint');
         }
-        if (snaps.midpoint) appendCurvePoint(0.5, 'midpoint');
+        if (snaps.midpoint && (curve.type !== 'ellipse' || !curve.fullEllipse)) appendCurvePoint(0.5, 'midpoint');
+        if (snaps.quadrant && curve.type === 'ellipse' && curve.fullEllipse) {
+            [0, 0.25, 0.5, 0.75].forEach(parameter => appendCurvePoint(parameter, 'quadrant'));
+        }
         if (snaps.center && curve.type === 'ellipse') {
             candidates.push({ x: curve.cx, y: curve.cy, type: 'center', entityId: entity.id });
         }
@@ -107,7 +117,13 @@ export function baseSnapCandidates(entity, snaps) {
 }
 
 export function nearestSnapCandidate(point, entity) {
-    if (entity.type === 'hatch') {
+    if (isConstructionLine(entity)) {
+        const closest = closestPointOnConstructionLine(entity, point);
+        if (!closest) return null;
+        const angle = Math.atan2(entity.y2 - entity.y1, entity.x2 - entity.x1);
+        return { ...closest.point, distance: closest.distance, type: 'nearest', entityId: entity.id, guideAngles: [angle], trackingDirections: lineTrackingDirections(angle) };
+    }
+    if (['hatch', 'region'].includes(entity.type)) {
         return getHatchBoundaryEntities(entity).reduce((best, boundary) => {
             const candidate = nearestSnapCandidate(point, boundary);
             if (!candidate) return best;

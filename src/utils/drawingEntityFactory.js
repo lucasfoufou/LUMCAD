@@ -1,3 +1,4 @@
+import { constructionLineGeometry, isConstructionLine } from './drawingConstructionLines.js';
 import { createDrawingId } from './drawingDocument.js';
 import {
     buildArcCreationEntity,
@@ -26,6 +27,10 @@ const DIMENSION_TOOL_TYPES = Object.freeze({
 export function buildDrawingEntity(tool, first, current, layerId, forcedId = null, { defaultText = 'Text', options = {} } = {}) {
     if (!first || !current) return null;
     const id = forcedId || createDrawingId(tool);
+    if (isConstructionLine({ type: tool })) {
+        const entity = { id, type: tool, layerId, x1: first.x, y1: first.y, x2: current.x, y2: current.y };
+        return constructionLineGeometry(entity) ? entity : null;
+    }
     if (tool === 'line') return { id, type: 'line', layerId, x1: first.x, y1: first.y, x2: current.x, y2: current.y };
     if (tool === 'rectangle') return buildRectangleCreationEntity(first, current, layerId, options, id);
     if (tool === 'text') {

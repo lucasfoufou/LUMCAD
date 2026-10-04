@@ -8,6 +8,21 @@ import {
 } from './drawingOperations.js';
 
 const optionDefinitions = {
+    pathArray: [
+        option('path', 'PATH', 'P', 'operationOptions.array.path'),
+        option('base', 'BASE', 'B', 'operationOptions.array.base'),
+        option('count', 'COUNT', 'N', 'operationOptions.array.count'),
+        option('spacing', 'SPACING', 'S', 'operationOptions.array.spacing'),
+        option('offset', 'OFFSET', 'O', 'operationOptions.array.offset'),
+        option('alignItems', 'ALIGNITEMS', 'AI', 'operationOptions.array.alignItems'),
+        option('reverse', 'REVERSE', 'R', 'operationOptions.array.reverse'),
+    ],
+    polarArray: [
+        option('center', 'CENTER', 'CE', 'operationOptions.array.center'),
+        option('count', 'COUNT', 'N', 'operationOptions.array.count'),
+        option('angle', 'ANGLE', 'A', 'operationOptions.array.angle'),
+        option('rotateItems', 'ROTATEITEMS', 'RI', 'operationOptions.array.rotateItems'),
+    ],
     array: [
         option('base', 'BASE', 'B', 'operationOptions.array.base'),
         option('xSpacing', 'XSPACING', 'DX', 'operationOptions.array.xSpacing', ['X', 'PASX', 'SPACINGX']),
@@ -148,7 +163,7 @@ export function getOperationOrthogonalOrigin(operation, arrayHandle = null) {
         return operation.stage === 'base' ? null : operation.basePoint;
     }
     if (operation.type === 'mirror') return operation.stage === 'base' ? null : operation.basePoint;
-    if (['move', 'copy', 'rotate', 'scale', 'stretch'].includes(operation.type)) {
+    if (['move', 'copy', 'rotate', 'scale', 'stretch', 'dimensionTextPlacement', 'dimensionBreak', 'dimensionSpacing'].includes(operation.type)) {
         return operation.stage === 'base' ? null : operation.basePoint;
     }
     return null;
@@ -261,7 +276,7 @@ export function reopenBasicDrawingOperationOption(operation, parsedOption, t = c
 
 function definitionsFor(operation) {
     if (!operation || operation.stage === 'select') return [];
-    const definitions = optionDefinitions[operation.type] || [];
+    const definitions = optionDefinitions[operation.arrayKind === 'path' ? 'pathArray' : operation.arrayKind === 'polar' ? 'polarArray' : operation.type] || [];
     if (operation.type === 'array') {
         return operation.stage === 'array-edit' || operation.stage.startsWith('array-option-') ? definitions : [];
     }

@@ -98,6 +98,22 @@ struct ValidationSummary {
 }
 
 #[tauri::command]
+pub fn write_attribute_export(path: String, text: String, format: String) -> Result<(), String> {
+    let target = validate_publish_path(&path)
+        .map_err(|error| publish_error(error.code, raw_error_path(&path), error.detail))?;
+    if !target.is_absolute() || !["csv", "json"].contains(&format.as_str())
+        || target.extension().and_then(|value| value.to_str()).map(|value| value.to_ascii_lowercase()) != Some(format.clone())
+        || text.is_empty() || text.len() > 64 * 1024 * 1024 {
+        return Err("attributeExtractionFormat".into());
+    }
+    if format == "json" && serde_json::from_str::<serde_json::Value>(&text).is_err() {
+        return Err("attributeExtractionFormat".into());
+    }
+    atomic_write_plot_file(&target, text.as_bytes())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn publish_plot_file(
     path: String,
     bytes: Vec<u8>,
@@ -927,6 +943,22 @@ mod tests {
         assert_eq!(serialized["bytesWritten"], second_pdf.len());
         assert!(serialized.get("publishedAt").is_some());
         assert!(serialized.get("pageCount").is_none());
+    }
+
+    #[test]
+    fn attribute_exports_validate_before_atomic_replacement() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("attributes.json");
+        let name = path.to_string_lossy().into_owned();
+        fs::write(&path, b"original").unwrap();
+        assert!(write_attribute_export(name.clone(), "invalid".into(), "json".into()).is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"original");
+        assert!(write_attribute_export(name.clone(), "{}".into(), "csv".into()).is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"original");
+        write_attribute_export(name, "{\"records\":[]}".into(), "json".into()).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"{\"records\":[]}");
+        assert!(write_attribute_export("relative.csv".into(), "a,b".into(), "csv".into()).is_err());
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
     }
 
     #[test]

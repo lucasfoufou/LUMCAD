@@ -1,3 +1,25 @@
+import { beginCenterLine, pickCenterLineSource } from '~utils/drawingCenterLineCommands';
+import { maintainDrawingCenters } from '~utils/drawingCenterMaintenance';
+import { spaceDrawingDimensions, beginDimensionSpacing, spaceDimensionsAtPoint } from '~utils/drawingDimensionSpacing';
+import { disassociateDrawingDimensions, reassociateDrawingDimensions, beginDimensionReassociation, pickDimensionReassociationSource } from '~utils/drawingDimensionAssociations';
+import { maintainDrawingDimensions, beginDimensionTextPlacement, placeDimensionTextAtPoint, beginDimensionBreak, advanceDimensionBreak } from '~utils/drawingDimensionMaintenance';
+import { runDimensionStyleCommand } from '~utils/drawingDimensionStyleCommands';
+import { exportDrawingAttributes } from '~utils/drawingAttributeExport';
+import { manageDrawingAttributes, parseDrawingAttributeManagerInput } from '~utils/drawingAttributeManager';
+import { defineDrawingAttribute, editDrawingAttribute, syncDrawingAttributes } from '~utils/drawingAttributeOperations';
+import { tokenizeDrawingAttributeInput } from '~utils/drawingBlockAttributes';
+import useDrawingBlockLibrary from '~hooks/useDrawingBlockLibrary';
+import useDrawingBlockEditor from '~hooks/useDrawingBlockEditor';
+import { createDrawingBlockWorkflow } from '~utils/drawingBlockWorkflow';
+import useDrawingImageSource from '~hooks/useDrawingImageSource';
+import { createDrawingHatch, parseHatchPatternInput } from '~utils/drawingHatches';
+import { createDrawingBoundaries } from '~utils/drawingBoundaryDetection';
+import { createDrawingRegion } from '~utils/drawingRegions';
+import { parseImageAdjustmentInput } from '~utils/drawingImageAdjustments';
+import { parseImageClipInput } from '~utils/drawingImageClip';
+import { parseDrawingOrderInput, reorderDrawingEntities, drawingAnnotationIds } from '~utils/drawingOrder';
+import { createDrawingWipeout, drawingWipeoutFromSources, isDrawingWipeout } from '~utils/drawingWipeout';
+import { getEllipseAxisSegments } from '~utils/drawingEllipseGeometry';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DrawingEditorBody from '~components/drawing/DrawingEditorBody';
 import DrawingEditorHeader from '~components/drawing/DrawingEditorHeader';
@@ -25,6 +47,7 @@ import { useAppSettings } from '~settings/AppSettingsProvider';
 import { getDrawingCommandDefinition, getDrawingCommandInput, isNumericDrawingInput, parseDrawingCommand, parseDrawingNumbers } from '~utils/drawingCommands';
 import {
     canEditEntity,
+    addEntity,
     createDrawingId,
     deleteSelectedEntities,
     getLayer,
@@ -81,6 +104,7 @@ import {
 } from '~utils/drawingDimensionCommands';
 import { normalizeLcadDocument } from '~utils/lcadDocument';
 import { openLcadDocument } from '~utils/lcadStorage';
+import { applySplineEditInput, isEditableSpline } from '~utils/drawingSplineEditing';
 import { supportsDrawingCreationPanel } from '~utils/drawingCreation';
 import { normalizePolarAngles } from '~utils/drawingDraftingSettings';
 import {
@@ -112,6 +136,8 @@ export default function DrawingEditorWorkspace({
     const layoutCanvasRef = useRef(null);
     const commandBarRef = useRef(null);
     const imageInputRef = useRef(null);
+    const blockSelectionRef = useRef([]);
+    const blockViewContextRef = useRef(null);
     const publishRendererRef = useRef(null);
     const inputVariablesRef = useRef({});
     const previousLocaleRef = useRef(locale);
@@ -129,7 +155,7 @@ export default function DrawingEditorWorkspace({
         chamferDistance2: 0,
     });
     const [name, setName] = useState(initialDocument.name);
-    const [assets, setAssets] = useState(initialDocument.assets || []);
+    const [modelAssets, setModelAssets] = useState(initialDocument.assets || []);
     const [filePath, setFilePath] = useState(initialPath);
     const [selectedIds, setSelectedIds] = useState([]);
     const [activeTool, setActiveTool] = useState('select');
@@ -148,23 +174,26 @@ export default function DrawingEditorWorkspace({
     const [maximizedViewportId, setMaximizedViewportId] = useState(null);
     const [layoutTool, setLayoutTool] = useState('select');
     const [sidebarPanel, setSidebarPanel] = useState('layers');
+    const [blockSearch, setBlockSearch] = useState('');
     const [draftingSettingsOpen, setDraftingSettingsOpen] = useState(false);
     const [calculatorMode, setCalculatorMode] = useState(false);
-    const history = useDrawingHistory({
+    const modelHistory = useDrawingHistory({
         content: normalizeDrawingContent(initialDocument.content),
         layouts: initialDocument.layouts || [],
         pageSetups: initialDocument.pageSetups || [],
     });
-    const layouts = history.layouts;
-    const pageSetups = history.pageSetups;
+    const blockEditor = useDrawingBlockEditor({ modelHistory, modelAssets, setModelAssets });
+    const { history, assets, setAssets } = blockEditor;
+    const layouts = modelHistory.layouts;
+    const pageSetups = modelHistory.pageSetups;
     const document = useMemo(() => ({
         ...initialDocument,
         name,
-        assets,
+        assets: modelAssets,
         layouts,
         pageSetups,
-        content: history.content,
-    }), [assets, history.content, initialDocument, layouts, name, pageSetups]);
+        content: modelHistory.content,
+    }), [modelAssets, modelHistory.content, initialDocument, layouts, name, pageSetups]);
     const handlePathChange = useCallback(nextPath => setFilePath(nextPath), []);
     const autosave = useLcadAutosave({
         document,
@@ -174,9 +203,10 @@ export default function DrawingEditorWorkspace({
     });
     const updater = useAppUpdater({ beforeInstall: autosave.flushAutosave });
     const installAvailableUpdate = useCallback(async () => {
+        if (blockEditor.session) { setMessage(t('block.error.closeFirst')); return; }
         if (!updater.version || !window.confirm(t('updater.confirmInstall', { version: updater.version }))) return;
         if (!await updater.installAvailableUpdate()) setMessage(t('updater.installFailed'));
-    }, [t, updater.installAvailableUpdate, updater.version]);
+    }, [blockEditor.session, t, updater.installAvailableUpdate, updater.version]);
     const {
         autoPublish,
         closePublishDialog,
@@ -198,6 +228,7 @@ export default function DrawingEditorWorkspace({
         onReplaceSession,
         publishRendererRef,
         setMessage,
+        blockEditing: Boolean(blockEditor.session),
     });
 
     const activeLayout = useMemo(() => (
@@ -231,6 +262,7 @@ export default function DrawingEditorWorkspace({
     };
 
     const openLayoutWorkspace = layoutId => {
+        if (blockEditor.session) { setMessage(t('block.error.closeFirst')); return; }
         canvasRef.current?.cancel();
         setWorkspaceMode('layout');
         setActiveLayoutId(layoutId);
@@ -246,6 +278,7 @@ export default function DrawingEditorWorkspace({
     };
 
     const addLayout = (template = 'blank') => {
+        if (blockEditor.session) { setMessage(t('block.error.closeFirst')); return; }
         const layout = createDrawingLayoutFromTemplate({
             template,
             name: t('layout.defaultName', { number: layouts.length + 1 }),
@@ -411,9 +444,71 @@ export default function DrawingEditorWorkspace({
         canvasRef, commandBarRef, history, lastOperationValuesRef, selectedEntities,
         setActiveTool, setInteractiveOperation, setMessage, setSelectedIds,
     });
+    const blockCommands = createDrawingBlockWorkflow({
+        history, selectedIds, canvasRef, commandBarRef, setInteractiveOperation, setActiveTool, setSelectedIds, setMessage, t,
+    });
+    const imageSource = useDrawingImageSource({
+        history, assets, documentId: initialDocument.id, viewport, setAssets, setSelectedIds, setActiveTool, setMessage,
+    });
     const { handleImageFile, isUploading } = useLocalDrawingImageImport({
         history, viewport, setActiveTool, setAssets, setMessage, setSelectedIds,
     });
+    const blockLibrary = useDrawingBlockLibrary({ document, history, assets, setAssets, selectedIds,
+        blockEditing: Boolean(blockEditor.session), filePath, setMessage, setSidebarPanel, setBlockSearch,
+        setInteractiveOperation, setActiveTool, canvasRef });
+    const manageDimensionStyle = input => {
+        if (blockEditor.session) { setMessage(t('block.error.closeFirst')); return false; }
+        const result = runDimensionStyleCommand(history.content, selectedIds, input);
+        if (result.error) { setMessage(t(`dimensionStyle.error.${result.error}`)); return false; }
+        if (result.list) { setSidebarPanel('dimensionStyles'); setMessage(t('dimensionStyle.list', { names: result.list })); }
+        else { history.commit(result.content); setMessage(t('dimensionStyle.updated')); }
+        return true;
+    };
+    const manageAttribute = (blockName, tag, operation, value) => {
+        if (blockEditor.session) { setMessage(t('block.error.closeFirst')); return false; }
+        const result = manageDrawingAttributes(history.content, blockName, tag, operation, value);
+        if (result.error) { setMessage(t(`attribute.error.${result.error}`)); return false; }
+        if (result.changed) history.commit(result.content);
+        setMessage(t('attribute.updated'));
+        return true;
+    };
+    const beginBlockEdit = input => {
+        if (isUploading || imageSource.busy) { setMessage(t('block.error.imageBusy')); return; }
+        const requested = String(input || '').trim().replace(/^"(.*)"$/, '$1');
+        const reference = selectedEntities.length === 1 && selectedEntities[0].type === 'blockReference' ? selectedEntities[0] : null;
+        if (!requested && (!reference || !canEditEntity(history.content, reference))) { setMessage(t('block.error.editSelection')); return; }
+        const result = blockEditor.begin(requested || reference.blockId);
+        if (result.error) { setMessage(t(`block.error.${result.error}`)); return; }
+        blockSelectionRef.current = selectedIds;
+        imageSource.cancel();
+        closePublishDialog();
+        canvasRef.current?.cancel();
+        openModelWorkspace();
+        setSelectedIds([]);
+        setCreationPanelEntityId(null);
+        setInteractiveOperation(null);
+        setActiveTool('select');
+        setCommandValue('');
+        setMessage(t('block.editing', { name: result.name }));
+    };
+    const finishBlockEdit = (close = false, discard = false) => {
+        if (isUploading || imageSource.busy) { setMessage(t('block.error.imageBusy')); return; }
+        const result = discard ? blockEditor.discard() : blockEditor.save({ close });
+        if (result.error) { setMessage(t(`block.error.${result.error}`)); return; }
+        imageSource.cancel();
+        canvasRef.current?.cancel();
+        setInteractiveOperation(null);
+        setCreationPanelEntityId(null);
+        setActiveTool('select');
+        setCommandValue('');
+        if (close || discard) setSelectedIds(blockSelectionRef.current.filter(id => modelHistory.content.entities.some(entity => entity.id === id)));
+        setMessage(t(discard ? 'block.editDiscarded' : 'block.editSaved'));
+    };
+    useEffect(() => {
+        const context = blockEditor.session?.blockId || null;
+        if (context !== blockViewContextRef.current) canvasRef.current?.fit();
+        blockViewContextRef.current = context;
+    }, [blockEditor.session?.blockId]);
     const {
         beginCopyBase,
         beginPasteBlock,
@@ -511,7 +606,7 @@ export default function DrawingEditorWorkspace({
 
     const activateOperationSelection = (operation, editable, reportInvalid = true) => {
         if (operation.type === 'offset') {
-            const sources = editable.filter(entity => ['line', 'rectangle', 'circle', 'polygon', 'arc', 'polyline'].includes(entity.type));
+            const sources = editable.filter(entity => ['line', 'xline', 'ray', 'ellipse', 'rectangle', 'circle', 'polygon', 'arc', 'polyline'].includes(entity.type));
             if (!sources.length) {
                 if (reportInvalid) setMessage(t('messages.offsetSelectionRequired'));
                 return false;
@@ -738,6 +833,92 @@ export default function DrawingEditorWorkspace({
     };
 
     const handleInteractiveOperation = ({ point, targetId, fence, arrayHandle, shift = false }) => {
+        if (interactiveOperation?.type === 'centerLineCreation') {
+            const result = pickCenterLineSource(history.content, interactiveOperation, targetId);
+            if (result.error) setMessage(t(`centerMaintenance.error.${result.error}`));
+            else if (result.operation) { setInteractiveOperation(result.operation); setMessage(t('centerLine.secondPrompt')); }
+            else { history.commit(result.content); finishInteractiveOperation(result.selectedIds, t('dimensionMaintenance.updated')); }
+            return;
+        }
+        if (interactiveOperation?.type === 'dimensionSpacing') {
+            const result = spaceDimensionsAtPoint(history.content, interactiveOperation, point);
+            if (result.error) setMessage(t(`dimensionMaintenance.error.${result.error}`));
+            else {
+                history.commit(result.content);
+                finishInteractiveOperation(interactiveOperation.entityIds, t('dimensionMaintenance.updated'));
+            }
+            return;
+        }
+        if (interactiveOperation?.type === 'dimensionBreak') {
+            const result = advanceDimensionBreak(history.content, interactiveOperation, point);
+            if (result.error) setMessage(t(`dimensionMaintenance.error.${result.error}`));
+            else if (result.operation) {
+                setInteractiveOperation(result.operation); setMessage(t('dimensionMaintenance.breakSecondPrompt'));
+            } else {
+                history.commit(result.content);
+                finishInteractiveOperation(interactiveOperation.entityIds, t('dimensionMaintenance.updated'));
+            }
+            return;
+        }
+        if (interactiveOperation?.type === 'dimensionTextPlacement') {
+            const result = placeDimensionTextAtPoint(history.content, interactiveOperation, point);
+            if (result.error) setMessage(t(`dimensionMaintenance.error.${result.error}`));
+            else {
+                history.commit(result.content);
+                finishInteractiveOperation(interactiveOperation.entityIds, t('dimensionMaintenance.updated'));
+            }
+            return;
+        }
+        if (interactiveOperation?.type === 'dimensionReassociation') {
+            const result = pickDimensionReassociationSource(history.content, interactiveOperation, targetId);
+            if (result.error) setMessage(t(`dimensionMaintenance.error.${result.error}`));
+            else if (result.operation) {
+                setInteractiveOperation(result.operation); setMessage(t('dimensionMaintenance.secondSourcePrompt'));
+            } else {
+                history.commit(result.content);
+                finishInteractiveOperation(interactiveOperation.entityIds, t('dimensionMaintenance.updated'));
+            }
+            return;
+        }
+        if (blockCommands.point(interactiveOperation, point)) return;
+        if (interactiveOperation?.type === 'wipeout') {
+            if (!point || interactiveOperation.points.length >= 128) { setMessage(t('wipeout.invalid')); return; }
+            setInteractiveOperation({ ...interactiveOperation, points: [...interactiveOperation.points, { x: point.x, y: point.y }] });
+            setMessage(t('wipeout.prompt'));
+            return;
+        }
+        if (interactiveOperation?.type === 'drawOrder') {
+            if (!targetId || interactiveOperation.entityIds.includes(targetId)) { setMessage(t('drawOrder.referencePrompt')); return; }
+            const next = reorderDrawingEntities(history.content, interactiveOperation.entityIds, interactiveOperation.mode, targetId);
+            if (next !== history.content) history.commit(next);
+            finishInteractiveOperation(interactiveOperation.entityIds, t('drawOrder.applied'));
+            return;
+        }
+        if (['boundary', 'region'].includes(interactiveOperation?.type)) {
+            if (!point) return;
+            const layer = getLayer(history.content, history.content.activeLayerId);
+            if (!layer?.visible || layer.locked) { setMessage(t('boundary.layerUnavailable')); return; }
+            const sources = history.content.entities.filter(entity => getLayer(history.content, entity.layerId)?.visible);
+            const region = interactiveOperation.type === 'region';
+            const area = region && createDrawingRegion(sources, layer.id, createDrawingId('region'), point);
+            const boundaries = region ? area && [area] : createDrawingBoundaries(sources, point, layer.id, () => createDrawingId('boundary'));
+            if (!boundaries) { setMessage(t('hatch.pickFailed')); return; }
+            history.commit({ ...history.content, entities: [...history.content.entities, ...boundaries] });
+            finishInteractiveOperation(boundaries.map(entity => entity.id), t(region ? 'region.created' : 'boundary.created', { count: boundaries.length }));
+            return;
+        }
+        if (interactiveOperation?.type === 'hatch') {
+            if (!point) return;
+            const layer = getLayer(history.content, history.content.activeLayerId);
+            if (!layer?.visible || layer.locked) { setMessage(t('hatch.layerUnavailable')); return; }
+            const sources = history.content.entities.filter(entity => getLayer(history.content, entity.layerId)?.visible);
+            const entity = createDrawingHatch(sources, layer.id, interactiveOperation.pattern, createDrawingId('hatch'), point);
+            if (!entity) { setMessage(t('hatch.pickFailed')); return; }
+            history.commit(addEntity(history.content, entity));
+            finishInteractiveOperation([entity.id], t('hatch.created'));
+            setCreationPanelEntityId(entity.id);
+            return;
+        }
         if (['copyBase', 'pasteClip', 'pasteBlock'].includes(interactiveOperation?.type)) {
             void handleClipboardPoint(interactiveOperation, point);
             return;
@@ -746,7 +927,7 @@ export default function DrawingEditorWorkspace({
             handleReferencePoint(interactiveOperation, point);
             return;
         }
-        if (handleArrayPoint(interactiveOperation, point, arrayHandle)) return;
+        if (handleArrayPoint(interactiveOperation, point, arrayHandle, targetId)) return;
         if (handleMirrorPoint(interactiveOperation, point)) return;
         if (handleAlignPoint(interactiveOperation, point)) return;
         if (handleCornerPoint(interactiveOperation, point, targetId)) return;
@@ -962,6 +1143,66 @@ export default function DrawingEditorWorkspace({
 
     const submitOperationValue = rawValue => {
         if (!interactiveOperation) return false;
+        if (interactiveOperation.type === 'centerLineCreation') {
+            setMessage(t(interactiveOperation.sourceIds.length ? 'centerLine.secondPrompt' : 'centerLine.firstPrompt'));
+            return true;
+        }
+        if (interactiveOperation.type === 'dimensionReassociation') {
+            setMessage(t(interactiveOperation.sourceIds.length ? 'dimensionMaintenance.secondSourcePrompt' : 'dimensionMaintenance.sourcePrompt'));
+            return true;
+        }
+        if (interactiveOperation.type === 'dimensionSpacing') {
+            const value = String(rawValue).trim();
+            if (value.toUpperCase() === 'AUTO' || value && Number.isFinite(Number(value))) {
+                const result = spaceDrawingDimensions(history.content, interactiveOperation.entityIds, `${value} BASE "${interactiveOperation.baseId}"`);
+                if (result.error) setMessage(t(`dimensionMaintenance.error.${result.error}`));
+                else {
+                    history.commit(result.content);
+                    finishInteractiveOperation(interactiveOperation.entityIds, t('dimensionMaintenance.updated'));
+                }
+            } else if (!submitPrecisionPoint(rawValue, { allowDirectDistance: false })) setMessage(t('dimensionMaintenance.spacingPrompt'));
+            return true;
+        }
+        if (interactiveOperation.type === 'dimensionBreak') {
+            if (!submitPrecisionPoint(rawValue, { allowDirectDistance: false })) setMessage(t(interactiveOperation.basePoint ? 'dimensionMaintenance.breakSecondPrompt' : 'dimensionMaintenance.breakFirstPrompt'));
+            return true;
+        }
+        if (interactiveOperation.type === 'dimensionTextPlacement') {
+            if (!submitPrecisionPoint(rawValue, { allowDirectDistance: false })) setMessage(t('dimensionMaintenance.textPositionPrompt'));
+            return true;
+        }
+        if (['blockDefine', 'blockInsert', 'blockBase'].includes(interactiveOperation.type)) {
+            if (interactiveOperation.stage !== 'name' && submitPrecisionPoint(rawValue, { allowDirectDistance: false })) return true;
+            return blockCommands.input(interactiveOperation, rawValue);
+        }
+        if (interactiveOperation.type === 'wipeout') {
+            if (submitPrecisionPoint(rawValue, { allowDirectDistance: false })) return true;
+            const token = String(rawValue).trim().toUpperCase();
+            if (!token || token === 'DONE') {
+                const layer = getLayer(history.content, history.content.activeLayerId);
+                const entity = layer?.visible && !layer.locked && createDrawingWipeout(interactiveOperation.points, layer.id, createDrawingId('wipeout'));
+                if (!entity) { setMessage(t('wipeout.invalid')); return true; }
+                history.commit(addEntity(history.content, entity));
+                finishInteractiveOperation([entity.id], t('wipeout.created'));
+            } else if (token === 'UNDO') setInteractiveOperation({ ...interactiveOperation, points: interactiveOperation.points.slice(0, -1) });
+            else setMessage(t('wipeout.prompt'));
+            return true;
+        }
+        if (interactiveOperation.type === 'drawOrder') {
+            setMessage(t('drawOrder.referencePrompt'));
+            return true;
+        }
+        if (['boundary', 'region'].includes(interactiveOperation.type)) {
+            if (!submitPrecisionPoint(rawValue, { allowDirectDistance: false })) setMessage(t('boundary.pickPrompt'));
+            return true;
+        }
+        if (interactiveOperation.type === 'hatch') {
+            if (submitPrecisionPoint(rawValue, { allowDirectDistance: false })) return true;
+            const pattern = parseHatchPatternInput(rawValue, interactiveOperation.pattern);
+            if (pattern) setInteractiveOperation({ ...interactiveOperation, pattern });
+            setMessage(t(pattern ? 'hatch.pickPrompt' : 'hatch.invalidOptions'));
+            return true;
+        }
         const empty = !String(rawValue).trim();
         if (submitClipboardValue(rawValue, interactiveOperation)) return true;
         if (submitCompoundValue(rawValue, interactiveOperation)) return true;
@@ -1272,7 +1513,11 @@ export default function DrawingEditorWorkspace({
     };
 
     const inferredLinearMeasurementMode = () => {
-        const source = selectedEntities.find(entity => ['line', 'rectangle', 'polygon'].includes(entity.type));
+        const source = selectedEntities.find(entity => ['line', 'rectangle', 'polygon', 'ellipse'].includes(entity.type));
+        if (source?.type === 'ellipse') {
+            const segment = getEllipseAxisSegments(source)[0];
+            return segment && Math.abs(segment[1].y - segment[0].y) > Math.abs(segment[1].x - segment[0].x) ? 'vertical' : 'horizontal';
+        }
         if (source?.type !== 'line') return 'horizontal';
         return Math.abs(source.y2 - source.y1) > Math.abs(source.x2 - source.x1) ? 'vertical' : 'horizontal';
     };
@@ -1339,6 +1584,10 @@ export default function DrawingEditorWorkspace({
         }
         setCommandValue('');
         if (!parsed) return;
+        if (blockEditor.session && ['paperSpace', 'layout', 'pageSetup', 'pageSetupImport', 'pageSetupExport',
+            'viewport', 'viewportClip', 'viewportLayer', 'viewportMax', 'viewportMin'].includes(parsed.command)) {
+            setMessage(t('block.error.closeFirst')); return;
+        }
         setInteractiveOperation(null);
         canvasRef.current?.cancel();
         if (parsed.command === 'modelSpace') {
@@ -1460,7 +1709,7 @@ export default function DrawingEditorWorkspace({
             const measurementMode = inferredLinearMeasurementMode();
             commitDimensionCommand(createQuickDimensionResult(
                 history.content,
-                selectedIdsOfTypes(['line', 'rectangle', 'polygon', 'linearDimension']),
+                selectedIdsOfTypes(['line', 'rectangle', 'polygon', 'ellipse', 'linearDimension']),
                 { measurementMode },
             ), { mode: measurementMode });
             return;
@@ -1468,7 +1717,7 @@ export default function DrawingEditorWorkspace({
         if (parsed.command === 'alignedDimension') {
             commitDimensionCommand(createQuickDimensionResult(
                 history.content,
-                selectedIdsOfTypes(['line', 'rectangle', 'polygon', 'linearDimension']),
+                selectedIdsOfTypes(['line', 'rectangle', 'polygon', 'ellipse', 'linearDimension']),
                 { measurementMode: 'aligned' },
             ), { mode: 'aligned' });
             return;
@@ -1477,7 +1726,7 @@ export default function DrawingEditorWorkspace({
             const dimensionAngle = (parsed.args[0] || 0) * Math.PI / 180;
             commitDimensionCommand(createQuickDimensionResult(
                 history.content,
-                selectedIdsOfTypes(['line', 'rectangle', 'polygon', 'linearDimension']),
+                selectedIdsOfTypes(['line', 'rectangle', 'polygon', 'ellipse', 'linearDimension']),
                 { measurementMode: 'rotated', dimensionAngle },
             ), { mode: 'rotated', dimensionAngle });
             return;
@@ -1548,26 +1797,346 @@ export default function DrawingEditorWorkspace({
             );
             return;
         }
-        if (['select', 'line', 'rectangle', 'circle', 'polygon', 'arc', 'pan'].includes(parsed.command)) {
+        if (['select', 'line', 'xline', 'ray', 'ellipse', 'spline', 'rectangle', 'circle', 'polygon', 'arc', 'pan'].includes(parsed.command)) {
             openModelWorkspace();
-            if (['rectangle', 'circle', 'polygon', 'arc'].includes(parsed.command)) {
+            if (['rectangle', 'circle', 'polygon', 'arc', 'ellipse', 'spline'].includes(parsed.command)) {
                 canvasRef.current?.submitCreationInputForTool(parsed.command, rawValue);
             }
             setActiveTool(parsed.command);
             setMessage(t('messages.toolActive', { tool: t(`commands.${parsed.command}`) }));
             return;
         }
-        if (parsed.command === 'creationPanel') {
-            const valid = selectedEntities.filter(supportsDrawingCreationPanel);
+        if (parsed.command === 'region' && selectedEntities.length && getDrawingCommandInput(rawValue).trim().toUpperCase() !== 'PICK') {
+            const layer = getLayer(history.content, history.content.activeLayerId);
+            if (!layer?.visible || layer.locked) { setMessage(t('boundary.layerUnavailable')); return; }
+            const region = createDrawingRegion(selectedEntities, layer.id, createDrawingId('region'));
+            if (!region) { setMessage(t('region.closedRequired')); return; }
+            history.commit(addEntity(history.content, region));
+            finishInteractiveOperation([region.id], t('region.created'));
+            return;
+        }
+        if (['boundary', 'region'].includes(parsed.command)) {
+            openModelWorkspace();
+            setSelectedIds([]);
+            setActiveTool('select');
+            setInteractiveOperation({ type: parsed.command, stage: 'pick' });
+            setMessage(t('boundary.pickPrompt'));
+            return;
+        }
+        if (['hatch', 'gradient', 'solid'].includes(parsed.command)) {
+            let input = getDrawingCommandInput(rawValue).trim();
+            const pick = /^PICK(?:\s|$)/i.test(input) || !selectedEntities.length;
+            input = input.replace(/^PICK(?:\s+|$)/i, '');
+            const pattern = parseHatchPatternInput(input || (parsed.command === 'gradient' ? 'gradient' : parsed.command === 'solid' ? 'solid' : 'lines'));
+            if (!pattern) { setMessage(t('hatch.invalidOptions')); return; }
+            if (pick) {
+                openModelWorkspace();
+                setSelectedIds([]);
+                setActiveTool('select');
+                setInteractiveOperation({ type: 'hatch', stage: 'pick', pattern });
+                setMessage(t('hatch.pickPrompt'));
+                return;
+            }
+            const sources = selectedEntities.filter(entity => canEditEntity(history.content, entity));
+            const entity = pattern && sources.length === selectedEntities.length
+                ? createDrawingHatch(sources, history.content.activeLayerId, pattern, createDrawingId('hatch')) : null;
+            if (!entity) { setMessage(t('hatch.boundariesRequired')); return; }
+            history.commit(addEntity(history.content, entity));
+            setSelectedIds([entity.id]);
+            setActiveTool('select');
+            setCreationPanelEntityId(entity.id);
+            setMessage(t('hatch.created'));
+            return;
+        }
+        if (parsed.command === 'wipeout') {
+            const input = getDrawingCommandInput(rawValue).trim().toUpperCase();
+            if (['FRAME ON', 'FRAME OFF'].includes(input)) {
+                const masks = selectedEntities.filter(entity => isDrawingWipeout(entity) && canEditEntity(history.content, entity));
+                if (!masks.length) { setMessage(t('wipeout.selectMask')); return; }
+                history.commit(updateSelectedEntities(history.content, masks.map(entity => entity.id), entity => ({ ...entity, wipeout: { frame: input === 'FRAME ON' } })));
+                setMessage(t('drawOrder.applied'));
+                return;
+            }
+            if (input && input !== 'POINTS') { setMessage(t('wipeout.prompt')); return; }
+            const layer = getLayer(history.content, history.content.activeLayerId);
+            if (!layer?.visible || layer.locked) { setMessage(t('boundary.layerUnavailable')); return; }
+            if (selectedEntities.length && input !== 'POINTS') {
+                const entity = drawingWipeoutFromSources(selectedEntities, layer.id, createDrawingId('wipeout'));
+                if (!entity) { setMessage(t('wipeout.invalid')); return; }
+                history.commit(addEntity(history.content, entity));
+                finishInteractiveOperation([entity.id], t('wipeout.created'));
+                return;
+            }
+            openModelWorkspace();
+            setSelectedIds([]);
+            setActiveTool('select');
+            setInteractiveOperation({ type: 'wipeout', stage: 'pick', points: [] });
+            setMessage(t('wipeout.prompt'));
+            return;
+        }
+        if (parsed.command === 'drawOrder') {
+            const mode = parseDrawingOrderInput(getDrawingCommandInput(rawValue));
+            if (!mode) { setMessage(t('drawOrder.options')); return; }
+            const ids = selectedEntities.filter(entity => canEditEntity(history.content, entity)).map(entity => entity.id);
+            if (!ids.length) { setMessage(t('drawOrder.selectionRequired')); return; }
+            if (['above', 'below'].includes(mode)) {
+                setActiveTool('select');
+                setInteractiveOperation({ type: 'drawOrder', stage: 'pick', mode, entityIds: ids });
+                setMessage(t('drawOrder.referencePrompt'));
+                return;
+            }
+            const next = reorderDrawingEntities(history.content, ids, mode);
+            if (next !== history.content) history.commit(next);
+            setMessage(t('drawOrder.applied'));
+            return;
+        }
+        if (parsed.command === 'textToFront') {
+            const mode = getDrawingCommandInput(rawValue).trim().toLowerCase() || 'all';
+            if (!['text', 'dimensions', 'all'].includes(mode)) { setMessage(t('drawOrder.annotationOptions')); return; }
+            const next = reorderDrawingEntities(history.content, drawingAnnotationIds(history.content, mode), 'front');
+            if (next !== history.content) history.commit(next);
+            setMessage(t('drawOrder.applied'));
+            return;
+        }
+        if (parsed.command === 'hatchToBack') {
+            const ids = new Set(selectedEntities.filter(entity => entity.type === 'hatch').map(entity => entity.id));
+            const candidates = history.content.entities.filter(entity => entity.type === 'hatch' && (!ids.size || ids.has(entity.id)) && canEditEntity(history.content, entity));
+            const next = reorderDrawingEntities(history.content, candidates.map(entity => entity.id), 'back');
+            if (next !== history.content) history.commit(next);
+            setMessage(t('hatch.sentToBack'));
+            return;
+        }
+        if (parsed.command === 'centerLine') {
+            const result = beginCenterLine(history.content, selectedIds, getDrawingCommandInput(rawValue));
+            if (result.error) setMessage(t(`centerMaintenance.error.${result.error}`));
+            else {
+                openModelWorkspace(); canvasRef.current?.cancel?.(); setActiveTool('select');
+                if (result.operation) { setInteractiveOperation(result.operation); setMessage(t(result.operation.sourceIds.length ? 'centerLine.secondPrompt' : 'centerLine.firstPrompt')); }
+                else { setInteractiveOperation(null); history.commit(result.content); setSelectedIds(result.selectedIds); setMessage(t('dimensionMaintenance.updated')); }
+            }
+            return;
+        }
+        if (['centerReassociate', 'centerDisassociate', 'centerReset'].includes(parsed.command)) {
+            const result = maintainDrawingCenters(history.content, selectedIds, parsed.command, getDrawingCommandInput(rawValue));
+            if (result.error) setMessage(t(`centerMaintenance.error.${result.error}`));
+            else {
+                openModelWorkspace(); canvasRef.current?.cancel?.(); setActiveTool('select');
+                if (result.operation) {
+                    setInteractiveOperation(result.operation); setMessage(t('dimensionMaintenance.sourcePrompt'));
+                } else {
+                    setInteractiveOperation(null); history.commit(result.content); setMessage(t('dimensionMaintenance.updated'));
+                }
+            }
+            return;
+        }
+        if (parsed.command === 'dimensionReassociate' && !getDrawingCommandInput(rawValue).trim()) {
+            const result = beginDimensionReassociation(history.content, selectedIds);
+            if (result.error) setMessage(t(`dimensionMaintenance.error.${result.error}`));
+            else {
+                openModelWorkspace(); canvasRef.current?.cancel?.(); setActiveTool('select');
+                setInteractiveOperation(result.operation); setMessage(t('dimensionMaintenance.sourcePrompt'));
+            }
+            return;
+        }
+        if (['dimensionDisassociate', 'dimensionReassociate'].includes(parsed.command)) {
+            const tokens = tokenizeDrawingAttributeInput(getDrawingCommandInput(rawValue));
+            const result = !tokens || parsed.command === 'dimensionDisassociate' && tokens.length ? { error: 'syntax' }
+                : parsed.command === 'dimensionDisassociate' ? disassociateDrawingDimensions(history.content, selectedIds)
+                    : reassociateDrawingDimensions(history.content, selectedIds, tokens);
+            if (result.error) setMessage(t(`dimensionMaintenance.error.${result.error}`));
+            else {
+                canvasRef.current?.cancel?.(); setInteractiveOperation(null); setActiveTool('select');
+                history.commit(result.content); setMessage(t('dimensionMaintenance.updated'));
+            }
+            return;
+        }
+        if (parsed.command === 'dimensionSpace' && /^POINT(?:\s|$)/i.test(getDrawingCommandInput(rawValue).trim())) {
+            const result = beginDimensionSpacing(history.content, selectedIds, getDrawingCommandInput(rawValue));
+            if (result.error) setMessage(t(`dimensionMaintenance.error.${result.error}`));
+            else {
+                openModelWorkspace(); canvasRef.current?.cancel?.(); setActiveTool('select');
+                setInteractiveOperation(result.operation); setMessage(t('dimensionMaintenance.spacingPrompt'));
+                commandBarRef.current?.focus?.('');
+            }
+            return;
+        }
+        if (parsed.command === 'dimensionSpace') {
+            const result = spaceDrawingDimensions(history.content, selectedIds, getDrawingCommandInput(rawValue));
+            if (result.error) setMessage(t(`dimensionMaintenance.error.${result.error}`));
+            else {
+                canvasRef.current?.cancel?.(); setInteractiveOperation(null); setActiveTool('select');
+                history.commit(result.content); setMessage(t('dimensionMaintenance.updated'));
+            }
+            return;
+        }
+        if (parsed.command === 'dimensionBreak' && ['', 'MANUAL'].includes(getDrawingCommandInput(rawValue).trim().toUpperCase())) {
+            const result = beginDimensionBreak(history.content, selectedIds);
+            if (result.error) setMessage(t(`dimensionMaintenance.error.${result.error}`));
+            else {
+                openModelWorkspace(); canvasRef.current?.cancel?.(); setActiveTool('select');
+                setInteractiveOperation(result.operation); setMessage(t('dimensionMaintenance.breakFirstPrompt'));
+                commandBarRef.current?.focus?.('');
+            }
+            return;
+        }
+        if (parsed.command === 'dimensionTextEdit' && ['', 'POINT'].includes(getDrawingCommandInput(rawValue).trim().toUpperCase())) {
+            const result = beginDimensionTextPlacement(history.content, selectedIds);
+            if (result.error) setMessage(t(`dimensionMaintenance.error.${result.error}`));
+            else {
+                openModelWorkspace(); canvasRef.current?.cancel?.(); setActiveTool('select');
+                setInteractiveOperation(result.operation); setMessage(t('dimensionMaintenance.textPositionPrompt'));
+                commandBarRef.current?.focus?.('');
+            }
+            return;
+        }
+        if (['dimensionUpdate', 'dimensionRegenerate', 'dimensionInspect', 'dimensionEdit', 'dimensionTextEdit', 'dimensionBreak'].includes(parsed.command)) {
+            const operation = { dimensionUpdate: 'update', dimensionRegenerate: 'regenerate', dimensionInspect: 'inspect', dimensionEdit: 'editText', dimensionTextEdit: 'placeText', dimensionBreak: 'break' }[parsed.command];
+            const result = maintainDrawingDimensions(history.content, selectedIds, operation, getDrawingCommandInput(rawValue));
+            if (result.error) setMessage(t(`dimensionMaintenance.error.${result.error}`));
+            else {
+                canvasRef.current?.cancel?.(); setInteractiveOperation(null); setActiveTool('select');
+                history.commit(result.content); setMessage(t('dimensionMaintenance.updated'));
+            }
+            return;
+        }
+        if (parsed.command === 'dimensionStyle') { manageDimensionStyle(getDrawingCommandInput(rawValue)); return; }
+        if (parsed.command === 'attributeExtract') {
+            if (blockEditor.session) { setMessage(t('block.error.closeFirst')); return; }
+            try {
+                if (await exportDrawingAttributes(history.content, selectedIds, getDrawingCommandInput(rawValue), t('commands.attributeExtract'))) setMessage(t('attribute.exported'));
+            } catch (error) {
+                const key = ['attributeExtractionFormat', 'attributeExtractionEmpty', 'attributeExtractionDesktop', 'attributeExtractionDependency', 'attributeExtractionLimit'].includes(error.message) ? error.message : 'attributeExtractionFailed';
+                setMessage(t(`attribute.error.${key}`));
+            }
+            return;
+        }
+        if (parsed.command === 'attributeManager') {
+            const options = parseDrawingAttributeManagerInput(getDrawingCommandInput(rawValue));
+            if (!options) { setMessage(t('attribute.error.managerSyntax')); return; }
+            if (options.open) { setBlockSearch(options.blockName); setSidebarPanel('blocks'); return; }
+            manageAttribute(options.blockName, options.tag, options.operation, options.value); return;
+        }
+        if (['attributeDefine', 'attributeEdit', 'attributeSync', 'attributeDisplay'].includes(parsed.command)) {
+            const input = getDrawingCommandInput(rawValue);
+            if (parsed.command === 'attributeDefine' && !input.trim()) { setSidebarPanel('blocks'); return; }
+            if (parsed.command === 'attributeEdit' && !input.trim()) { setSidebarPanel('selection'); return; }
+            if (parsed.command === 'attributeDisplay') {
+                const token = input.trim().toLowerCase();
+                const mode = token === 'on' ? 'all' : token;
+                if (!['normal', 'all', 'off'].includes(mode)) { setMessage(t('attribute.error.displaySyntax')); return; }
+                history.commit({ ...history.content, settings: { ...history.content.settings, attributeDisplay: mode } });
+                setMessage(t('attribute.updated')); return;
+            }
+            const tokens = tokenizeDrawingAttributeInput(input);
+            const result = parsed.command === 'attributeDefine' ? defineDrawingAttribute(history.content, input)
+                : parsed.command === 'attributeEdit' ? tokens?.length === 2
+                    ? editDrawingAttribute(history.content, selectedIds, tokens[0], tokens[1]) : { error: 'editSyntax' }
+                    : tokens && tokens.length <= 1 ? syncDrawingAttributes(history.content, selectedIds, tokens[0] || '') : { error: 'syncSyntax' };
+            if (result.error) { setMessage(t(`attribute.error.${result.error}`)); return; }
+            canvasRef.current?.cancel?.(); setInteractiveOperation(null); setActiveTool('select');
+            history.commit(result.content);
+            if (result.entity) setSelectedIds([result.entity.id]);
+            setSidebarPanel('selection'); setMessage(t('attribute.updated')); return;
+        }
+        if (parsed.command === 'blockEdit') { beginBlockEdit(getDrawingCommandInput(rawValue)); return; }
+        if (parsed.command === 'blockSave') { finishBlockEdit(); return; }
+        if (parsed.command === 'blockClose') {
+            const mode = getDrawingCommandInput(rawValue).trim().toUpperCase() || 'SAVE';
+            if (!['SAVE', 'DISCARD'].includes(mode)) { setMessage(t('block.closeOptions')); return; }
+            finishBlockEdit(true, mode === 'DISCARD'); return;
+        }
+        if (parsed.command === 'blockSearch') { openModelWorkspace(); setBlockSearch(getDrawingCommandInput(rawValue).trim()); setSidebarPanel('blocks'); return; }
+        if (parsed.command === 'blockBase') {
+            if (blockEditor.session) { setMessage(t('block.error.closeFirst')); return; }
+            openModelWorkspace(); blockCommands.base(getDrawingCommandInput(rawValue)); return;
+        }
+        if (parsed.command === 'blockDefine') { openModelWorkspace(); blockCommands.define(getDrawingCommandInput(rawValue)); return; }
+        if (parsed.command === 'blockExport') { await blockLibrary.run('export', getDrawingCommandInput(rawValue)); return; }
+        if (parsed.command === 'blockImport') { await blockLibrary.run('import', getDrawingCommandInput(rawValue)); return; }
+        if (parsed.command === 'blockInsert') {
+            openModelWorkspace();
+            const input = getDrawingCommandInput(rawValue);
+            if (/^FILE(?:\s|$)/i.test(input)) await blockLibrary.run('import', input.replace(/^FILE\s*/i, ''), true);
+            else blockCommands.insert(input);
+            return;
+        }
+        if (parsed.command === 'transparency') {
+            const input = getDrawingCommandInput(rawValue).trim();
+            const transparency = Number(input.replace(',', '.'));
+            const editable = selectedEntities.filter(entity => canEditEntity(history.content, entity));
+            if (!input || !Number.isFinite(transparency) || transparency < 0 || transparency > 90 || !editable.length) {
+                setMessage(t('image.transparencyOptions')); return;
+            }
+            history.commit(updateSelectedEntities(history.content, editable.map(entity => entity.id), entity => ({ ...entity, transparency })));
+            setMessage(t('image.transparencyApplied'));
+            return;
+        }
+        if (parsed.command === 'imageAttach') {
+            await imageSource.run(getDrawingCommandInput(rawValue), null, true);
+            return;
+        }
+        if (parsed.command === 'imageSource' && getDrawingCommandInput(rawValue).trim()) {
+            await imageSource.run(getDrawingCommandInput(rawValue), selectedEntities.length === 1 ? selectedEntities[0] : null);
+            return;
+        }
+        if (['imageAdjust', 'imageClip', 'imageSource'].includes(parsed.command)) {
+            const entity = selectedEntities.length === 1 && selectedEntities[0];
+            if (entity?.type !== 'image' || !canEditEntity(history.content, entity)) { setMessage(t('image.adjustSelection')); return; }
+            const input = getDrawingCommandInput(rawValue).trim();
+            if (input) {
+                const imageAdjustments = parsed.command === 'imageAdjust' && parseImageAdjustmentInput(input, entity.imageAdjustments);
+                const patch = parsed.command === 'imageClip' ? parseImageClipInput(input, entity.imageClip) : imageAdjustments && { imageAdjustments };
+                if (!patch) { setMessage(t(parsed.command === 'imageClip' ? 'image.clipInvalid' : 'image.adjustInvalid')); return; }
+                history.commit(updateSelectedEntities(history.content, [entity.id], current => ({ ...current, ...patch })));
+            }
+            openModelWorkspace();
+            setActiveTool('select');
+            setCreationPanelEntityId(entity.id);
+            setMessage(t('messages.creationPanelOpened', { type: t('entity.image') }));
+            return;
+        }
+        if (['creationPanel', 'splineEdit', 'hatchEdit'].includes(parsed.command)) {
+            const valid = selectedEntities.filter(parsed.command === 'splineEdit'
+                ? entity => isEditableSpline(entity) || (getDrawingCommandInput(rawValue).trim().toUpperCase() === 'FIT'
+                    && entity.type === 'polyline' && !entity.array && !entity.closed && Array.isArray(entity.points))
+                : parsed.command === 'hatchEdit' ? entity => entity.type === 'hatch' : supportsDrawingCreationPanel);
             if (selectedEntities.length !== 1 || valid.length !== 1) {
                 setCreationPanelEntityId(null);
-                setMessage(t('messages.creationPanelSelectionRequired'));
+                setMessage(t(parsed.command === 'splineEdit' ? 'spline.editSelectionRequired' : parsed.command === 'hatchEdit' ? 'hatch.selectionRequired' : 'messages.creationPanelSelectionRequired'));
                 return;
             }
             openModelWorkspace();
             canvasRef.current?.cancel();
             setInteractiveOperation(null);
             setActiveTool('select');
+            if (parsed.command === 'hatchEdit' && getDrawingCommandInput(rawValue).trim()) {
+                const entity = valid[0];
+                const input = getDrawingCommandInput(rawValue).trim();
+                const pattern = parseHatchPatternInput(input, entity.pattern);
+                if (!canEditEntity(history.content, entity) || (!pattern && input.toUpperCase() !== 'DETACH')) {
+                    setMessage(t('hatch.invalidOptions')); return;
+                }
+                history.commit(updateSelectedEntities(history.content, [entity.id], current => {
+                    if (pattern) return { ...current, pattern };
+                    const { sourceIds, ...detached } = current;
+                    return detached;
+                }));
+            }
+            if (parsed.command === 'splineEdit' && getDrawingCommandInput(rawValue).trim()) {
+                const entity = valid[0];
+                const next = canEditEntity(history.content, entity)
+                    ? applySplineEditInput(entity, getDrawingCommandInput(rawValue)) : entity;
+                if (next === entity) {
+                    setMessage(t('spline.editInvalid'));
+                    return;
+                }
+                history.commit(updateSelectedEntities(history.content, [entity.id], () => next));
+                if (!supportsDrawingCreationPanel(next)) {
+                    setCreationPanelEntityId(null);
+                    setMessage(t('spline.converted'));
+                    return;
+                }
+            }
             setCreationPanelEntityId(valid[0].id);
             setMessage(t('messages.creationPanelOpened', { type: t(`entity.${valid[0].type}`) }));
             return;
@@ -1606,6 +2175,10 @@ export default function DrawingEditorWorkspace({
         else if (parsed.command === 'copy') beginTransformOperation('copy', parsed.args[0]);
         else if (parsed.command === 'mirror') beginTransformOperation('mirror');
         else if (parsed.command === 'array') beginArray();
+        else if (parsed.command === 'arrayPath') beginArray(false, 'path');
+        else if (parsed.command === 'arrayPolar') beginArray(false, 'polar');
+        else if (parsed.command === 'arrayEdit') beginArray(true);
+        else if (parsed.command === 'arrayClose') setMessage(t('array.noActiveArray'));
         else if (parsed.command === 'align') beginAlign();
         else if (['fillet', 'chamfer', 'blend'].includes(parsed.command)) beginCornerOperation(parsed.command, parsed.args);
         else if (parsed.command === 'join') beginCompoundOperation('join');
@@ -1642,6 +2215,7 @@ export default function DrawingEditorWorkspace({
     };
 
     const cancelCommand = () => {
+        imageSource.cancel();
         if (workspaceMode === 'layout') {
             layoutCanvasRef.current?.cancel();
             setSelectedViewportId(null);
@@ -1686,6 +2260,9 @@ export default function DrawingEditorWorkspace({
         rotate: () => beginTransformOperation('rotate'),
         mirror: () => beginTransformOperation('mirror'),
         array: beginArray,
+        arrayPath: () => beginArray(false, 'path'),
+        arrayPolar: () => beginArray(false, 'polar'),
+        arrayEdit: () => beginArray(true),
         align: beginAlign,
         fillet: () => beginCornerOperation('fillet'),
         chamfer: () => beginCornerOperation('chamfer'),
@@ -1715,6 +2292,8 @@ export default function DrawingEditorWorkspace({
                 ? (selectedViewportId ? [selectedViewportId] : [])
                 : selectedIds,
             editor: {
+                blockEdit: blockEditor.session ? { blockId: blockEditor.session.blockId, name: blockEditor.session.name,
+                    dirty: blockEditor.dirty, content: history.content, assets } : null,
                 activeTool,
                 dimensionMode: activeTool === 'dimension' ? dimensionMode : null,
                 interactiveOperation,
@@ -1747,6 +2326,7 @@ export default function DrawingEditorWorkspace({
                 if (selectedViewportIds.length > 1) {
                     throw new Error('Only one layout viewport can be selected at a time.');
                 }
+                if (selectedViewportIds.length && blockEditor.session) throw new Error('Close the block editor before selecting a layout viewport.');
                 if (selectedViewportIds.length) {
                     setWorkspaceMode('layout');
                     setSelectedViewportId(selectedViewportIds[0]);
@@ -1787,6 +2367,7 @@ export default function DrawingEditorWorkspace({
             throw new Error(`Unsupported LUMCAD MCP action: ${String(action.type || '')}`);
         },
         replaceDocument: async replacement => {
+            if (blockEditor.session) throw new Error('Close the block editor with BCLOSE before replacing the document.');
             if (!replacement || typeof replacement !== 'object' || Array.isArray(replacement)) {
                 throw new Error('replace_document requires a LUMCAD document object.');
             }
@@ -1796,7 +2377,7 @@ export default function DrawingEditorWorkspace({
                 content: normalized.content,
                 layouts: normalized.layouts,
                 pageSetups: normalized.pageSetups || [],
-            });
+            }, { applyCreationStyles: false });
             setName(normalized.name);
             setAssets(normalized.assets);
             setActiveLayoutId(normalized.layouts[0]?.id || null);
@@ -1814,7 +2395,7 @@ export default function DrawingEditorWorkspace({
 
     return (
         <>
-            <div className="drawing-editor-shell has-workspace-tabs" onDragStart={event => { if (!isDrawingTextInput(event.target)) event.preventDefault(); }}>
+            <div className={`drawing-editor-shell ${blockEditor.session ? 'is-block-editing' : 'has-workspace-tabs'}`} onDragStart={event => { if (!isDrawingTextInput(event.target)) event.preventDefault(); }}>
                 <DrawingEditorHeader
                     name={name}
                     onNameChange={setName}
@@ -1830,11 +2411,19 @@ export default function DrawingEditorWorkspace({
                     updateState={updater}
                     onInstallUpdate={() => installAvailableUpdate().catch(() => setMessage(t('updater.installFailed')))}
                 />
+                {blockEditor.session && <section className="drawing-block-edit-bar" aria-label={t('block.editor')}>
+                    <strong>{t('block.editing', { name: blockEditor.session.name })}</strong>
+                    <span>{t(blockEditor.dirty ? 'block.draftModified' : 'block.draftSaved')}</span>
+                    <button type="button" onClick={() => finishBlockEdit()}>{t('commands.blockSave')}</button>
+                    <button type="button" onClick={() => finishBlockEdit(true)}>{t('block.saveAndClose')}</button>
+                    <button type="button" onClick={() => finishBlockEdit(true, true)}>{t('block.discardAndClose')}</button>
+                </section>}
                 {workspaceMode === 'model' ? (
                     <DrawingEditorBody
-                        toolbar={{ activeTool, activeOperation: interactiveOperation?.type || null, actions: toolbarActions,
+                        toolbar={{ activeTool, activeOperation: interactiveOperation?.arrayKind === 'path' ? 'arrayPath' : interactiveOperation?.arrayKind === 'polar' ? 'arrayPolar' : interactiveOperation?.type || null, actions: toolbarActions,
                             selectionCount: selectedIds.length, canUndo: history.canUndo, canRedo: history.canRedo }}
                         onToolChange={tool => {
+                            if (tool === 'hatch') { submitCommand('HATCH').catch(() => {}); return; }
                             canvasRef.current?.cancel();
                             setCreationPanelEntityId(null);
                             if (tool === 'dimension') setDimensionMode('auto');
@@ -1859,11 +2448,13 @@ export default function DrawingEditorWorkspace({
                                 setMessage(t('messages.creationPanelOpened', { type: t(`entity.${entity.type}`) }));
                             },
                             editEntity: creationPanelEntity,
+                            onImageSource: input => imageSource.run(input, creationPanelEntity),
+                            imageSourceBusy: imageSource.busy,
                             onEditEntityChange: creationPanelEntity && canEditEntity(history.content, creationPanelEntity)
                                 ? patch => history.commit(updateSelectedEntities(
                                     history.content,
                                     [creationPanelEntityId],
-                                    entity => ({ ...entity, ...patch }),
+                                    entity => patch.id === entity.id ? patch : ({ ...entity, ...patch }),
                                 ), { coalesceKey: `creation-panel-${creationPanelEntityId}` })
                                 : null }}
                         snap={{ content: history.content, onChange: history.commit,
@@ -1877,7 +2468,9 @@ export default function DrawingEditorWorkspace({
                             onSubmit: value => submitCommand(value).catch(() => {}), message,
                             operation: interactiveOperation, activeTool }}
                         sidebar={{ content: history.content, selectedIds, onCommit: history.commit,
-                            panel: sidebarPanel, onPanelChange: setSidebarPanel }}
+                            panel: sidebarPanel, onPanelChange: setSidebarPanel,
+                            blockSearch, onBlockSearch: setBlockSearch, onBlockDefine: blockCommands.define, onBlockInsert: blockCommands.insert, onBlockEdit: beginBlockEdit, onBlockImport: () => blockLibrary.run('import'),
+                            onBlockExport: id => blockLibrary.run('export', id || 'LIBRARY'), onDimensionStyleCommand: manageDimensionStyle, onManageAttribute: manageAttribute, onDefineAttribute: input => submitCommand(`ATTDEF ${input}`) }}
                     />
                 ) : activeLayout && (
                     <DrawingLayoutEditor
@@ -1935,7 +2528,7 @@ export default function DrawingEditorWorkspace({
                         onOperationPoint={point => handleInteractiveOperation({ point })}
                     />
                 )}
-                <DrawingWorkspaceTabs
+                {!blockEditor.session && <DrawingWorkspaceTabs
                     activeLayoutId={activeLayout?.id || null}
                     layouts={layouts}
                     mode={workspaceMode}
@@ -1949,7 +2542,7 @@ export default function DrawingEditorWorkspace({
                     onRenameLayout={renameLayout}
                     onSelectedLayoutsChange={setSelectedLayoutIds}
                     selectedLayoutIds={selectedLayoutIds}
-                />
+                />}
                 <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={handleImageFile} disabled={isUploading} />
                 {isUploading && <div className="drawing-upload-indicator">{t('messages.importingImage')}</div>}
             </div>
@@ -2042,6 +2635,7 @@ function operationPrecisionPointMode(operation) {
         || operation.stage === 'lengthen-pick' || operation.stage === 'lengthen-dynamic'
         || operation.stage.startsWith('align-source-') || operation.stage.startsWith('align-destination-')
         || operation.stage === 'mirror-axis' || operation.stage.startsWith('mirror-option-')
+        || operation.stage === 'array-center' || operation.stage === 'array-option-center'
         || operation.stage === 'array-horizontal' || operation.stage === 'array-vertical'
         || ['array-option-base', 'array-option-xSpacing', 'array-option-ySpacing'].includes(operation.stage)) {
         return 'direct';

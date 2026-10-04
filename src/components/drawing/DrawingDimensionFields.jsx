@@ -12,6 +12,7 @@ import {
 
 export default function DrawingDimensionFields({
     dimension,
+    automaticBreakTruncated = false,
     disabled = false,
     onChange,
     t,
@@ -25,18 +26,20 @@ export default function DrawingDimensionFields({
         const dimensionFormat = normalizeDrawingDimensionFormat({ ...format, ...patch });
         emit({ dimensionFormat });
     };
-    const emitTolerance = patch => emitFormat({
-        tolerance: { ...format.tolerance, ...patch },
-    });
-    const emitAlternate = patch => emitFormat({
-        alternateUnits: { ...format.alternateUnits, ...patch },
-    });
-    const emitInspection = patch => emitFormat({
-        inspection: { ...format.inspection, ...patch },
-    });
+
 
     return (
         <section className="drawing-dimension-fields">
+            {automaticBreakTruncated && <p role="status" className="drawing-sidebar-empty">{t('dimension.autoBreakTooComplex')}</p>}
+            {normalized.dimensionAutoBreak && (
+                <>
+                    <h4>{t('dimension.fields.autoBreak')}</h4>
+                    <NumberField disabled={disabled} label={t('dimension.fields.breakGap')}
+                        min="0.000001" step="0.05" value={normalized.dimensionAutoBreak.gap}
+                        onChange={gap => emit({ dimensionAutoBreak: { ...normalized.dimensionAutoBreak, gap } })} />
+                    <button type="button" className="drawing-secondary-button" disabled={disabled} onClick={() => emit({ dimensionAutoBreak: undefined })}>{t('dimension.disableAutoBreak')}</button>
+                </>
+            )}
             <h4>{t('dimension.fields.geometry')}</h4>
             {normalized.type === 'linearDimension' && (
                 <>
@@ -245,6 +248,12 @@ export default function DrawingDimensionFields({
                     />
                 </>
             )}
+            {normalized.type === 'centerLine' && <>
+                <NumberField disabled={disabled} label={t('dimension.fields.extension')} min="0" max="1000000" step="0.05"
+                    value={normalized.extension} onChange={extension => emit({ extension })} />
+                {associated && <CheckboxField disabled={disabled} label={t('centerLine.alternateBisector')}
+                    checked={normalized.alternateBisector} onChange={alternateBisector => emit({ alternateBisector })} />}
+            </>}
             {normalized.type === 'centerMark' && (
                 <>
                     <NumberField
@@ -265,7 +274,7 @@ export default function DrawingDimensionFields({
                     />
                 </>
             )}
-            {normalized.type !== 'centerMark' && (
+            {!['centerMark', 'centerLine'].includes(normalized.type) && (
                 <NumberField
                     disabled={disabled}
                     label={t('dimension.fields.textSize')}
@@ -276,9 +285,31 @@ export default function DrawingDimensionFields({
                 />
             )}
 
-            {normalized.type !== 'centerMark' && (
+            {!['centerMark', 'centerLine'].includes(normalized.type) && (
                 <>
                     <h4>{t('dimension.fields.format')}</h4>
+                    <OptionalPointField disabled={disabled} label={t('dimension.fields.textPosition')}
+                        point={normalized.dimensionTextPosition} t={t}
+                        onChange={dimensionTextPosition => emit({ dimensionTextPosition })} />
+                    <CheckboxField disabled={disabled} label={t('dimension.fields.textAngleOverride')}
+                        checked={Number.isFinite(normalized.dimensionTextAngle)}
+                        onChange={checked => emit({ dimensionTextAngle: checked ? 0 : undefined })} />
+                    {Number.isFinite(normalized.dimensionTextAngle) && (
+                        <AngleField disabled={disabled} label={t('dimension.fields.textAngle')}
+                            value={normalized.dimensionTextAngle}
+                            onChange={dimensionTextAngle => emit({ dimensionTextAngle })} />
+                    )}
+                    <TextField
+                        disabled={disabled}
+                        label={t('dimension.fields.overrideText')}
+                        value={normalized.dimensionTextOverride ?? '<>'}
+                        onChange={value => {
+                            const next = { ...normalized };
+                            if (value === '<>') delete next.dimensionTextOverride;
+                            else next.dimensionTextOverride = value.slice(0, 16384);
+                            onChange(next, {});
+                        }}
+                    />
                     <NumberField
                         disabled={disabled}
                         label={t('dimension.fields.precision')}
@@ -300,6 +331,24 @@ export default function DrawingDimensionFields({
                         onChange={suffix => emitFormat({ suffix })}
                         value={format.suffix}
                     />
+                    <DrawingDimensionFormatFields format={format} angular={normalized.type === 'angularDimension'} disabled={disabled} onChange={emitFormat} t={t} />
+                </>
+            )}
+        </section>
+    );
+}
+
+export function DrawingDimensionFormatFields({ format, angular = false, disabled = false, onChange, t }) {
+    const emitTolerance = patch => onChange({
+        tolerance: { ...format.tolerance, ...patch },
+    });
+    const emitAlternate = patch => onChange({
+        alternateUnits: { ...format.alternateUnits, ...patch },
+    });
+    const emitInspection = patch => onChange({
+        inspection: { ...format.inspection, ...patch },
+    });
+    return <>
                     <SelectField
                         disabled={disabled}
                         label={t('dimension.fields.toleranceMode')}
@@ -313,7 +362,7 @@ export default function DrawingDimensionFields({
                     {format.tolerance.mode !== 'none' && (
                         <>
                             <ToleranceField
-                                angular={normalized.type === 'angularDimension'}
+                                angular={angular}
                                 disabled={disabled}
                                 label={t('dimension.fields.toleranceUpper')}
                                 onChange={upper => emitTolerance({ upper })}
@@ -321,7 +370,7 @@ export default function DrawingDimensionFields({
                             />
                             {format.tolerance.mode !== 'symmetric' && (
                                 <ToleranceField
-                                    angular={normalized.type === 'angularDimension'}
+                                    angular={angular}
                                     disabled={disabled}
                                     label={t('dimension.fields.toleranceLower')}
                                     onChange={lower => emitTolerance({ lower })}
@@ -339,13 +388,13 @@ export default function DrawingDimensionFields({
                             />
                         </>
                     )}
-                    {normalized.type !== 'angularDimension' && <CheckboxField
+                    {!angular && <CheckboxField
                         checked={format.alternateUnits.enabled}
                         disabled={disabled}
                         label={t('dimension.fields.alternateUnits')}
                         onChange={enabled => emitAlternate({ enabled })}
                     />}
-                    {normalized.type !== 'angularDimension' && format.alternateUnits.enabled && (
+                    {!angular && format.alternateUnits.enabled && (
                         <>
                             <SelectField
                                 disabled={disabled}
@@ -387,10 +436,7 @@ export default function DrawingDimensionFields({
                             />
                         </>
                     )}
-                </>
-            )}
-        </section>
-    );
+    </>;
 }
 
 function SelectField({ disabled, label, onChange, options, value }) {

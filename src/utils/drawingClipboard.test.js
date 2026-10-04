@@ -276,3 +276,67 @@ test('clipboard validation rejects dangling, cyclic, oversized and unsupported p
 function testLayer(id, name, color) {
     return { id, name, color, lineWeight: 1, lineType: 'continuous', transparency: 0, visible: true, locked: false };
 }
+
+test('dimension style collisions remap model and nested dimensions without changing overrides or the active style', async () => {
+    const { applyDimensionStyle, normalizeDimensionStyles, saveDimensionStyle } = await import('./drawingDimensionStyles.js');
+    const source = createDefaultDrawingContent();
+    source.dimensionStyles = normalizeDimensionStyles([{ id: 'custom', name: 'Plan', textSize: 0.8 }]);
+    const style = source.dimensionStyles.find(item => item.id === 'custom');
+    const dimension = applyDimensionStyle({ id: 'dim', type: 'linearDimension', layerId: 'dimensions',
+        start: { x: 0, y: 0 }, end: { x: 5, y: 0 }, offset: 1, dimensionStyleOverrides: { arrowSize: 0.7 } }, style, { keepOverrides: true });
+    const block = createAnonymousDrawingBlock([{ ...dimension, id: 'nested' }], { id: 'styled-block' });
+    source.blocks = [block];
+    source.entities = [dimension, createAnonymousDrawingBlockReference(block, { id: 'ref', layerId: 'geometry' })];
+    const target = createDefaultDrawingContent();
+    target.dimensionStyles = normalizeDimensionStyles([{ id: 'custom', name: 'Plan', textSize: 0.2 }]);
+    const before = JSON.stringify(target);
+    const payload = parseDrawingClipboardText(serializeDrawingClipboardPayload(createDrawingClipboardPayload(source, ['dim', 'ref'])));
+    const pasted = pasteDrawingClipboardPayload(target, payload, { mode: 'original' });
+    const imported = pasted.content.dimensionStyles.find(item => item.name === 'Plan (2)');
+    assert.ok(imported);
+    assert.notEqual(imported.id, 'custom');
+    assert.equal(pasted.content.activeDimensionStyleId, target.activeDimensionStyleId);
+    for (const entity of [pasted.entities[0], pasted.content.blocks[0].entities[0]]) {
+        assert.equal(entity.dimensionStyleId, imported.id);
+        assert.equal(entity.textSize, 0.8);
+        assert.equal(entity.arrowSize, 0.7);
+    }
+    const updated = saveDimensionStyle(pasted.content, { id: imported.id, name: imported.name, values: { textSize: 1.2 } }).content;
+    assert.equal(updated.entities[0].textSize, 1.2);
+    assert.equal(updated.blocks[0].entities[0].textSize, 1.2);
+    assert.equal(updated.blocks[0].entities[0].arrowSize, 0.7);
+    assert.equal(JSON.stringify(target), before);
+    const asBlock = pasteDrawingClipboardPayload(target, payload, { mode: 'block' });
+    assert.equal(asBlock.content.dimensionStyles.length, 3);
+    assert.equal(asBlock.content.blocks.at(-1).entities[0].textSize, 0.8);
+});
+
+test('identical styles reuse IDs while legacy snapshots never bind to a destination catalog', async () => {
+    const { normalizeDimensionStyles } = await import('./drawingDimensionStyles.js');
+    const source = createDefaultDrawingContent();
+    source.dimensionStyles = normalizeDimensionStyles([{ id: 'custom', name: 'Plan', textSize: 0.8 }]);
+    source.entities = [{ id: 'dim', type: 'linearDimension', layerId: 'dimensions', start: { x: 0, y: 0 }, end: { x: 5, y: 0 },
+        dimensionStyleId: 'custom', textSize: 0.8 }];
+    const payload = createDrawingClipboardPayload(source, ['dim']);
+    const pasted = pasteDrawingClipboardPayload(source, payload);
+    assert.equal(pasted.content.dimensionStyles.length, 2);
+    assert.equal(pasted.entities[0].dimensionStyleId, 'custom');
+    delete payload.dimensionStyles;
+    const legacy = pasteDrawingClipboardPayload(source, payload);
+    assert.equal(legacy.entities[0].dimensionStyleId, undefined);
+    assert.equal(legacy.entities[0].textSize, 0.8);
+    const full = { ...source, dimensionStyles: normalizeDimensionStyles(Array.from({ length: 127 }, (_, index) => ({ id: `s${index}`, name: `Style ${index}` }))) };
+    assert.throws(() => pasteDrawingClipboardPayload(full, createDrawingClipboardPayload(source, ['dim'])));
+    assert.equal(full.entities.length, 1);
+});
+
+test('clipboard dimension catalogs reject duplicate names, oversized names and oversized catalogs', () => {
+    const source = createDefaultDrawingContent();
+    source.entities = [{ id: 'line', type: 'line', layerId: 'geometry', x1: 0, y1: 0, x2: 1, y2: 0 }];
+    const payload = createDrawingClipboardPayload(source, ['line']);
+    for (const dimensionStyles of [
+        [{ id: 'a', name: 'Plan' }, { id: 'b', name: 'plan' }],
+        [{ id: 'a', name: 'x'.repeat(129) }],
+        Array.from({ length: 129 }, (_, index) => ({ id: `s${index}`, name: `S${index}` })),
+    ]) assert.throws(() => validateDrawingClipboardPayload({ ...payload, dimensionStyles }));
+});

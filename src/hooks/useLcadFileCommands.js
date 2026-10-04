@@ -28,6 +28,7 @@ export default function useLcadFileCommands({
     onReplaceSession,
     publishRendererRef = null,
     setMessage,
+    blockEditing = false,
 }) {
     const { t } = useI18n();
     const [isExporting, setIsExporting] = useState(false);
@@ -35,12 +36,14 @@ export default function useLcadFileCommands({
     const [publishRequest, setPublishRequest] = useState(null);
 
     const saveDrawingAs = useCallback(async () => {
+        if (blockEditing) { setMessage(t('block.error.closeFirst')); return null; }
         const result = await autosave.saveAs();
         setMessage(t(result ? 'file.savedAs' : 'file.saveAsCancelled'));
         return result;
-    }, [autosave, setMessage, t]);
+    }, [autosave, blockEditing, setMessage, t]);
 
     const prepareSessionReplacement = useCallback(async () => {
+        if (blockEditing) { setMessage(t('block.error.closeFirst')); return false; }
         try {
             const unsavedLocalDocument = !filePath && (
                 autosave.isRecovery || recovered || autosave.status !== 'saved'
@@ -56,7 +59,7 @@ export default function useLcadFileCommands({
             setMessage(localizeError(error, t, 'file.currentSaveFailed'));
             return false;
         }
-    }, [autosave, filePath, recovered, setMessage, t]);
+    }, [autosave, blockEditing, filePath, recovered, setMessage, t]);
 
     const replaceWithLoaded = useCallback(async loaded => {
         await clearLcadRecovery();
@@ -125,6 +128,7 @@ export default function useLcadFileCommands({
     }, [document.layouts]);
 
     const exportPdf = useCallback(async (layoutIds, { format = 'pdf' } = {}) => {
+        if (blockEditing) { setMessage(t('block.error.closeFirst')); return false; }
         const layouts = resolveRequestedLayouts(layoutIds);
         if (!layouts.length) {
             setMessage(t('layout.noLayoutsToExport'));
@@ -135,7 +139,7 @@ export default function useLcadFileCommands({
             layoutIds: layouts.map(layout => layout.id),
         });
         return true;
-    }, [resolveRequestedLayouts, setMessage, t]);
+    }, [blockEditing, resolveRequestedLayouts, setMessage, t]);
 
     const closePublishDialog = useCallback(() => setPublishRequest(null), []);
 
@@ -185,6 +189,7 @@ export default function useLcadFileCommands({
     }, [document, setMessage, t]);
 
     const autoPublish = useCallback(async (layoutIds = null) => {
+        if (blockEditing) { setMessage(t('block.error.closeFirst')); return false; }
         const path = getAutomaticDrawingPublishPath(filePath, 'pdf');
         if (!path) {
             setMessage(t('publish.autoRequiresSavedDrawing'));
@@ -218,7 +223,7 @@ export default function useLcadFileCommands({
         } finally {
             setIsExporting(false);
         }
-    }, [document.name, filePath, publishRendererRef, resolveRequestedLayouts, setMessage, t]);
+    }, [blockEditing, document.name, filePath, publishRendererRef, resolveRequestedLayouts, setMessage, t]);
 
     const exportPageSetups = useCallback(async pageSetupIds => {
         const requestedIds = new Set(Array.isArray(pageSetupIds) ? pageSetupIds : []);

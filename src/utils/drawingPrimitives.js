@@ -1,3 +1,8 @@
+import { drawingAffineFrame, transformDrawingAffineFrame, framedDrawingPoint } from './drawingAffineFrame.js';
+import { transformDefinedSpline } from './drawingSplineCreation.js';
+import { getImageClipPoints } from './drawingImageClip.js';
+import { transformPathArrayEntity } from './drawingPathArray.js';
+import { transformPolarArrayEntity } from './drawingPolarArray.js';
 const EPSILON = 1e-9;
 
 import {
@@ -13,7 +18,10 @@ import {
     mirrorAffineMatrix,
     rotationAffineMatrix,
     scaleAffineMatrix,
+    transformDrawingEntityAffine,
     transformDrawingBlockReference,
+    transformArrayParameters,
+    transformAffinePoint,
     translationAffineMatrix,
 } from './drawingBlocks.js';
 import {
@@ -95,13 +103,13 @@ export function getRectEntityCorners(entity) {
         { x: maxX, y: maxY }, { x: minX, y: maxY },
     ];
     const rotation = Number(entity.rotation) || 0;
-    return rotation ? corners.map(point => rotatePoint(point, center, rotation)) : corners;
+    return (rotation ? corners.map(point => rotatePoint(point, center, rotation)) : corners).map(point => framedDrawingPoint(entity, point));
 }
 
 export function getEntitySegments(entity) {
     if (entity?.type === 'line') return [[{ x: entity.x1, y: entity.y1 }, { x: entity.x2, y: entity.y2 }]];
     if (entity?.type === 'ellipse' || entity?.type === 'spline') return getAdvancedEntitySegments(entity);
-    if (entity?.type === 'hatch') return getHatchBoundaryEntities(entity).flatMap(getEntitySegments);
+    if (['hatch', 'region'].includes(entity?.type)) return getHatchBoundaryEntities(entity).flatMap(getClosedBoundarySegments);
     if (entity?.type === 'arc') {
         const points = getArcPoints(entity);
         return points.slice(0, -1).map((point, index) => [point, points[index + 1]]);
@@ -118,8 +126,24 @@ export function getEntitySegments(entity) {
         return segments;
     }
     if (!['rectangle', 'image', 'text'].includes(entity?.type)) return [];
-    const points = entity.type === 'rectangle' ? getRectangleOutlinePoints(entity) : getRectEntityCorners(entity);
+    const points = entity.type === 'rectangle' ? getRectangleOutlinePoints(entity)
+        : entity.type === 'image' ? getImageClipPoints(entity, { world: true }) || getRectEntityCorners(entity) : getRectEntityCorners(entity);
     return points.map((point, index) => [point, points[(index + 1) % points.length]]);
+}
+
+/** Segment approximation for area containment only; standalone circles retain analytic snapping. */
+export function getClosedBoundarySegments(entity) {
+    if (entity?.type === 'circle') {
+        const { cx, cy, r } = entity;
+        if (![cx, cy, r].every(Number.isFinite) || r <= 0) return [];
+        const points = Array.from({ length: 128 }, (_, index) => ({
+            x: cx + r * Math.cos(index * Math.PI / 64),
+            y: cy + r * Math.sin(index * Math.PI / 64),
+        }));
+        return points.map((point, index) => [point, points[(index + 1) % points.length]]);
+    }
+    if (entity?.type === 'polyline' && Array.isArray(entity.parts)) return entity.parts.flatMap(getClosedBoundarySegments);
+    return getEntitySegments(entity);
 }
 
 /**
@@ -187,10 +211,22 @@ export function scaleEntity(entity, factorOrTransform = 1, origin = { x: 0, y: 0
  * their native geometry into an ellipse or another non-native curve.
  */
 export function transformEntity(entity, transform = {}, options = {}) {
+    if (entity?.detachedSource) {
+        const resolved = normalizeScaleTransform(transform, undefined, options);
+        if (!resolved) return entity;
+        return transformDrawingEntityAffine(entity, scaleAffineMatrix(resolved.scaleX, resolved.scaleY, resolved.origin));
+    }
     if (!entity) return entity;
     const resolved = normalizeScaleTransform(transform, undefined, options);
     if (!resolved) return entity;
     const { origin, scaleX, scaleY } = resolved;
+    if (drawingAffineFrame(entity)) return transformDrawingAffineFrame(entity, scaleAffineMatrix(scaleX, scaleY, origin));
+    if (entity?.splineDefinition) {
+        const defined = transformDefinedSpline(entity, scaleAffineMatrix(scaleX, scaleY, origin));
+        if (defined) return defined;
+    }
+    if (entity.array?.kind === 'polar') return transformPolarArrayEntity(entity, scaleAffineMatrix(scaleX, scaleY, origin));
+    if (entity.array?.kind === 'path') return transformPathArrayEntity(entity, scaleAffineMatrix(scaleX, scaleY, origin));
     const point = value => transformPoint(value, resolved);
     const similarity = isSimilarityScale(scaleX, scaleY);
 
@@ -202,12 +238,12 @@ export function transformEntity(entity, transform = {}, options = {}) {
         return transformAdvancedCurveAffine(entity, scaleAffineMatrix(scaleX, scaleY, origin));
     }
 
-    if (entity.type === 'hatch') {
+    if (['hatch', 'region'].includes(entity.type)) {
         const matrix = scaleAffineMatrix(scaleX, scaleY, origin);
         return transformHatchEntity(entity, matrix, boundary => transformEntity(boundary, resolved));
     }
 
-    if (entity.type === 'line') {
+    if (['line', 'xline', 'ray'].includes(entity.type)) {
         return {
             ...entity,
             x1: point({ x: entity.x1, y: entity.y1 }).x,
@@ -255,6 +291,7 @@ export function transformEntity(entity, transform = {}, options = {}) {
     if (entity.type === 'polyline') {
         return {
             ...entity,
+            ...transformArrayParameters(entity, scaleAffineMatrix(scaleX, scaleY, origin)),
             ...(Array.isArray(entity.parts)
                 ? { parts: entity.parts.map(part => transformEntity(part, resolved)) }
                 : { points: (entity.points || []).map(point) }),
@@ -268,24 +305,35 @@ export function transformEntity(entity, transform = {}, options = {}) {
 }
 
 export function translateEntity(entity, dx, dy) {
+    if (entity?.detachedSource) {
+        const { detachedSource, ...rest } = entity;
+        return { ...translateEntity(rest, dx, dy), detachedSource: translateEntity(detachedSource, dx, dy) };
+    }
+    if (drawingAffineFrame(entity)) return transformDrawingAffineFrame(entity, translationAffineMatrix(dx, dy));
+    if (entity?.splineDefinition) {
+        const defined = transformDefinedSpline(entity, translationAffineMatrix(dx, dy));
+        if (defined) return defined;
+    }
+    if (entity.array?.kind === 'polar') return transformPolarArrayEntity(entity, translationAffineMatrix(dx, dy));
+    if (entity.array?.kind === 'path') return transformPathArrayEntity(entity, translationAffineMatrix(dx, dy));
     if (entity.type === 'blockReference') {
         return transformDrawingBlockReference(entity, translationAffineMatrix(dx, dy));
     }
     if (entity.type === 'ellipse' || entity.type === 'spline') {
         return transformAdvancedCurveAffine(entity, translationAffineMatrix(dx, dy));
     }
-    if (entity.type === 'hatch') {
+    if (['hatch', 'region'].includes(entity.type)) {
         const matrix = translationAffineMatrix(dx, dy);
         return transformHatchEntity(entity, matrix, boundary => translateEntity(boundary, dx, dy));
     }
-    if (entity.type === 'line') return { ...entity, x1: entity.x1 + dx, y1: entity.y1 + dy, x2: entity.x2 + dx, y2: entity.y2 + dy };
+    if (['line', 'xline', 'ray'].includes(entity.type)) return { ...entity, x1: entity.x1 + dx, y1: entity.y1 + dy, x2: entity.x2 + dx, y2: entity.y2 + dy };
     if (entity.type === 'rectangle' || entity.type === 'image' || entity.type === 'text') return { ...entity, x: entity.x + dx, y: entity.y + dy };
     if (entity.type === 'circle') return { ...entity, cx: entity.cx + dx, cy: entity.cy + dy };
     if (entity.type === 'polygon' || entity.type === 'arc') return { ...entity, cx: entity.cx + dx, cy: entity.cy + dy };
     if (entity.type === 'polyline') return {
         ...entity,
         ...(Array.isArray(entity.parts)
-            ? { parts: entity.parts.map(part => translateEntity(part, dx, dy)) }
+            ? { ...transformArrayParameters(entity, translationAffineMatrix(dx, dy)), parts: entity.parts.map(part => translateEntity(part, dx, dy)) }
             : { points: (entity.points || []).map(point => ({ x: point.x + dx, y: point.y + dy })) }),
     };
     if (isDrawingDimensionEntity(entity)) {
@@ -295,19 +343,30 @@ export function translateEntity(entity, dx, dy) {
 }
 
 export function rotateEntity(entity, angleInput, origin) {
+    if (entity?.detachedSource) {
+        const { detachedSource, ...rest } = entity;
+        return { ...rotateEntity(entity.type === 'radialDimension' ? { ...rest, angle: Number.isFinite(rest.angle) ? rest.angle : -Math.PI / 4 } : rest, angleInput, origin), detachedSource: rotateEntity(detachedSource, angleInput, origin) };
+    }
     const angleDegrees = angleInputToDegrees(angleInput);
+    if (drawingAffineFrame(entity)) return transformDrawingAffineFrame(entity, rotationAffineMatrix(angleDegrees, origin));
     if (!entity || !origin || !Number.isFinite(angleDegrees)) return entity;
+    if (entity?.splineDefinition) {
+        const defined = transformDefinedSpline(entity, rotationAffineMatrix(angleDegrees, origin));
+        if (defined) return defined;
+    }
+    if (entity.array?.kind === 'polar') return transformPolarArrayEntity(entity, rotationAffineMatrix(angleDegrees, origin));
+    if (entity.array?.kind === 'path') return transformPathArrayEntity(entity, rotationAffineMatrix(angleDegrees, origin));
     if (entity.type === 'blockReference') {
         return transformDrawingBlockReference(entity, rotationAffineMatrix(angleDegrees, origin));
     }
     if (entity.type === 'ellipse' || entity.type === 'spline') {
         return transformAdvancedCurveAffine(entity, rotationAffineMatrix(angleDegrees, origin));
     }
-    if (entity.type === 'hatch') {
+    if (['hatch', 'region'].includes(entity.type)) {
         const matrix = rotationAffineMatrix(angleDegrees, origin);
         return transformHatchEntity(entity, matrix, boundary => rotateEntity(boundary, angleDegrees, origin));
     }
-    if (entity.type === 'line') {
+    if (['line', 'xline', 'ray'].includes(entity.type)) {
         const first = rotatePoint({ x: entity.x1, y: entity.y1 }, origin, angleDegrees);
         const second = rotatePoint({ x: entity.x2, y: entity.y2 }, origin, angleDegrees);
         return { ...entity, x1: first.x, y1: first.y, x2: second.x, y2: second.y };
@@ -343,7 +402,7 @@ export function rotateEntity(entity, angleInput, origin) {
     if (entity.type === 'polyline') return {
         ...entity,
         ...(Array.isArray(entity.parts)
-            ? { parts: entity.parts.map(part => rotateEntity(part, angleDegrees, origin)) }
+            ? { ...transformArrayParameters(entity, rotationAffineMatrix(angleDegrees, origin)), parts: entity.parts.map(part => rotateEntity(part, angleDegrees, origin)) }
             : { points: (entity.points || []).map(point => rotatePoint(point, origin, angleDegrees)) }),
     };
     if (isDrawingDimensionEntity(entity)) {
@@ -355,7 +414,18 @@ export function rotateEntity(entity, angleInput, origin) {
 }
 
 export function mirrorEntity(entity, axisFirst, axisSecond, options = {}) {
+    if (entity?.detachedSource) {
+        const { detachedSource, ...rest } = entity;
+        return { ...mirrorEntity(entity.type === 'radialDimension' ? { ...rest, angle: Number.isFinite(rest.angle) ? rest.angle : -Math.PI / 4 } : rest, axisFirst, axisSecond, options), detachedSource: mirrorEntity(detachedSource, axisFirst, axisSecond, options) };
+    }
+    if (drawingAffineFrame(entity)) return transformDrawingAffineFrame(entity, mirrorAffineMatrix(axisFirst, axisSecond));
     if (!entity || !axisFirst || !axisSecond || pointDistance(axisFirst, axisSecond) <= EPSILON) return entity;
+    if (entity?.splineDefinition) {
+        const defined = transformDefinedSpline(entity, mirrorAffineMatrix(axisFirst, axisSecond));
+        if (defined) return defined;
+    }
+    if (entity.array?.kind === 'polar') return transformPolarArrayEntity(entity, mirrorAffineMatrix(axisFirst, axisSecond));
+    if (entity.array?.kind === 'path') return transformPathArrayEntity(entity, mirrorAffineMatrix(axisFirst, axisSecond));
     const mirrorTextGlyphs = options.mirrorTextGlyphs ?? options.mirrorText ?? true;
     if (entity.type === 'blockReference') {
         return transformDrawingBlockReference(entity, mirrorAffineMatrix(axisFirst, axisSecond));
@@ -363,7 +433,7 @@ export function mirrorEntity(entity, axisFirst, axisSecond, options = {}) {
     if (entity.type === 'ellipse' || entity.type === 'spline') {
         return transformAdvancedCurveAffine(entity, mirrorAffineMatrix(axisFirst, axisSecond));
     }
-    if (entity.type === 'hatch') {
+    if (['hatch', 'region'].includes(entity.type)) {
         const matrix = mirrorAffineMatrix(axisFirst, axisSecond);
         return transformHatchEntity(
             entity,
@@ -371,7 +441,7 @@ export function mirrorEntity(entity, axisFirst, axisSecond, options = {}) {
             boundary => mirrorEntity(boundary, axisFirst, axisSecond, options),
         );
     }
-    if (entity.type === 'line') {
+    if (['line', 'xline', 'ray'].includes(entity.type)) {
         const first = mirrorPoint({ x: entity.x1, y: entity.y1 }, axisFirst, axisSecond);
         const second = mirrorPoint({ x: entity.x2, y: entity.y2 }, axisFirst, axisSecond);
         return { ...entity, x1: first.x, y1: first.y, x2: second.x, y2: second.y };
@@ -379,7 +449,7 @@ export function mirrorEntity(entity, axisFirst, axisSecond, options = {}) {
     if (entity.type === 'polyline') return {
         ...entity,
         ...(Array.isArray(entity.parts)
-            ? { parts: entity.parts.map(part => mirrorEntity(part, axisFirst, axisSecond, options)) }
+            ? { ...transformArrayParameters(entity, mirrorAffineMatrix(axisFirst, axisSecond)), parts: entity.parts.map(part => mirrorEntity(part, axisFirst, axisSecond, options)) }
             : { points: (entity.points || []).map(point => mirrorPoint(point, axisFirst, axisSecond)) }),
     };
     if (entity.type === 'rectangle' || entity.type === 'image' || entity.type === 'text') {
@@ -455,8 +525,9 @@ export const createSymmetricConstruction = symmetricConstructionTransform;
 function transformHatchEntity(entity, matrix, transformBoundary) {
     return {
         ...entity,
+        ...(entity.boundaryPick ? { boundaryPick: transformAffinePoint(entity.boundaryPick, matrix) } : {}),
         boundaries: getHatchBoundaryEntities(entity).map(transformBoundary),
-        pattern: transformHatchPatternAffine(entity.pattern, matrix),
+        ...(entity.type === 'hatch' ? { pattern: transformHatchPatternAffine(entity.pattern, matrix) } : {}),
     };
 }
 
@@ -655,7 +726,7 @@ function transformDimensionPointFields(entity, transformPointFn) {
         'jogPoint',
         'origin',
         'featurePoint',
-        'leaderPoint',
+        'leaderPoint', 'dimensionTextPosition',
     ].forEach(property => {
         if (isFinitePoint(entity[property])) next[property] = transformPointFn(entity[property]);
     });
@@ -669,7 +740,7 @@ function transformDimensionPointFields(entity, transformPointFn) {
 
 function transformDimensionAngles(entity, transformAngle) {
     const next = { ...entity };
-    ['angle', 'dimensionAngle'].forEach(property => {
+    ['angle', 'dimensionAngle', 'dimensionTextAngle', 'dimensionExtensionAngle'].forEach(property => {
         if (Number.isFinite(Number(entity[property]))) next[property] = transformAngle(Number(entity[property]));
     });
     return next;

@@ -1,3 +1,4 @@
+import { isConstructionLine, intersectConstructionLine } from './drawingConstructionLines.js';
 import { getEntitySegments, pointDistance } from './drawingPrimitives.js';
 import { snapDrawingPoint } from './drawingGeometry.js';
 import {
@@ -258,6 +259,11 @@ function guideGuideIntersection(first, second) {
 }
 
 function guideEntityIntersections(anchor, angle, entity, budget = { remaining: MAX_GUIDE_ENTITY_SEGMENT_CHECKS }) {
+    if (isConstructionLine(entity)) {
+        if (budget.remaining <= 0) return [];
+        budget.remaining -= 1;
+        return intersectConstructionLine(entity, { type: 'xline', x1: anchor.x, y1: anchor.y, x2: anchor.x + Math.cos(angle), y2: anchor.y + Math.sin(angle) });
+    }
     if (budget.remaining <= 0) return [];
     const direction = { x: Math.cos(angle), y: Math.sin(angle) };
     if (entity.type === 'polyline' && Array.isArray(entity.parts)) {

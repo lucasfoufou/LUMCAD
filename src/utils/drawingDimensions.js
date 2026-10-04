@@ -1,3 +1,9 @@
+import { centerLineGeometry } from './drawingCenterLines.js';
+import { normalizeDimensionStyleValues } from './drawingDimensionStyles.js';
+import { normalizeDimensionBreaks, normalizeAutomaticDimensionBreak, dimensionObstacleCurves } from './drawingDimensionBreaks.js';
+import { extractEntityPaths, curveLength, curveParameterAtLength, curvePointAt, curveTangentAt, normalizeCurvePrimitive } from './drawingCurveKernel.js';
+import { ellipseNormalAt, ellipseOffsetPoint, sampleEllipseOffset } from './drawingEllipseOffset.js';
+import { getEllipseAxisSegments } from './drawingEllipseGeometry.js';
 import {
     arcEndPoint,
     arcStartPoint,
@@ -23,6 +29,7 @@ export const DRAWING_DIMENSION_TYPES = Object.freeze([
     'arcLengthDimension',
     'ordinateDimension',
     'centerMark',
+    'centerLine',
 ]);
 
 export const DRAWING_LINEAR_DIMENSION_MODES = Object.freeze([
@@ -86,6 +93,22 @@ export function normalizeDrawingDimension(entity) {
     if (!isDrawingDimensionEntity(entity)) return entity;
     const normalized = { ...entity };
     normalizeDependencies(normalized, entity);
+    const automaticBreak = normalizeAutomaticDimensionBreak(entity.dimensionAutoBreak);
+    if (automaticBreak) normalized.dimensionAutoBreak = automaticBreak;
+    else delete normalized.dimensionAutoBreak;
+    const breaks = normalizeDimensionBreaks(entity.dimensionBreaks);
+    if (breaks.length) normalized.dimensionBreaks = breaks;
+    else delete normalized.dimensionBreaks;
+    normalizeOptionalPoint(normalized, entity, 'dimensionTextPosition');
+    if (Number.isFinite(entity.dimensionExtensionAngle)) normalized.dimensionExtensionAngle = entity.dimensionExtensionAngle % (Math.PI * 2);
+    else delete normalized.dimensionExtensionAngle;
+    if (Number.isFinite(entity.dimensionTextAngle)) normalized.dimensionTextAngle = entity.dimensionTextAngle % (Math.PI * 2);
+    else delete normalized.dimensionTextAngle;
+    if (typeof entity.dimensionTextOverride === 'string') normalized.dimensionTextOverride = entity.dimensionTextOverride.slice(0, 16384);
+    else delete normalized.dimensionTextOverride;
+    const detachedSource = normalizeDimensionDetachedSource(entity.detachedSource);
+    if (detachedSource && !getDrawingEntityDependencyIds(normalized).length) normalized.detachedSource = detachedSource;
+    else delete normalized.detachedSource;
 
     if (entity.dimensionFormat !== undefined) {
         normalized.dimensionFormat = normalizeDrawingDimensionFormat(entity.dimensionFormat);
@@ -125,6 +148,11 @@ export function normalizeDrawingDimension(entity) {
         normalized.origin = finitePointOr(entity.origin, { x: 0, y: 0 });
         normalizeOptionalPoint(normalized, entity, 'featurePoint');
         normalizeOptionalPoint(normalized, entity, 'leaderPoint');
+    } else if (entity.type === 'centerLine') {
+        normalized.extension = Math.max(0, Math.min(1e6, finiteOr(entity.extension, 0.25)));
+        normalized.alternateBisector = Boolean(entity.alternateBisector);
+        normalizeOptionalPoint(normalized, entity, 'p1');
+        normalizeOptionalPoint(normalized, entity, 'p2');
     } else if (entity.type === 'centerMark') {
         normalized.size = Math.max(EPSILON, finiteOr(entity.size, DEFAULT_CENTER_MARK_SIZE));
         normalized.extension = Math.max(0, finiteOr(entity.extension, 0));
@@ -185,10 +213,15 @@ export function drawingEntityDependsOn(entity, sourceId) {
     return typeof sourceId === 'string' && getDrawingEntityDependencyIds(entity).includes(sourceId);
 }
 
-export function remapDrawingEntityDependencies(entity, idMap) {
+export function remapDrawingEntityDependencies(entity, idMap, { preserveAppearance = false } = {}) {
     if (!entity || typeof entity !== 'object') return entity;
     const resolve = dependencyRemapper(idMap);
-    const remapped = { ...entity };
+    // Copies of legacy unstyled dimensions must retain their complete visual
+    // snapshot even when the destination uses a different current style.
+    const remapped = preserveAppearance && isDrawingDimensionEntity(entity) && !entity.dimensionStyleId
+        ? { ...entity, ...normalizeDimensionStyleValues(entity) }
+        : { ...entity };
+    if (entity.dimensionAutoBreak) remapped.dimensionAutoBreak = { ...entity.dimensionAutoBreak, sourceIds: entity.dimensionAutoBreak.sourceIds.map(resolve) };
     if (typeof entity.sourceId === 'string') remapped.sourceId = resolve(entity.sourceId);
     if (Array.isArray(entity.sourceIds)) {
         remapped.sourceIds = [...new Set(entity.sourceIds
@@ -246,6 +279,31 @@ export function normalizeDrawingDimensionPointReference(value) {
 }
 
 export function getDimensionGeometry(dimension, sources = null) {
+    const geometry = getRawDimensionGeometry(dimension, sources);
+    const automatic = normalizeAutomaticDimensionBreak(dimension?.dimensionAutoBreak);
+    if (!geometry || !automatic) return geometry;
+    const map = sources instanceof Map ? sources : new Map((Array.isArray(sources) ? sources : sources?.entities || (sources?.id ? [sources] : [])).map(entity => [entity.id, entity]));
+    const curves = [];
+    let automaticBreakSourceTruncated = false;
+    for (const id of automatic.sourceIds) {
+        const source = map.get(id);
+        if (!source || source.id === dimension.id) continue;
+        const sourceCurves = getDimensionBreakSourceCurves(source, map);
+        if (sourceCurves.truncated) { automaticBreakSourceTruncated = true; break; }
+        curves.push(...sourceCurves.slice(0, 10001 - curves.length));
+        if (curves.length > 10000) break;
+    }
+    return { ...geometry, automaticBreakCurves: curves, automaticBreakSourceTruncated };
+}
+
+export function getDimensionBreakSourceCurves(source, sources) {
+    if (source?.type === 'blockReference') return sources?.dimensionBlockCurves?.(source) || [];
+    return isDrawingDimensionEntity(source)
+        ? dimensionObstacleCurves(getRawDimensionGeometry(source, sources), source)
+        : extractEntityPaths(source).flatMap(path => path.parts);
+}
+
+function getRawDimensionGeometry(dimension, sources) {
     if (!dimension || typeof dimension !== 'object') return null;
     if (dimension.type === 'linearDimension') return getLinearDimensionGeometry(dimension, sources);
     if (dimension.type === 'radialDimension') return getRadialDimensionGeometry(dimension, sources);
@@ -253,6 +311,7 @@ export function getDimensionGeometry(dimension, sources = null) {
     if (dimension.type === 'arcLengthDimension') return getArcLengthDimensionGeometry(dimension, sources);
     if (dimension.type === 'ordinateDimension') return getOrdinateDimensionGeometry(dimension, sources);
     if (dimension.type === 'centerMark') return getCenterMarkGeometry(dimension, sources);
+    if (dimension.type === 'centerLine') return centerLineGeometry(dimension, resolveDimensionSources(dimension, sources));
     return null;
 }
 
@@ -272,8 +331,13 @@ export function getLinearDimensionGeometry(dimension, sources = null) {
     const lineScalar = isFinitePoint(dimension.linePoint)
         ? dot(dimension.linePoint, normal)
         : dot(sourceFirst, normal) + offset;
-    const first = projectOntoDimensionLine(sourceFirst, axis, normal, lineScalar);
-    const second = projectOntoDimensionLine(sourceSecond, axis, normal, lineScalar);
+    const extensionAxis = Number.isFinite(dimension.dimensionExtensionAngle)
+        ? vectorFromAngle(dimension.dimensionExtensionAngle) : normal;
+    const denominator = dot(extensionAxis, normal);
+    if (Math.abs(denominator) < 1e-7) return null;
+    const project = point => add(point, scale(extensionAxis, (lineScalar - dot(point, normal)) / denominator));
+    const first = project(sourceFirst);
+    const second = project(sourceSecond);
     const measured = Math.abs(dot(delta, axis));
     if (measured < EPSILON) return null;
     const angle = Math.atan2(axis.y, axis.x);
@@ -300,11 +364,16 @@ export function getLinearDimensionGeometry(dimension, sources = null) {
 
 export function getRadialDimensionGeometry(dimension, sources = null) {
     const source = resolvePrimarySource(dimension, sources);
-    if (!['circle', 'arc'].includes(source?.type) || !isFiniteBoundedCircle(source)) return null;
-    const radius = Math.abs(Number(source.r) || 0);
-    if (radius < EPSILON) return null;
-    const mode = DRAWING_RADIAL_DIMENSION_MODES.includes(dimension.mode) ? dimension.mode : 'radius';
     const angle = finiteOr(dimension.angle, DEFAULT_RADIAL_ANGLE);
+    const ellipse = source?.type === 'ellipse' && dimension.detachedSource && normalizeDimensionDetachedSource(source);
+    if (!ellipse && (!['circle', 'arc'].includes(source?.type) || !isFiniteBoundedCircle(source))) return null;
+    const localAngle = angle - finiteOr(source.rotation, 0) * Math.PI / 180;
+    // An affinely transformed detached radius measures its central ray, not
+    // a radius of curvature or an assumed constant radius of the ellipse.
+    const radius = ellipse ? 1 / Math.hypot(Math.cos(localAngle) / ellipse.rx, Math.sin(localAngle) / ellipse.ry)
+        : Math.abs(Number(source.r) || 0);
+    if (!Number.isFinite(radius) || radius < EPSILON) return null;
+    const mode = DRAWING_RADIAL_DIMENSION_MODES.includes(dimension.mode) ? dimension.mode : 'radius';
     const direction = vectorFromAngle(angle);
     const trueCenter = { x: source.cx, y: source.cy };
     const edge = add(trueCenter, scale(direction, radius));
@@ -402,6 +471,7 @@ export function getAngularDimensionGeometry(dimension, sources = null) {
 
 export function getArcLengthDimensionGeometry(dimension, sources = null) {
     const source = resolvePrimarySource(dimension, sources);
+    if (source?.type === 'ellipse') return getEllipticalArcLengthDimensionGeometry(dimension, source);
     if (source?.type !== 'arc' || !isFiniteBoundedCircle(source)) return null;
     const sourceRadius = Math.abs(Number(source.r) || 0);
     const sweep = arcSweep(source);
@@ -449,6 +519,41 @@ export function getArcLengthDimensionGeometry(dimension, sources = null) {
     });
 }
 
+function getEllipticalArcLengthDimensionGeometry(dimension, source) {
+    const ellipse = normalizeCurvePrimitive(source);
+    if (ellipse?.type !== 'ellipse' || ellipse.fullEllipse) return null;
+    const offset = finiteOr(dimension.offset, DEFAULT_LINEAR_OFFSET);
+    const curvePoints = sampleEllipseOffset(ellipse, offset, {
+        tolerance: Math.max(1e-6, Math.max(ellipse.rx, ellipse.ry) * 1e-4),
+    });
+    if (!curvePoints || curvePoints.length < 2) return null;
+    const value = curveLength(ellipse);
+    const parameter = curveParameterAtLength(ellipse, value / 2);
+    const sourceFirst = curvePointAt(ellipse, 0);
+    const sourceSecond = curvePointAt(ellipse, 1);
+    const first = curvePoints[0];
+    const second = curvePoints[curvePoints.length - 1];
+    const text = ellipseOffsetPoint(ellipse, parameter, offset);
+    const tangent = curveTangentAt(ellipse, parameter);
+    const tangentAngle = Math.atan2(tangent.y, tangent.x);
+    return createDimensionGeometry({
+        kind: 'arcLength', entityType: dimension.type, value, unitKind: 'length',
+        points: [sourceFirst, sourceSecond, ...curvePoints],
+        lines: [linePrimitive(sourceFirst, first, 'extension'), linePrimitive(sourceSecond, second, 'extension'),
+            ...curvePoints.slice(1).map((point, index) => linePrimitive(curvePoints[index], point, 'dimension'))],
+        ticks: [0, 1].map((position, index) => {
+            const direction = curveTangentAt(ellipse, position);
+            return tickPrimitive(index === 0 ? first : second, Math.atan2(direction.y, direction.x), 'dimension');
+        }),
+        label: labelPrimitive(text, normalizeReadableAngle(tangentAngle)),
+        legacy: {
+            center: { x: ellipse.cx, y: ellipse.cy }, first, second, sourceFirst, sourceSecond, text,
+            angle: normalizeReadableAngle(tangentAngle),
+            offsetOrigin: curvePointAt(ellipse, parameter), offsetNormal: ellipseNormalAt(ellipse, parameter),
+        },
+    });
+}
+
 export function getOrdinateDimensionGeometry(dimension, sources = null) {
     const source = resolvePrimarySource(dimension, sources);
     const origin = finitePointOr(dimension.origin, { x: 0, y: 0 });
@@ -479,7 +584,8 @@ export function getOrdinateDimensionGeometry(dimension, sources = null) {
 
 export function getCenterMarkGeometry(dimension, sources = null) {
     const source = resolvePrimarySource(dimension, sources);
-    if (!['circle', 'arc'].includes(source?.type) || !isFiniteBoundedCircle(source)) return null;
+    if (!(source?.type === 'ellipse' && dimension.detachedSource && normalizeDimensionDetachedSource(source))
+        && (!['circle', 'arc'].includes(source?.type) || !isFiniteBoundedCircle(source))) return null;
     const center = { x: source.cx, y: source.cy };
     const size = Math.max(EPSILON, finiteOr(dimension.size, DEFAULT_CENTER_MARK_SIZE));
     const extension = Math.max(0, finiteOr(dimension.extension, 0));
@@ -551,11 +657,15 @@ export function formatDrawingDimensionLabel(geometry, dimension = {}, locale = '
         return { lines: [], plainText: '', inspection: null };
     }
     const formatted = formatDrawingDimensionMeasurement(geometry, dimension, locale);
-    const lines = [...formatted.lines];
+    let lines = [...formatted.lines];
     if (lines.length && geometry.kind === 'radial') {
         lines[0] = `${geometry.mode === 'diameter' ? 'Ø ' : 'R '}${lines[0]}`;
     } else if (lines.length && geometry.kind === 'arcLength') {
         lines[0] = `⌒ ${lines[0]}`;
+    }
+    if (typeof dimension.dimensionTextOverride === 'string') {
+        const automatic = lines.join('\n');
+        lines = dimension.dimensionTextOverride.replaceAll('<>', automatic).split('\n');
     }
     if (formatted.inspection?.label) lines.unshift(formatted.inspection.label);
     if (formatted.inspection?.rate) lines.push(formatted.inspection.rate);
@@ -759,6 +869,7 @@ function getLinearSourceEndpoints(dimension, sources) {
         if (referenced) return referenced;
     }
     const source = resolvePrimarySource(dimension, sources);
+    if (source?.type === 'ellipse') return getEllipseAxisSegments(source)[dimension.edgeIndex === 1 ? 1 : 0] || null;
     if (source?.type === 'line') {
         return [{ x: source.x1, y: source.y1 }, { x: source.x2, y: source.y2 }].every(isFinitePoint)
             ? [{ x: source.x1, y: source.y1 }, { x: source.x2, y: source.y2 }]
@@ -787,6 +898,10 @@ function resolveLinearPointReference(value, sources) {
     const reference = normalizeDrawingDimensionPointReference(value);
     if (!reference) return null;
     const source = reference.sourceId ? resolveSourceById(reference.sourceId, sources) : null;
+    if (source?.type === 'ellipse') {
+        const point = getEllipseAxisSegments(source)[reference.edgeIndex === 1 ? 1 : 0]?.[reference.endpointIndex === 1 ? 1 : 0];
+        if (point) return point;
+    }
     if (source?.type === 'line') {
         const point = reference.endpointIndex === 1
             ? { x: source.x2, y: source.y2 }
@@ -858,7 +973,15 @@ function resolveOrdinateFeaturePoint(dimension, source) {
     return null;
 }
 
+export function normalizeDimensionDetachedSource(source) {
+    if (!['circle', 'arc', 'ellipse'].includes(source?.type)) return null;
+    const keys = ['type', 'cx', 'cy', 'r', 'rx', 'ry', 'rotation', 'startAngle', 'endAngle', 'counterClockwise', 'fullCircle', 'fullEllipse'];
+    const primitive = Object.fromEntries(keys.filter(key => source[key] !== undefined).map(key => [key, source[key]]));
+    return normalizeCurvePrimitive(primitive);
+}
+
 function resolvePrimarySource(dimension, sources) {
+    if (!getDrawingEntityDependencyIds(dimension).length && dimension.detachedSource) return normalizeDimensionDetachedSource(dimension.detachedSource);
     const resolved = resolveDimensionSources(dimension, sources);
     return resolved[0] || null;
 }

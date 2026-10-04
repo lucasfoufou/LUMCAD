@@ -241,6 +241,7 @@ export function curveLength(curve, options = {}) {
     if (normalized.type === 'line') return pointDistance(getCurveStart(normalized), getCurveEnd(normalized));
     if (normalized.type === 'circle') return TAU * normalized.r;
     if (normalized.type === 'arc') return Math.abs(curveSweep(normalized)) * normalized.r;
+    if (normalized.type === 'ellipse') return integrateEllipseLength(normalized, 1);
     const limits = resolveLimits(options);
     const segmentCount = numericIntegrationSegments(normalized, limits);
     return integrateSimpson(
@@ -249,6 +250,34 @@ export function curveLength(curve, options = {}) {
         1,
         segmentCount,
     );
+}
+
+export function curveLengthAtParameter(curve, parameter, options = {}) {
+    const normalized = normalizeCurvePrimitive(curve, options);
+    const t = finiteUnitParameter(parameter);
+    if (!normalized || t === null) return null;
+    if (['line', 'circle', 'arc'].includes(normalized.type)) return curveLength(normalized, options) * t;
+    if (normalized.type === 'ellipse') return integrateEllipseLength(normalized, t);
+    const limits = resolveLimits(options);
+    return integrateSimpson(value => vectorLength(curveDerivativeAtNormalized(normalized, value)),
+        0, t, numericIntegrationSegments(normalized, limits));
+}
+
+export function curveParameterAtLength(curve, distance, options = {}) {
+    const normalized = normalizeCurvePrimitive(curve, options);
+    const length = normalized && curveLength(normalized, options);
+    if (!Number.isFinite(distance) || !length || distance < 0 || distance > length) return null;
+    if (distance === 0) return 0;
+    if (distance === length) return 1;
+    if (['line', 'circle', 'arc'].includes(normalized.type)) return distance / length;
+    let low = 0;
+    let high = 1;
+    for (let iteration = 0; iteration < 32; iteration += 1) {
+        const middle = (low + high) / 2;
+        if (curveLengthAtParameter(normalized, middle, options) < distance) low = middle;
+        else high = middle;
+    }
+    return (low + high) / 2;
 }
 
 export function pathLength(path, options = {}) {
@@ -310,7 +339,7 @@ export function closestPointOnPath(path, point, options = {}) {
             best = {
                 ...candidate,
                 partIndex,
-                pathT: (prefix + candidate.t * lengths[partIndex]) / total,
+                pathT: (prefix + curveLengthAtParameter(part, candidate.t, options)) / total,
             };
         }
         prefix += lengths[partIndex];
@@ -538,7 +567,7 @@ function extractEntityPathsInternal(entity, options, state) {
     }
 
     const extracted = invokeBoundaryExtractor(entity, options, nextState);
-    if (extracted === undefined && ['block', 'hatch'].includes(entity.type) && Array.isArray(entity.boundaries)) {
+    if (extracted === undefined && ['block', 'hatch', 'region'].includes(entity.type) && Array.isArray(entity.boundaries)) {
         return extractBoundaryResult(entity.boundaries, options, nextState);
     }
     return extractBoundaryResult(extracted, options, nextState);
@@ -1160,7 +1189,7 @@ function resolvePathLocation(path, location, options) {
             return {
                 path: normalized,
                 partIndex,
-                t: clampUnit((target - prefix) / lengths[partIndex]),
+                t: curveParameterAtLength(normalized.parts[partIndex], Math.max(0, Math.min(lengths[partIndex], target - prefix)), options),
             };
         }
         prefix += lengths[partIndex];
@@ -1226,6 +1255,31 @@ function numericSamplingSegments(curve, limits) {
     const chordLength = pointDistance(curve.controlPoints[0], curve.controlPoints[3]);
     const curvatureFactor = Math.max(1, polygonLength / Math.max(DEFAULT_EPSILON, chordLength));
     return Math.min(limits.maxNumericSegments, Math.max(32, Math.ceil(96 * Math.min(4, curvatureFactor))));
+}
+
+// Fixed sampling loses accuracy near the tips of eccentric ellipses. Subdivide
+// by integration error, sharing endpoint evaluations and bounding the work.
+function integrateEllipseLength(ellipse, end) {
+    if (end === 0) return 0;
+    const evaluate = parameter => vectorLength(curveDerivativeAtNormalized(ellipse, parameter));
+    const tolerance = Math.max(1e-11, Math.max(ellipse.rx, ellipse.ry) * Math.abs(curveSweep(ellipse)) * end * 1e-11);
+    let evaluations = 3;
+    const integrate = (a, b, fa, fm, fb, estimate, error, depth) => {
+        const middle = (a + b) / 2;
+        const leftMiddle = evaluate((a + middle) / 2);
+        const rightMiddle = evaluate((middle + b) / 2);
+        evaluations += 2;
+        const left = (middle - a) * (fa + 4 * leftMiddle + fm) / 6;
+        const right = (b - middle) * (fm + 4 * rightMiddle + fb) / 6;
+        const delta = left + right - estimate;
+        if (Math.abs(delta) <= 15 * error || depth >= 24 || evaluations >= 16384) return left + right + delta / 15;
+        return integrate(a, middle, fa, leftMiddle, fm, left, error / 2, depth + 1)
+            + integrate(middle, b, fm, rightMiddle, fb, right, error / 2, depth + 1);
+    };
+    const first = evaluate(0);
+    const middle = evaluate(end / 2);
+    const last = evaluate(end);
+    return integrate(0, end, first, middle, last, end * (first + 4 * middle + last) / 6, tolerance, 0);
 }
 
 function integrateSimpson(evaluate, start, end, rawSegments) {

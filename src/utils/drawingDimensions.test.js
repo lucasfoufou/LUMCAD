@@ -53,6 +53,7 @@ test('dimension type registry and predicate cover every persisted annotation fam
         'arcLengthDimension',
         'ordinateDimension',
         'centerMark',
+        'centerLine',
     ]);
     DRAWING_DIMENSION_TYPES.forEach(type => assert.equal(isDrawingDimensionEntity({ type }), true));
     assert.equal(isDrawingDimensionEntity('line'), false);
@@ -580,4 +581,12 @@ test('all new geometry families expose finite common render primitives', () => {
             assert.equal(Number.isFinite(point.y), true);
         });
     });
+});
+
+test('manual dimension labels interpolate live measurements and retain inspection context', () => {
+    const dimension = { type: 'linearDimension', p1: { x: 0, y: 0 }, p2: { x: 5, y: 0 }, dimensionTextOverride: 'Opening: <>', dimensionFormat: { inspection: { enabled: true, label: 'Control', rate: '100%' } } };
+    const formatted = formatDrawingDimensionLabel(getDimensionGeometry(dimension), dimension);
+    assert.deepEqual(formatted.lines, ['Control', 'Opening: 5 m', '100%']);
+    const changed = { ...dimension, p2: { x: 8, y: 0 } };
+    assert.equal(formatDrawingDimensionLabel(getDimensionGeometry(changed), changed).lines[1], 'Opening: 8 m');
 });

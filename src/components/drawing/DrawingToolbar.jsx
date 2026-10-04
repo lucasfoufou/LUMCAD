@@ -8,8 +8,13 @@ const toolGroups = [
         { id: 'pan', glyph: '✥', labelKey: 'toolbar.pan', alias: 'P' },
     ],
     [
+        { id: 'xline', glyph: '↔', labelKey: 'toolbar.xline', alias: 'XL' },
+        { id: 'ray', glyph: '↗', labelKey: 'toolbar.ray', alias: 'RAY' },
         { id: 'line', glyph: '╱', labelKey: 'toolbar.line', alias: 'L' },
         { id: 'rectangle', glyph: '▭', labelKey: 'toolbar.rectangle', alias: 'REC' },
+        { id: 'hatch', glyph: '▨', labelKey: 'toolbar.hatch', alias: 'H' },
+        { id: 'spline', glyph: '∿', labelKey: 'toolbar.spline', alias: 'SPL' },
+        { id: 'ellipse', glyph: '⬭', labelKey: 'toolbar.ellipse', alias: 'EL' },
         { id: 'circle', glyph: '○', labelKey: 'toolbar.circle', alias: 'C' },
         { id: 'polygon', glyph: '⬡', labelKey: 'toolbar.polygon', alias: 'POL' },
         { id: 'arc', glyph: '⌒', labelKey: 'toolbar.arc', alias: 'A' },
@@ -54,6 +59,9 @@ export default function DrawingToolbar({ activeTool, activeOperation, onToolChan
                 <ToolButton glyph="∿" label={t('toolbar.blend')} active={activeOperation === 'blend'} onClick={actions.blend} />
                 <ToolButton glyph="◩" label={t('toolbar.mirror')} active={activeOperation === 'mirror'} onClick={actions.mirror} />
                 <ToolButton glyph="⠿" label={t('toolbar.array')} active={activeOperation === 'array'} onClick={actions.array} />
+                <ToolButton glyph="⟳" label={t('toolbar.arrayPolar')} active={activeOperation === 'arrayPolar'} onClick={actions.arrayPolar} />
+                <ToolButton glyph="∿⠿" label={t('toolbar.arrayPath')} active={activeOperation === 'arrayPath'} onClick={actions.arrayPath} />
+                <ToolButton glyph="⠿✎" label={t('toolbar.arrayEdit')} disabled={selectionCount !== 1} onClick={actions.arrayEdit} />
                 <ToolButton glyph="⌁" label={t('toolbar.join')} active={activeOperation === 'join'} onClick={actions.join} />
                 <ToolButton glyph="⌘" label={t('toolbar.explode')} active={activeOperation === 'explode'} onClick={actions.explode} />
                 <ToolButton glyph="⇲" label={t('toolbar.offset')} active={activeOperation === 'offset'} onClick={actions.offset} />

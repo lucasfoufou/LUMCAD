@@ -7,6 +7,8 @@ import {
     closestPointOnPath,
     createBoundaryExtractorRegistry,
     curveLength,
+    curveLengthAtParameter,
+    curveParameterAtLength,
     curvePointAt,
     curveSubcurve,
     curveTangentAt,
@@ -407,4 +409,17 @@ test('path intersections expose part indices and deduplicate shared-vertex hits'
     closePoint(result.points[0].point, { x: 2, y: 0 });
     assert.ok([0, 1].includes(result.points[0].leftPartIndex));
     assert.equal(result.points[0].rightPartIndex, 0);
+});
+
+
+test('path length parameters invert nonuniform spline and ellipse speed', () => {
+    const spline = { type: 'spline', controlPoints: [{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }, { x: 12, y: 0 }] };
+    const path = { type: 'path', parts: [spline] };
+    closePoint(pathPointAt(path, 0.5), { x: 6, y: 0 }, 1e-7);
+    close(closestPointOnPath(path, { x: 6, y: 1 }).pathT, 0.5, 1e-6);
+    const ellipse = { type: 'ellipse', cx: 0, cy: 0, rx: 8, ry: 1, rotation: 0, fullEllipse: true };
+    const length = curveLength(ellipse);
+    const parameter = curveParameterAtLength(ellipse, length / 8);
+    assert.ok(Math.abs(parameter - 0.125) > 0.01);
+    close(curveLengthAtParameter(ellipse, parameter), length / 8, 1e-7);
 });

@@ -1,3 +1,16 @@
+import { DEFAULT_DIMENSION_STYLE_ID, normalizeDimensionStyles } from './drawingDimensionStyles.js';
+import { normalizeDrawingAttributeDefinition, normalizeDrawingAttributeValues } from './drawingBlockAttributes.js';
+import { drawingAffineFrame } from './drawingAffineFrame.js';
+import { normalizeDrawingBasePoint } from './drawingBasePoint.js';
+import { normalizeImageSource } from './drawingImageSource.js';
+import { normalizeImageAdjustments } from './drawingImageAdjustments.js';
+import { normalizeImageClip } from './drawingImageClip.js';
+import { createDrawingWipeout } from './drawingWipeout.js';
+import { refreshDrawingHatches } from './drawingHatches.js';
+import { reconcileSplineDefinition } from './drawingSplineCreation.js';
+import { nearestEllipseAxis, getEllipseAxisSegments } from './drawingEllipseGeometry.js';
+import { normalizePathArray, refreshPathArrays } from './drawingPathArray.js';
+import { normalizePolarArray } from './drawingPolarArray.js';
 import {
     arcContainsAngle,
     arcMidpoint,
@@ -8,6 +21,7 @@ import {
 } from './drawingGeometry.js';
 import {
     drawingBlocksUseLayer,
+    refreshDrawingBlockBounds,
     normalizeDrawingBlockReference,
     normalizeDrawingBlocks,
 } from './drawingBlocks.js';
@@ -62,6 +76,8 @@ export function createDefaultDrawingContent({
             createDefaultLayer(DEFAULT_LAYER_IDS.dimensions, PROTECTED_LAYER_NAMES.dimensions, '#d97706'),
             createDefaultLayer(DEFAULT_LAYER_IDS.references, PROTECTED_LAYER_NAMES.references, '#64748b'),
         ],
+        dimensionStyles: normalizeDimensionStyles(),
+        activeDimensionStyleId: DEFAULT_DIMENSION_STYLE_ID,
         textStyles: [{ ...DEFAULT_DRAWING_TEXT_STYLE }],
         activeTextStyleId: DEFAULT_DRAWING_TEXT_STYLE_ID,
         blocks: [],
@@ -70,6 +86,7 @@ export function createDefaultDrawingContent({
             gridSpacing: Math.max(0.0001, Number(gridSpacing) || 0.5),
             snaps: { grid: true, endpoint: true, midpoint: true, center: true, intersection: true, nearest: false },
             dynamicInput: true,
+            attributeDisplay: 'normal',
             ...draftingSettings,
         },
         metadata: {
@@ -83,6 +100,7 @@ export function createDefaultDrawingContent({
             designer: '',
             quantities: [],
             northAngle: 0,
+            basePoint: { x: 0, y: 0 },
         },
     };
 }
@@ -97,6 +115,8 @@ export function normalizeDrawingContent(content) {
         .map(layer => normalizeDrawingLayer(layer));
     const sourceSettings = content.settings || {};
     const draftingSettings = normalizeDrawingDraftingSettings({ ...defaults.settings, ...sourceSettings });
+    const dimensionStyles = normalizeDimensionStyles(content.dimensionStyles);
+    const activeDimensionStyleId = dimensionStyles.some(style => style.id === content.activeDimensionStyleId) ? content.activeDimensionStyleId : DEFAULT_DIMENSION_STYLE_ID;
     const textStyles = normalizeDrawingTextStyles(content.textStyles);
     const activeTextStyleId = textStyles.some(style => style.id === content.activeTextStyleId)
         ? content.activeTextStyleId
@@ -109,25 +129,29 @@ export function normalizeDrawingContent(content) {
             .map(normalizeEntity)
             .filter(entity => entity?.type !== 'blockReference' || blockIds.has(entity.blockId))
         : [];
+    const blockContent = refreshDrawingBlockBounds({ blocks, entities });
     return {
         ...defaults,
         ...content,
         version: 1,
         unit: 'm',
         layers,
+        dimensionStyles,
+        activeDimensionStyleId,
         textStyles,
         activeTextStyleId,
-        blocks,
-        entities,
+        blocks: blockContent.blocks,
+        entities: refreshDrawingHatches(refreshPathArrays({ entities: blockContent.entities })).entities,
         activeLayerId: layers.some(layer => layer.id === content.activeLayerId) ? content.activeLayerId : layers[0].id,
         settings: {
             ...defaults.settings,
             ...sourceSettings,
+            attributeDisplay: ['normal', 'all', 'off'].includes(sourceSettings.attributeDisplay) ? sourceSettings.attributeDisplay : 'normal',
             ...draftingSettings,
             dynamicInput: sourceSettings.dynamicInput !== false,
             snaps: { ...defaults.settings.snaps, ...(sourceSettings.snaps || {}) },
         },
-        metadata: { ...defaults.metadata, ...(content.metadata || {}) },
+        metadata: { ...defaults.metadata, ...(content.metadata || {}), basePoint: normalizeDrawingBasePoint(content.metadata?.basePoint) },
     };
 }
 
@@ -297,7 +321,7 @@ export function transformSelectedEntities(content, selectedIds, updater, { copy 
         createDrawingId(transformedSources[index].type || entity.type),
     ]));
     const copies = transformedSources.map((entity, index) => ({
-        ...remapDrawingEntityDependencies(entity, idMap),
+        ...remapDrawingEntityDependencies(entity, idMap, { preserveAppearance: true }),
         id: idMap.get(sources[index].id),
     }));
     return {
@@ -394,7 +418,7 @@ export function copySelectedEntities(content, selectedIds, offset = { x: 0.5, y:
 export function pasteDrawingEntities(content, originals, offset = { x: 0.5, y: 0.5 }) {
     const idMap = new Map(originals.map(entity => [entity.id, createDrawingId(entity.type)]));
     const copies = originals.map(entity => {
-        const next = { ...remapDrawingEntityDependencies(entity, idMap), id: idMap.get(entity.id) };
+        const next = { ...remapDrawingEntityDependencies(entity, idMap, { preserveAppearance: true }), id: idMap.get(entity.id) };
         return translateEntity(next, offset.x, offset.y);
     });
     return {
@@ -412,6 +436,19 @@ export function createDimensionForEntity(content, source, mode = 'auto', hitPoin
         id: createDrawingId('dimension'),
         layerId: getDimensionLayerId(content),
     };
+    if (source.type === 'ellipse') {
+        if (creationMode === 'arcLength' && !source.fullEllipse && getEllipseAxisSegments(source).length) {
+            return normalizeDrawingDimension({ ...base, type: 'arcLengthDimension', sourceId: source.id, offset: Number.isFinite(config.offset) ? config.offset : 0.6 });
+        }
+        if (!getEllipseAxisSegments(source).length || !['auto', 'linear', 'aligned', 'horizontal', 'vertical', 'rotated'].includes(creationMode)) return null;
+        return normalizeDrawingDimension({
+            ...base, type: 'linearDimension', sourceId: source.id,
+            edgeIndex: nearestEllipseAxis(source, hitPoint),
+            measurementMode: creationMode === 'auto' ? 'aligned' : linearDimensionCreationMode(creationMode),
+            dimensionAngle: Number.isFinite(config.dimensionAngle) ? config.dimensionAngle : 0,
+            offset: 0.6,
+        });
+    }
     if (source.type === 'line') {
         if (creationMode === 'ordinate') {
             return normalizeDrawingDimension({
@@ -627,6 +664,14 @@ function normalizeDrawingLayer(layer) {
 function normalizeDrawingEntityAppearance(entity, textOptions = {}) {
     if (!entity || typeof entity !== 'object') return entity;
     const normalized = normalizeDrawingEntityGeometry(entity, textOptions);
+    const attribute = entity.type === 'text' && normalizeDrawingAttributeDefinition(entity.attributeDefinition);
+    if (attribute) normalized.attributeDefinition = attribute;
+    else delete normalized.attributeDefinition;
+    if (entity.type === 'blockReference' && entity.attributeValues) normalized.attributeValues = normalizeDrawingAttributeValues(entity.attributeValues);
+    else delete normalized.attributeValues;
+    const frame = drawingAffineFrame(entity);
+    if (frame) normalized.affineFrame = frame;
+    else delete normalized.affineFrame;
     const color = normalizeDrawingColor(entity.color);
     const lineWeight = normalizeDrawingLineWeight(entity.lineWeight);
     const lineType = normalizeDrawingLineType(entity.lineType);
@@ -661,11 +706,37 @@ function normalizeDrawingPolylinePartTransparency(part) {
 }
 
 function normalizeDrawingEntityGeometry(entity, textOptions = {}) {
-    const normalized = { ...entity };
+    const normalized = { ...reconcileSplineDefinition(entity) };
+    if (entity.wipeout) {
+        const mask = entity.type === 'polyline' && !entity.parts && entity.closed && createDrawingWipeout(entity.points, entity.layerId, entity.id, entity.wipeout.frame);
+        if (mask) { normalized.points = mask.points; normalized.wipeout = mask.wipeout; }
+        else delete normalized.wipeout;
+    }
+    if (entity.array?.kind === 'path') {
+        const array = normalizePathArray(entity.array);
+        if (array) normalized.array = array;
+        else { delete normalized.array; delete normalized.sourceId; }
+    }
+    if (entity.array?.kind === 'polar') {
+        const array = normalizePolarArray(entity.array);
+        if (array) normalized.array = array;
+        else delete normalized.array;
+    }
     if (isDrawingDimensionEntity(entity)) return normalizeDrawingDimension(normalized);
     if (entity.type === 'text') return normalizeDrawingTextEntity(normalized, textOptions);
+    if (entity.imageSource) {
+        const source = entity.type === 'image' && normalizeImageSource(entity.imageSource);
+        if (source) normalized.imageSource = source;
+        else delete normalized.imageSource;
+    }
+    if (entity.type === 'image' && entity.imageAdjustments) normalized.imageAdjustments = normalizeImageAdjustments(entity.imageAdjustments);
+    if (entity.type === 'image' && entity.imageClip) {
+        const clip = normalizeImageClip(entity.imageClip);
+        if (clip) normalized.imageClip = clip;
+        else delete normalized.imageClip;
+    }
     if (entity.type === 'blockReference') return normalizeDrawingBlockReference(normalized);
-    if (['ellipse', 'ellipseArc', 'spline', 'cubicSpline', 'cubicBezier', 'bezier', 'hatch'].includes(entity.type)) {
+    if (['ellipse', 'ellipseArc', 'spline', 'cubicSpline', 'cubicBezier', 'bezier', 'hatch', 'region'].includes(entity.type)) {
         return normalizeAdvancedDrawingEntity(normalized);
     }
     if (entity.type === 'polyline' && Array.isArray(entity.parts)) {
@@ -699,7 +770,7 @@ function normalizeDrawingEntityGeometry(entity, textOptions = {}) {
         normalized.cornerStyle = style;
         normalized.cornerValue = Math.max(0, finiteOr(entity.cornerValue ?? entity.chamfer ?? entity.fillet, 0));
     }
-    if (entity.type === 'line') {
+    if (['line', 'xline', 'ray'].includes(entity.type)) {
         normalized.x1 = finiteOr(entity.x1, 0);
         normalized.y1 = finiteOr(entity.y1, 0);
         normalized.x2 = finiteOr(entity.x2, 0);

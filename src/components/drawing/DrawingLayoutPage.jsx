@@ -1,5 +1,6 @@
 import React, { forwardRef, useId, useMemo } from 'react';
 
+import { inverseAffineViewBox, rotationAffineMatrix } from '~utils/drawingBlocks';
 import DrawingScene from '~components/drawing/DrawingScene';
 import {
     applyDrawingViewportDisplaySettings,
@@ -188,7 +189,7 @@ function DrawingLayoutViewport({ assets, content, handleSize, interactive, plotS
                             assets={assets}
                             dimensionTextSize={dimensionTextSize}
                             hiddenLayerIds={viewport.hiddenLayerIds}
-                            viewBox={viewBox}
+                            viewBox={inverseAffineViewBox(viewBox, rotationAffineMatrix(Number(viewport.viewRotation) || 0, { x: centerX, y: centerY }))}
                         />
                     </g>
                 </svg>

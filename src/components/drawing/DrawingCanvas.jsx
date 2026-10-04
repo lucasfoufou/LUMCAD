@@ -1,3 +1,7 @@
+import { spaceDimensionsAtPoint } from '~utils/drawingDimensionSpacing';
+import { placeDimensionTextAtPoint, advanceDimensionBreak } from '~utils/drawingDimensionMaintenance';
+import { drawingAffineFrame, framedDrawingPoint } from '~utils/drawingAffineFrame';
+import { insertNamedDrawingBlock } from '~utils/drawingNamedBlocks';
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 
 import DrawingInteractionOverlay from '~components/drawing/DrawingInteractionOverlay';
@@ -55,6 +59,8 @@ import {
     isDimensionPointSnap,
     isDrawingTextInput,
 } from '~utils/drawingInteraction';
+import { buildSplineCreationEntity, buildSplineCreationPreview, MAX_SPLINE_CREATION_POINTS } from '~utils/drawingSplineCreation';
+import { buildEllipseCreationEntity, buildEllipseCreationPreview, ellipseCreationPointCount } from '~utils/drawingEllipseCreation';
 import { buildDrawingEntity } from '~utils/drawingEntityFactory';
 import { DRAWING_QDIM_GRIP_IDS, getDrawingEntityDependencyIds } from '~utils/drawingDimensions';
 import {
@@ -95,7 +101,7 @@ import { createStretchPreviewEntities } from '~utils/drawingStretchOperations';
 import { scaleDrawingViewBox, zoomDrawingViewBox } from '~utils/drawingViewport';
 import { drawingTextFontSizeToPixels, resolveDrawingTextStyle } from '~utils/drawingText';
 
-const drawingTools = new Set(['line', 'rectangle', 'circle', 'polygon', 'arc', 'text']);
+const drawingTools = new Set(['line', 'xline', 'ray', 'ellipse', 'spline', 'rectangle', 'circle', 'polygon', 'arc', 'text']);
 const cornerOperationTypes = new Set(['fillet', 'chamfer', 'blend']);
 const trimExtendTypes = new Set(['trim', 'extend']);
 const breakStretchLengthenTypes = new Set(['break', 'breakAtPoint', 'stretch', 'lengthen']);
@@ -114,6 +120,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     dimensionMode = 'auto',
     editEntity = null,
     onEditEntityChange = null,
+    onImageSource = null,
+    imageSourceBusy = false,
     onEntityCreated = null,
     dynamicInput = null,
 }, forwardedRef) {
@@ -259,6 +267,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             ...(creationOptions || {}),
             circleSafety: drawingCircleSafety(viewBox),
         };
+        if (drawGesture.tool === 'spline') return buildSplineCreationPreview(points, content.activeLayerId, drawGesture.mode);
+        if (drawGesture.tool === 'ellipse') return buildEllipseCreationPreview(points, content.activeLayerId, drawGesture.mode, options, id);
         if (drawGesture.tool === 'rectangle') return buildRectangleCreationEntity(points[0], current, content.activeLayerId, options, id);
         if (drawGesture.tool === 'polygon') return buildRegularPolygonCreationEntity(points[0], current, content.activeLayerId, options, id);
         if (drawGesture.tool === 'circle') {
@@ -303,6 +313,10 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     };
 
     const creationStatus = (mode, pointCount) => {
+        if (activeTool === 'spline') return t('canvas.splinePoint', { count: pointCount, minimum: mode === 'control' ? 4 : 2 });
+        if (activeTool === 'ellipse') return t(pointCount < 2 ? 'canvas.ellipseAxisPoint'
+            : pointCount < 3 ? 'canvas.ellipseRadiusPoint'
+                : pointCount < 4 ? 'canvas.ellipseStartPoint' : 'canvas.ellipseEndPoint');
         if (activeTool === 'arc' && mode === 'threePoint') {
             return t(pointCount < 2 ? 'canvas.arcEndPoint' : 'canvas.arcPointOnArc');
         }
@@ -374,6 +388,11 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
 
         const currentGesture = gesture?.kind === 'draw' && gesture.tool === activeTool ? gesture : null;
         const points = currentGesture ? [...(currentGesture.points || [currentGesture.first]), point] : [point];
+        if (activeTool === 'spline' && (points.length > MAX_SPLINE_CREATION_POINTS
+            || (points.length > 1 && pointDistance(points[points.length - 2], point) <= 1e-9))) {
+            onStatus?.(t('canvas.splinePointInvalid', { maximum: MAX_SPLINE_CREATION_POINTS }));
+            return false;
+        }
         const nextGesture = {
             kind: 'draw',
             tool: activeTool,
@@ -383,7 +402,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             first: points[0],
             current: point,
         };
-        const requiredPoints = activeTool === 'arc' || (activeTool === 'circle' && creationMode === 'threePoint') ? 3 : 2;
+        const requiredPoints = activeTool === 'spline' ? Infinity : activeTool === 'ellipse' ? ellipseCreationPointCount(creationMode) : activeTool === 'arc' || (activeTool === 'circle' && creationMode === 'threePoint') ? 3 : 2;
         const arcOptionCompletes = activeTool === 'arc' && (
             creationMode === 'startCenterAngle'
                 ? points.length >= 3 || (points.length >= 2 && Number.isFinite(nextGesture.options.angle))
@@ -398,10 +417,12 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 : points.length >= requiredPoints;
         if (completes) {
             if (activeTool === 'line') return commitDraft(activeTool, points[0], point, { continueLine: true });
-            const entity = buildCreationEntity(nextGesture, point);
+            const entity = activeTool === 'ellipse'
+                ? buildEllipseCreationEntity(points, content.activeLayerId, creationMode, nextGesture.options)
+                : buildCreationEntity(nextGesture, point);
             if (!entity) {
                 onStatus?.(t(activeTool === 'arc' ? 'canvas.arcInvalid' : 'canvas.creationInvalid'));
-                setGesture(nextGesture);
+                setGesture(activeTool === 'ellipse' ? { ...nextGesture, points: points.slice(0, -1) } : nextGesture);
                 return false;
             }
             return commitCreationEntity(entity);
@@ -425,7 +446,14 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     };
 
     const submitCreationInputForTool = (tool, rawValue) => {
-        if (!drawingTools.has(tool) || tool === 'line' || tool === 'text') return false;
+        if (!drawingTools.has(tool) || ['line', 'xline', 'ray', 'text'].includes(tool)) return false;
+        if (tool === 'spline' && tool === activeTool && ['', 'DONE'].includes(String(rawValue).trim().toUpperCase())) {
+            const entity = gesture?.kind === 'draw' && gesture.tool === 'spline'
+                ? buildSplineCreationEntity(gesture.points, content.activeLayerId, gesture.mode) : null;
+            if (entity) commitCreationEntity(entity);
+            else onStatus?.(t('canvas.splineIncomplete', { minimum: creationMode === 'control' ? 4 : 2 }));
+            return true;
+        }
         const parsed = parseDrawingCreationInput(tool, rawValue);
         if (!parsed) return false;
         const remembered = rememberedCreationConfigsRef.current.get(tool)
@@ -667,12 +695,12 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             const values = parseDrawingNumbers(rawValue);
             if (!values.length || values.some(value => value <= 0)) return false;
             const { first, current, tool } = gesture;
-            if (tool === 'line') {
+            if (['line', 'xline', 'ray'].includes(tool)) {
                 const length = values[0];
                 const dx = current.x - first.x;
                 const dy = current.y - first.y;
                 const directionLength = Math.hypot(dx, dy) || 1;
-                return commitDraft(tool, first, { x: first.x + dx / directionLength * length, y: first.y + dy / directionLength * length }, { continueLine: true });
+                return commitDraft(tool, first, { x: first.x + dx / directionLength * length, y: first.y + dy / directionLength * length }, { continueLine: tool === 'line' });
             }
             if (tool === 'rectangle') {
                 const width = values[0];
@@ -1191,6 +1219,15 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     };
 
     const previewContent = useMemo(() => {
+        if (interactiveOperation?.type === 'dimensionSpacing' && operationPoint) {
+            return spaceDimensionsAtPoint(content, interactiveOperation, operationPoint).content || content;
+        }
+        if (interactiveOperation?.type === 'dimensionBreak' && interactiveOperation.basePoint && operationPoint) {
+            return advanceDimensionBreak(content, interactiveOperation, operationPoint).content || content;
+        }
+        if (interactiveOperation?.type === 'dimensionTextPlacement' && operationPoint) {
+            return placeDimensionTextAtPoint(content, interactiveOperation, operationPoint).content || content;
+        }
         if (gesture?.kind === 'grip') {
             return applyDrawingGripEdit(content, gesture.entityId, gesture.gripId, gesture.current);
         }
@@ -1233,6 +1270,11 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const alignDrafts = useMemo(() => {
         const pairs = getAlignPreviewPairs(interactiveOperation, operationPoint);
         return pairs ? createAlignPreviewEntities(content, interactiveOperation.entityIds, pairs) : [];
+    }, [content, interactiveOperation, operationPoint]);
+    const blockInsertDraft = useMemo(() => {
+        if (interactiveOperation?.type !== 'blockInsert' || interactiveOperation.stage !== 'insertion' || !operationPoint) return null;
+        const result = insertNamedDrawingBlock(content, interactiveOperation.name, operationPoint, { ...interactiveOperation, id: 'block-insert-preview' });
+        return result.reference ? { ...result.reference, previewMode: 'copy' } : null;
     }, [content, interactiveOperation, operationPoint]);
     const clipboardPreview = useMemo(() => {
         if (!['pasteClip', 'pasteBlock'].includes(interactiveOperation?.type)
@@ -1343,7 +1385,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             : []
     ), [content, interactiveOperation, operationPoint]);
     const gestureDraft = gesture?.kind === 'draw'
-        ? ['rectangle', 'circle', 'polygon', 'arc'].includes(gesture.tool)
+        ? ['rectangle', 'circle', 'polygon', 'arc', 'ellipse', 'spline'].includes(gesture.tool)
             ? buildCreationEntity(gesture, gesture.current, 'draft')
             : buildDrawingEntity(gesture.tool, gesture.first, gesture.current, content.activeLayerId, 'draft', {
                 defaultText: t('document.defaultText'),
@@ -1375,7 +1417,10 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         extendEdges: interactiveOperation?.extendEdges,
         projection: interactiveOperation?.projection,
     }), [content, hoveredEntityId, interactiveOperation, operationPoint, trimExtendPreviewType]);
-    const draftEntities = [gestureDraft, ...mirrorDrafts, ...arrayDrafts, ...alignDrafts, ...cornerDrafts,
+    const wipeoutDraft = interactiveOperation?.type === 'wipeout' && interactiveOperation.points.length
+        ? { id: 'wipeout-preview', type: 'polyline', layerId: content.activeLayerId, closed: true,
+            points: [...interactiveOperation.points, ...(operationPoint ? [operationPoint] : [])] } : null;
+    const draftEntities = [gestureDraft, wipeoutDraft, blockInsertDraft, ...mirrorDrafts, ...arrayDrafts, ...alignDrafts, ...cornerDrafts,
         ...breakDrafts, ...stretchDrafts, ...lengthenDrafts,
         ...(clipboardPreview?.entities || []), ...offsetPreview,
         ...copyPreview, ...transformCopyPreview, ...trimPreviewEntities, ...extendPreviewEntities].filter(Boolean);
@@ -1566,6 +1611,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                     onChange={updateCreationConfig}
                     editEntity={editEntity}
                     onEditChange={onEditEntityChange}
+                    onImageSource={onImageSource}
+                    imageSourceBusy={imageSourceBusy}
                     textStyles={content.textStyles}
                 />
             )}
@@ -1658,8 +1705,10 @@ function getTextEditorOverlayStyle(entity, viewBox, canvasSize, textStyles) {
     const y = Math.min(entity.y, entity.y + entity.height);
     const width = Math.max(48, Math.abs(entity.width) * scale);
     const height = Math.max(30, Math.abs(entity.height) * scale);
-    const left = offsetX + (x - viewBox.x) * scale;
-    const top = offsetY + (y - viewBox.y) * scale;
+    const frame = drawingAffineFrame(entity);
+    const center = framedDrawingPoint(entity, { x: x + Math.abs(entity.width) / 2, y: y + Math.abs(entity.height) / 2 });
+    const left = offsetX + (center.x - viewBox.x) * scale - width / 2;
+    const top = offsetY + (center.y - viewBox.y) * scale - height / 2;
     const textStyle = resolveDrawingTextStyle(entity, textStyles);
     return {
         toolbarPlacement: top < 110 ? 'below' : 'above',
@@ -1673,7 +1722,7 @@ function getTextEditorOverlayStyle(entity, viewBox, canvasSize, textStyles) {
             fontFamily: textStyle.cssFontFamily,
             fontSize: `${drawingTextFontSizeToPixels(textStyle.fontSize, scale)}px`,
             lineHeight: textStyle.lineHeight,
-            transform: `${Number(entity.rotation) ? `rotate(${Number(entity.rotation)}deg)` : ''}${entity.mirrored ? ' scaleY(-1)' : ''}`.trim() || undefined,
+            transform: `${frame ? `matrix(${frame.a},${frame.b},${frame.c},${frame.d},0,0) ` : ''}${Number(entity.rotation) ? `rotate(${Number(entity.rotation)}deg)` : ''}${entity.mirrored ? ' scaleY(-1)' : ''}`.trim() || undefined,
             transformOrigin: 'center',
         },
     };

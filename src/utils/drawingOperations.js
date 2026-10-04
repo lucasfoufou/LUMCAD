@@ -352,7 +352,7 @@ export function createCopyPreviewEntities(content, entityIds, delta) {
     const idMap = new Map(originals.map(entity => [entity.id, `copy-preview-${entity.id}`]));
     return originals.map(entity => {
         const copy = {
-            ...remapDrawingEntityDependencies(entity, idMap),
+            ...remapDrawingEntityDependencies(entity, idMap, { preserveAppearance: true }),
             id: idMap.get(entity.id),
             previewMode: 'copy',
         };
@@ -373,7 +373,7 @@ export function createTransformCopyPreviewEntities(content, operation, currentPo
     return sources.map(source => {
         const transformed = transformedById.get(source.id) || source;
         return {
-            ...remapDrawingEntityDependencies(transformed, idMap),
+            ...remapDrawingEntityDependencies(transformed, idMap, { preserveAppearance: true }),
             id: idMap.get(source.id),
             previewMode: 'copy',
         };

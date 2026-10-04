@@ -10,13 +10,14 @@ const MAX_COORDINATE = 1e12;
 const DEFAULT_CURVE_SEGMENTS = 96;
 const MAX_CURVE_SEGMENTS = 512;
 
-export const DRAWING_ADVANCED_ENTITY_TYPES = Object.freeze(['ellipse', 'spline', 'hatch']);
+export const DRAWING_ADVANCED_ENTITY_TYPES = Object.freeze(['ellipse', 'spline', 'hatch', 'region']);
 
 export function normalizeAdvancedDrawingEntity(entity) {
     if (!entity || typeof entity !== 'object' || Array.isArray(entity)) return entity;
     if (['ellipse', 'ellipseArc'].includes(entity.type)) return normalizeDrawingEllipse(entity);
     if (['spline', 'cubicSpline', 'cubicBezier', 'bezier'].includes(entity.type)) return normalizeDrawingSpline(entity);
     if (entity.type === 'hatch') return normalizeDrawingHatch(entity);
+    if (entity.type === 'region') return normalizeDrawingRegion(entity);
     return entity;
 }
 
@@ -72,10 +73,12 @@ export function normalizeDrawingHatch(entity) {
         parts: path.parts.map(part => ({ ...part })),
         closed: true,
     }));
-    const { loops: _loops, boundaries: _boundaries, ...properties } = entity;
+    const { loops: _loops, boundaries: _boundaries, boundaryPick, ...properties } = entity;
     return {
         ...properties,
         type: 'hatch',
+        ...(Number.isFinite(boundaryPick?.x) && Number.isFinite(boundaryPick?.y)
+            ? { boundaryPick: { x: boundaryPick.x, y: boundaryPick.y } } : {}),
         boundaries,
         pattern: normalizeDrawingHatchPattern(entity.pattern),
     };
@@ -88,6 +91,7 @@ export function normalizeDrawingHatchPattern(pattern) {
     return {
         ...source,
         name,
+        ...(name === 'gradient' || name === 'radial' ? { endColor: /^#[0-9a-f]{6}$/i.test(source.endColor || '') ? source.endColor : '#ffffff' } : {}),
         angle: normalizeDegrees(source.angle),
         scale: finitePositiveOr(source.scale, 1),
         spacing: finitePositiveOr(source.spacing, 1),
@@ -96,8 +100,13 @@ export function normalizeDrawingHatchPattern(pattern) {
 }
 
 export function getHatchBoundaryEntities(entity) {
-    if (entity?.type !== 'hatch') return [];
+    if (!['hatch', 'region'].includes(entity?.type)) return [];
     return normalizeDrawingHatch(entity).boundaries;
+}
+
+export function normalizeDrawingRegion(entity) {
+    const { pattern, sourceIds, boundaryPick, ...normalized } = normalizeDrawingHatch(entity);
+    return { ...normalized, type: 'region' };
 }
 
 export function getAdvancedEntityBounds(entity) {
@@ -158,23 +167,31 @@ export function transformEllipseAffine(entity, matrix) {
     const majorSquared = Math.max(0, (trace + discriminant) / 2);
     const minorSquared = Math.max(0, (trace - discriminant) / 2);
     if (majorSquared <= EPSILON ** 2 || minorSquared <= EPSILON ** 2) return null;
-    const rx = Math.sqrt(majorSquared);
-    const ry = Math.sqrt(minorSquared);
-    let majorDirection;
+    let rx = Math.sqrt(majorSquared);
+    let ry = Math.sqrt(minorSquared);
+    let firstDirection;
     if (discriminant <= EPSILON * Math.max(1, trace)) {
-        majorDirection = normalizeVector(first) || { x: 1, y: 0 };
+        firstDirection = normalizeVector(first) || { x: 1, y: 0 };
     } else {
-        majorDirection = normalizeVector({ x: covariance.xy, y: majorSquared - covariance.xx })
+        firstDirection = normalizeVector({ x: covariance.xy, y: majorSquared - covariance.xx })
             || normalizeVector({ x: majorSquared - covariance.yy, y: covariance.xy });
     }
-    if (!majorDirection) return null;
-    const minorDirection = { x: -majorDirection.y, y: majorDirection.x };
+    if (!firstDirection) return null;
+    // Keep axis identity when lengths cross after scaling. With shear the
+    // transformed first axis chooses the closest principal direction.
+    const perpendicular = { x: -firstDirection.y, y: firstDirection.x };
+    if (Math.abs(dot(first, perpendicular)) > Math.abs(dot(first, firstDirection))) {
+        firstDirection = perpendicular;
+        [rx, ry] = [ry, rx];
+    }
+    if (dot(first, firstDirection) < 0) firstDirection = { x: -firstDirection.x, y: -firstDirection.y };
+    const secondDirection = { x: -firstDirection.y, y: firstDirection.x };
     const center = transformPointAffine({ x: ellipse.cx, y: ellipse.cy }, matrix);
     const parameterForPoint = point => {
         const offset = { x: point.x - center.x, y: point.y - center.y };
         return normalizeRadians(Math.atan2(
-            dot(offset, minorDirection) / ry,
-            dot(offset, majorDirection) / rx,
+            dot(offset, secondDirection) / ry,
+            dot(offset, firstDirection) / rx,
         ));
     };
     const start = transformPointAffine(curvePointAt(ellipse, 0), matrix);
@@ -186,7 +203,7 @@ export function transformEllipseAffine(entity, matrix) {
         cy: center.y,
         rx,
         ry,
-        rotation: normalizeDegrees(Math.atan2(majorDirection.y, majorDirection.x) * 180 / Math.PI),
+        rotation: normalizeDegrees(Math.atan2(firstDirection.y, firstDirection.x) * 180 / Math.PI),
         startAngle: parameterForPoint(start),
         endAngle: parameterForPoint(end),
         counterClockwise: reflected ? ellipse.counterClockwise === false : ellipse.counterClockwise !== false,

@@ -9,6 +9,7 @@ import {
     readLcadArchive,
 } from './lcadArchive.js';
 import { createLcadDocument, createLcadEnvelope } from './lcadDocument.js';
+import { beginRectangularArrayOperation, beginRectangularArrayEdit, commitRectangularArrayOperation } from './drawingCompoundOperations.js';
 import {
     createDrawingLayout,
     createDrawingPageSetup,
@@ -295,4 +296,19 @@ test('invalid archive bytes fail with a localized storage error', () => {
         () => readLcadArchive(Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0x00])),
         error => error.translationKey === 'storage.invalidArchive',
     );
+});
+
+
+test('rectangular arrays remain editable after an archive round trip', () => {
+    const document = createLcadDocument();
+    document.content.entities = [{ id: 'line', type: 'line', layerId: 'geometry', x1: 0, y1: 0, x2: 3, y2: 2 }];
+    const created = commitRectangularArrayOperation(document.content,
+        beginRectangularArrayOperation(document.content, ['line']));
+    document.content = created.content;
+    const loaded = readLcadArchive(createLcadArchive(createLcadEnvelope(document)));
+    const operation = beginRectangularArrayEdit(loaded.document.content, created.selectedIds);
+    assert.ok(operation);
+    const edited = commitRectangularArrayOperation(loaded.document.content, { ...operation, columns: 5 });
+    assert.equal(edited.entity.id, created.entity.id);
+    assert.equal(edited.entity.parts.length, 10);
 });

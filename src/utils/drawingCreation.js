@@ -14,15 +14,21 @@ import {
 } from './drawingCurves.js';
 import { pointDistance } from './drawingPrimitives.js';
 import { DEFAULT_DRAWING_TEXT_STYLE_ID } from './drawingText.js';
+import { isEditableSpline } from './drawingSplineEditing.js';
+import { isDrawingWipeout } from './drawingWipeout.js';
 
-const CREATION_PANEL_ENTITY_TYPES = new Set(['rectangle', 'circle', 'polygon', 'arc', 'text']);
+const CREATION_PANEL_ENTITY_TYPES = new Set(['rectangle', 'circle', 'polygon', 'arc', 'ellipse', 'spline', 'hatch', 'text', 'image', 'wipeout']);
 
 export function supportsDrawingCreationPanel(entityOrType) {
+    if (isDrawingWipeout(entityOrType)) return true;
+    if (typeof entityOrType === 'object' && isEditableSpline(entityOrType)) return true;
     const type = typeof entityOrType === 'string' ? entityOrType : entityOrType?.type;
     return CREATION_PANEL_ENTITY_TYPES.has(type);
 }
 
 export function createDefaultDrawingCreationConfig(tool) {
+    if (tool === 'spline') return { mode: 'fit', options: {} };
+    if (tool === 'ellipse') return { mode: 'axis', options: { counterClockwise: true } };
     if (tool === 'circle') return { mode: 'centerRadius', options: {} };
     if (tool === 'polygon') return { mode: 'centerRadius', options: { sides: 6, mode: 'inscribed' } };
     if (tool === 'arc') return { mode: 'threePoint', options: {} };
@@ -40,6 +46,12 @@ export function createDefaultDrawingCreationConfig(tool) {
 }
 
 const MODE_ALIASES = {
+    spline: new Map([['FIT', 'fit'], ['CONTROL', 'control'], ['CV', 'control']]),
+    ellipse: new Map([
+        ['AXIS', 'axis'], ['CENTER', 'center'], ['CENTRE', 'center'],
+        ['ARC', 'axisArc'], ['CENTERARC', 'centerArc'],
+        ['CW', 'clockwise'], ['CCW', 'counterClockwise'],
+    ]),
     circle: new Map([
         ['CENTER', 'centerRadius'], ['CENTRE', 'centerRadius'], ['RADIUS', 'centerRadius'], ['CR', 'centerRadius'],
         ['2P', 'twoPoint'], ['2POINT', 'twoPoint'], ['2POINTS', 'twoPoint'], ['DIAMETER', 'twoPoint'],
@@ -70,6 +82,19 @@ const MODE_ALIASES = {
 };
 
 const CREATION_OPTION_DEFINITIONS = {
+    spline: [
+        creationOption('FIT', 'FIT', 'creation.splineFit'),
+        creationOption('CONTROL', 'CV', 'creation.splineControl'),
+        creationOption('DONE', 'DONE', 'creation.splineDone'),
+    ],
+    ellipse: [
+        creationOption('AXIS', 'AXIS', 'creation.ellipseAxis'),
+        creationOption('CENTER', 'CENTER', 'creation.ellipseCenter'),
+        creationOption('ARC', 'ARC', 'creation.ellipseArc'),
+        creationOption('CENTERARC', 'CENTERARC', 'creation.ellipseCenterArc'),
+        creationOption('CW', 'CW', 'creation.clockwise'),
+        creationOption('CCW', 'CCW', 'creation.counterClockwise'),
+    ],
     rectangle: [
         creationOption('DIMENSIONS', 'D', 'creation.dimensions'),
         creationOption('AREA', 'A', 'creation.byArea'),
@@ -124,6 +149,8 @@ export function parseDrawingCreationInput(tool, value) {
     const commandTokens = {
         rectangle: ['RECTANGLE', 'REC', 'RECT'],
         polygon: ['POLYGON', 'POLY', 'POL'],
+        ellipse: ['ELLIPSE', 'EL'],
+        spline: ['SPLINE', 'SPL'],
         circle: ['CIRCLE', 'C', 'CERCLE'],
         arc: ['ARC', 'A', 'ARCHE'],
     }[tool] || [];
@@ -141,7 +168,7 @@ export function parseDrawingCreationInput(tool, value) {
         if (tool === 'rectangle' && ['dimensions', 'area', 'rotation', 'chamfer', 'fillet', 'lineWidth'].includes(mode)) {
             return { kind: 'options', options: parseOptionValue(mode, args) };
         }
-        if (tool === 'arc' && ['clockwise', 'counterClockwise'].includes(mode)) {
+        if (['arc', 'ellipse'].includes(tool) && ['clockwise', 'counterClockwise'].includes(mode)) {
             return { kind: 'options', options: { counterClockwise: mode === 'counterClockwise', ...arcModeValue(mode, args) } };
         }
         return { kind: 'mode', mode, args };

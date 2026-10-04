@@ -1,3 +1,6 @@
+import { drawingDimensionPresentationPoints } from './drawingDimensionPresentation.js';
+import { drawingSnapEntities } from './drawingBlockSnapping.js';
+import { getImageClipPoints } from './drawingImageClip.js';
 const EPSILON = 1e-9;
 const MAX_OFFSET_POLYLINE_POINTS = 4096;
 const MAX_OFFSET_INTERSECTION_CHECKS = 250_000;
@@ -8,6 +11,8 @@ const MAX_SNAP_INTERSECTION_ENTITIES = 256;
 const MAX_SNAP_INTERSECTION_CHECKS = 16_384;
 const MAX_SNAP_INTERSECTION_CANDIDATES = 2_048;
 
+import { ellipseOffsetThroughParameters, offsetEllipseEntity } from './drawingEllipseOffset.js';
+import { isConstructionLine, intersectConstructionLine } from './drawingConstructionLines.js';
 import {
     arcContainsAngle,
     arcEndPoint,
@@ -201,9 +206,9 @@ export function resizeViewBoxForCanvas(viewBox, previousSize, nextSize) {
 
 export function getEntityBounds(entity, entityMap = new Map()) {
     if (!entity) return null;
-    if (entity.type === 'line') return boundsFromPoints([{ x: entity.x1, y: entity.y1 }, { x: entity.x2, y: entity.y2 }]);
+    if (['line', 'xline', 'ray'].includes(entity.type)) return boundsFromPoints([{ x: entity.x1, y: entity.y1 }, { x: entity.x2, y: entity.y2 }]);
     if (entity.type === 'ellipse' || entity.type === 'spline') return getAdvancedEntityBounds(entity);
-    if (entity.type === 'hatch') {
+    if (['hatch', 'region'].includes(entity.type)) {
         return getHatchBoundaryEntities(entity)
             .map(boundary => getEntityBounds(boundary, entityMap))
             .filter(Boolean)
@@ -218,7 +223,8 @@ export function getEntityBounds(entity, entityMap = new Map()) {
     if (entity.type === 'rectangle') return boundsFromPoints(getRectangleOutlinePoints(entity));
     if (entity.type === 'polygon') return boundsFromPoints(getRegularPolygonVertices(entity));
     if (entity.type === 'arc') return isFiniteBoundedCircle(entity) ? getArcBounds(entity) : null;
-    if (entity.type === 'image' || entity.type === 'text') return boundsFromPoints(getRectEntityCorners(entity));
+    if (entity.type === 'image' || entity.type === 'text') return boundsFromPoints(entity.type === 'image'
+        ? getImageClipPoints(entity, { world: true }) || getRectEntityCorners(entity) : getRectEntityCorners(entity));
     if (entity.type === 'circle') {
         if (!isFiniteBoundedCircle(entity)) return null;
         const radius = Math.abs(Number(entity.r) || 0);
@@ -226,7 +232,7 @@ export function getEntityBounds(entity, entityMap = new Map()) {
     }
     if (isDrawingDimensionEntity(entity)) {
         const geometry = getDimensionGeometry(entity, entityMap);
-        return geometry ? boundsFromPoints(geometry.points) : null;
+        return geometry ? boundsFromPoints(drawingDimensionPresentationPoints(geometry, entity)) : null;
     }
     return null;
 }
@@ -286,10 +292,11 @@ export function fitViewBox(content, aspectRatio = 16 / 9, marginRatio = 0.12) {
 }
 
 export function offsetEntity(entity, distance) {
+    if (entity?.type === 'ellipse') return offsetEllipseEntity(entity, Number(distance));
     const signedDistance = Number(distance);
     if (!entity || !Number.isFinite(signedDistance) || Math.abs(signedDistance) > MAX_OFFSET_COORDINATE) return null;
 
-    if (entity.type === 'line') {
+    if (['line', 'xline', 'ray'].includes(entity.type)) {
         const first = finitePointFromEntity(entity, 'x1', 'y1');
         const second = finitePointFromEntity(entity, 'x2', 'y2');
         if (!first || !second) return null;
@@ -364,7 +371,8 @@ export function getOffsetThroughParameters(entity, point) {
     if (!entity || !isFinitePoint(point)) return null;
 
     let parameters = null;
-    if (entity.type === 'line') parameters = throughLineParameters(entity, point);
+    if (entity.type === 'ellipse') parameters = ellipseOffsetThroughParameters(entity, point);
+    if (['line', 'xline', 'ray'].includes(entity.type)) parameters = throughLineParameters(entity, point);
     if (entity.type === 'rectangle') parameters = throughRectangleParameters(entity, point);
     if (entity.type === 'polygon') parameters = throughPolygonParameters(entity, point);
     if (entity.type === 'circle') parameters = throughCircleParameters(entity, point);
@@ -380,11 +388,15 @@ export function getOffsetThroughParameters(entity, point) {
  * The distance is always treated as a magnitude; the point supplies the sign.
  */
 export function offsetEntityTowardPoint(entity, distance, point) {
+    if (entity?.type === 'ellipse') {
+        const parameters = ellipseOffsetThroughParameters(entity, point, { requireNormal: false });
+        return parameters ? offsetEllipseEntity(entity, Math.abs(Number(distance)) * parameters.side) : null;
+    }
     const magnitude = Math.abs(Number(distance));
     if (!entity || !isFinitePoint(point) || !Number.isFinite(magnitude)
         || magnitude <= EPSILON || magnitude > MAX_OFFSET_COORDINATE) return null;
 
-    if (entity.type === 'line') {
+    if (['line', 'xline', 'ray'].includes(entity.type)) {
         const first = finitePointFromEntity(entity, 'x1', 'y1');
         const second = finitePointFromEntity(entity, 'x2', 'y2');
         if (!first || !second) return null;
@@ -1041,10 +1053,7 @@ export function selectionCenter(content, selectedIds) {
 
 export function snapDrawingPoint(point, content, threshold, { excludeIds = [] } = {}) {
     const excluded = new Set(excludeIds);
-    const layerMap = new Map(content.layers.map(layer => [layer.id, layer]));
-    const entities = content.entities.filter(entity => (
-        layerMap.get(entity.layerId)?.visible && !excluded.has(entity.id) && isSafeSnappingEntity(entity)
-    ));
+    const entities = drawingSnapEntities(content, excluded).filter(isSafeSnappingEntity);
     const snaps = content.settings?.snaps || {};
     const aperture = Number.isFinite(Number(threshold)) ? Math.max(0, Number(threshold)) : 0;
     const candidates = [];
@@ -1126,6 +1135,8 @@ function distanceToSnappableEntity(point, entity) {
 }
 
 function intersectEntities(left, right) {
+    if (isConstructionLine(left)) return intersectConstructionLine(left, right);
+    if (isConstructionLine(right)) return intersectConstructionLine(right, left);
     const exact = intersectEntityPaths(left, right);
     if (exact) return exact;
     const leftParts = geometryParts(left);

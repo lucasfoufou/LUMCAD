@@ -1,3 +1,4 @@
+import { applyImageAdjustmentsToPixels, hasImageAdjustments } from './drawingImageAdjustments.js';
 import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
 import { strToU8, unzipSync, zipSync } from 'fflate';
@@ -384,15 +385,41 @@ async function downsampleDrawingSvgImages(svg, imageDpi, jpegQuality) {
         }, imageDpi);
         const sourceWidth = image.naturalWidth || image.width;
         const sourceHeight = image.naturalHeight || image.height;
-        if (target.width >= sourceWidth && target.height >= sourceHeight) return;
-        const canvas = document.createElement('canvas');
-        canvas.width = target.width;
-        canvas.height = target.height;
+        const adjustments = {
+            brightness: Number(element.getAttribute('data-image-brightness') ?? 100),
+            contrast: Number(element.getAttribute('data-image-contrast') ?? 100),
+            monochrome: element.getAttribute('data-image-monochrome') === 'true',
+            transparentColor: element.getAttribute('data-image-key'),
+            colorTolerance: Number(element.getAttribute('data-image-key-tolerance') ?? 0),
+        };
+        const adjusted = hasImageAdjustments(adjustments);
+        if (target.width >= sourceWidth && target.height >= sourceHeight && !adjusted) return;
+        let canvas = document.createElement('canvas');
+        const keyBeforeResize = Boolean(adjustments.transparentColor);
+        if (keyBeforeResize && sourceWidth * sourceHeight > MAX_RASTER_PIXELS) throw new Error('The colour-key source image exceeds the pixel-processing limit.');
+        canvas.width = keyBeforeResize ? sourceWidth : target.width;
+        canvas.height = keyBeforeResize ? sourceHeight : target.height;
         const context = canvas.getContext('2d');
         if (!context) throw new Error('The drawing image canvas is unavailable.');
-        context.drawImage(image, 0, 0, target.width, target.height);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        if (adjusted) {
+            const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+            applyImageAdjustmentsToPixels(pixels.data, adjustments);
+            context.putImageData(pixels, 0, 0);
+            element.removeAttribute('filter');
+            element.style.setProperty('filter', 'none');
+        }
+        if (keyBeforeResize && (canvas.width !== target.width || canvas.height !== target.height)) {
+            const resized = document.createElement('canvas');
+            resized.width = target.width;
+            resized.height = target.height;
+            const resizedContext = resized.getContext('2d');
+            if (!resizedContext) throw new Error('The drawing image canvas is unavailable.');
+            resizedContext.drawImage(canvas, 0, 0, target.width, target.height);
+            canvas = resized;
+        }
         const sourceMime = /^data:(image\/[a-z0-9.+-]+)/i.exec(href)?.[1]?.toLowerCase();
-        const mime = sourceMime === 'image/jpeg' || sourceMime === 'image/jpg' ? 'image/jpeg' : 'image/png';
+        const mime = !adjustments.transparentColor && (sourceMime === 'image/jpeg' || sourceMime === 'image/jpg') ? 'image/jpeg' : 'image/png';
         const nextHref = canvas.toDataURL(mime, jpegQuality);
         element.setAttribute('href', nextHref);
         if (element.hasAttributeNS('http://www.w3.org/1999/xlink', 'href')) {

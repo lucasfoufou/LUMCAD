@@ -245,7 +245,7 @@ function commonValue(entities, getter) {
 }
 
 function supportsStrokeAppearance(entity) {
-    return ['line', 'polyline', 'rectangle', 'polygon', 'circle', 'arc', 'linearDimension', 'radialDimension'].includes(entity.type);
+    return ['line', 'xline', 'ray', 'polyline', 'rectangle', 'polygon', 'circle', 'arc', 'linearDimension', 'radialDimension'].includes(entity.type);
 }
 
 function formatWeight(weight) {

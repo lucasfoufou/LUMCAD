@@ -77,6 +77,7 @@ function normalizeStructuredError(error) {
 }
 
 const STORAGE_ERROR_KEYS = Object.freeze({
+    image_source_failed: 'image.sourceFailed',
     invalid_json_object: 'storage.invalidJsonObject',
     invalid_format: 'storage.invalidFormat',
     unsupported_version: 'storage.unsupportedVersion',

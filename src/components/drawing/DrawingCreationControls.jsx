@@ -1,5 +1,13 @@
+import { normalizeImageAdjustments } from '~utils/drawingImageAdjustments';
+import { normalizeImageClip, parseImageClipInput } from '~utils/drawingImageClip';
+import { isDrawingWipeout } from '~utils/drawingWipeout';
+import { normalizeDrawingHatchPattern } from '~utils/drawingAdvancedEntities';
 import React, { useEffect, useId, useRef, useState } from 'react';
 
+import { editSplineControl, editSplineDefinitionPoint, editSplineDefinitionKnot, editSplineEndpointTangent, splineEndpointDerivative, isEditableSpline } from '~utils/drawingSplineEditing';
+import { changeSplinePointList, convertSplineToControl, convertSplineToPolyline, insertSplineKnot, refitSpline } from '~utils/drawingSplineTopology';
+import { MAX_SPLINE_CREATION_POINTS } from '~utils/drawingSplineCreation';
+import { normalizeCurvePrimitive } from '~utils/drawingCurveKernel';
 import { useI18n } from '~i18n/I18nProvider';
 import { createDefaultDrawingCreationConfig, supportsDrawingCreationPanel } from '~utils/drawingCreation';
 import { formatDecimalValue, parseDecimalDraft } from '~utils/drawingFormValues';
@@ -18,11 +26,13 @@ export default function DrawingCreationControls({
     onChange = () => {},
     editEntity = null,
     onEditChange = null,
+    onImageSource = null,
+    imageSourceBusy = false,
     textStyles = [],
 }) {
     const { t } = useI18n();
     const editMode = isEditableEntity(editEntity);
-    const panelTool = editMode ? editEntity.type : activeTool;
+    const panelTool = editMode ? (isDrawingWipeout(editEntity) ? 'wipeout' : isEditableSpline(editEntity) ? 'spline' : editEntity.type) : activeTool;
     if (!supportsDrawingCreationPanel(panelTool)) return null;
 
     const toolLabel = t(`commands.${panelTool}`);
@@ -56,6 +66,8 @@ export default function DrawingCreationControls({
             {editMode ? (
                 <EntityEditFields
                     entity={editEntity}
+                    onImageSource={onImageSource}
+                    imageSourceBusy={imageSourceBusy}
                     disabled={typeof onEditChange !== 'function'}
                     textStyles={textStyles}
                     t={t}
@@ -80,18 +92,192 @@ function CreationFields({ activeTool, mode, options, textStyles, t, onModeChange
     if (activeTool === 'rectangle') return <RectangleCreationFields options={options} t={t} onChange={onChange} />;
     if (activeTool === 'circle') return <CircleCreationFields mode={mode} options={options} t={t} onModeChange={onModeChange} onChange={onChange} />;
     if (activeTool === 'polygon') return <PolygonCreationFields options={options} t={t} onChange={onChange} />;
+    if (activeTool === 'spline') return <div className="drawing-creation-fields"><SelectField label={t('creation.mode')} value={mode} onChange={onModeChange} options={[
+        ['fit', t('creation.splineFit')], ['control', t('creation.splineControl')],
+    ]} /></div>;
+    if (activeTool === 'ellipse') return <EllipseFields mode={mode} options={options} t={t} onModeChange={onModeChange} onChange={onChange} />;
     if (activeTool === 'arc') return <ArcCreationFields mode={mode} options={options} t={t} onModeChange={onModeChange} onChange={onChange} />;
     if (activeTool === 'text') return <TextFields values={options} textStyles={textStyles} t={t} onChange={onChange} />;
     return null;
 }
 
-function EntityEditFields({ entity, disabled, textStyles, t, onChange }) {
+function EntityEditFields({ entity, disabled, textStyles, t, onChange, onImageSource, imageSourceBusy }) {
+    if (isDrawingWipeout(entity)) return <div className="drawing-creation-fields"><SelectField label={t('wipeout.frame')} disabled={disabled}
+        value={entity.wipeout.frame === false ? 'off' : 'on'} options={[['on', t('image.cropOn')], ['off', t('image.cropOff')]]}
+        onChange={value => onChange({ wipeout: { frame: value === 'on' } })} /></div>;
+    if (entity.type === 'image') return <ImageFields entity={entity} disabled={disabled} t={t} onChange={onChange} onImageSource={onImageSource} busy={imageSourceBusy} />;
+    if (entity.type === 'hatch') return <HatchFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (entity.type === 'rectangle') return <RectangleEditFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (entity.type === 'circle') return <CircleEditFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (entity.type === 'polygon') return <PolygonEditFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
+    if (isEditableSpline(entity) && entity.splineDefinition) return <SplineDefinitionFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
+    if (isEditableSpline(entity)) return <SplineEditFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
+    if (entity.type === 'ellipse') return <EllipseFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (entity.type === 'arc') return <ArcEditFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (entity.type === 'text') return <TextFields values={entity} textStyles={textStyles} disabled={disabled} includeGeometry t={t} onChange={onChange} />;
     return null;
+}
+
+function ImageFields({ entity, disabled, t, onChange, onImageSource, busy }) {
+    const settings = normalizeImageAdjustments(entity.imageAdjustments);
+    const clip = normalizeImageClip(entity.imageClip);
+    const rect = clip ? [Math.min(...clip.points.map(point => point.x)), Math.min(...clip.points.map(point => point.y)),
+        Math.max(...clip.points.map(point => point.x)), Math.max(...clip.points.map(point => point.y))] : [0, 0, 1, 1];
+    const update = patch => onChange({ imageAdjustments: { ...settings, ...patch } });
+    return <div className="drawing-creation-fields">
+        <DetailsFields t={t} label={t('image.source')}>
+            <label className="drawing-creation-field is-wide"><span>{t('image.sourcePath')}</span><input readOnly value={entity.imageSource?.path || t('image.embedded')} title={entity.imageSource?.path || ''} /></label>
+            {onImageSource && <>
+                <button type="button" className="drawing-creation-action" disabled={disabled || busy} onClick={() => onImageSource('LINK')}>{t('image.sourceLink')}</button>
+                <button type="button" className="drawing-creation-action" disabled={disabled || busy || !entity.imageSource} onClick={() => onImageSource('RELOAD')}>{t('image.sourceReload')}</button>
+                <button type="button" className="drawing-creation-action" disabled={disabled || busy || !entity.imageSource} onClick={() => onImageSource('EMBED')}>{t('image.sourceEmbed')}</button>
+            </>}
+        </DetailsFields>
+        {['brightness', 'contrast'].map(key => <NumberField key={key} label={t(`image.${key}`)} value={settings[key]} min={0} max={200} step={1} disabled={disabled}
+            onChange={value => { if (Number.isFinite(value) && value >= 0 && value <= 200) update({ [key]: value }); }} />)}
+        <SelectField label={t('image.colorMode')} value={settings.monochrome ? 'mono' : 'color'} disabled={disabled}
+            options={[['color', t('image.color')], ['mono', t('image.monochrome')]]} onChange={value => update({ monochrome: value === 'mono' })} />
+        <button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => onChange({ imageAdjustments: normalizeImageAdjustments() })}>{t('creation.reset')}</button>
+        <DetailsFields t={t} label={t('image.transparentColor')}>
+            <SelectField label={t('image.colorKeyMode')} value={settings.transparentColor ? 'on' : 'off'} disabled={disabled}
+                options={[['off', t('image.keyOff')], ['on', t('image.keyOn')]]}
+                onChange={value => update({ transparentColor: value === 'on' ? '#ffffff' : undefined, colorTolerance: 0 })} />
+            {settings.transparentColor && <>
+                <label className="drawing-creation-field"><span>{t('image.transparentColor')}</span><input type="color" aria-label={t('image.transparentColor')} disabled={disabled}
+                    value={settings.transparentColor} onChange={event => update({ transparentColor: event.target.value })} /></label>
+                <NumberField label={t('image.colorTolerance')} value={settings.colorTolerance} min={0} max={100} step={1} disabled={disabled}
+                    onChange={value => { if (Number.isFinite(value) && value >= 0 && value <= 100) update({ colorTolerance: value }); }} />
+            </>}
+        </DetailsFields>
+        <DetailsFields t={t} label={t('image.crop')}>
+            <SelectField label={t('image.cropMode')} value={clip ? clip.enabled ? 'on' : 'off' : 'none'} disabled={disabled}
+                options={[['none', t('image.cropNone')], ['on', t('image.cropOn')], ['off', t('image.cropOff')]]}
+                onChange={value => onChange(value === 'none' ? { imageClip: undefined }
+                    : { imageClip: { ...(clip || parseImageClipInput('RECT 0 0 1 1').imageClip), enabled: value === 'on' } })} />
+            {['left', 'top', 'right', 'bottom'].map((key, index) => <NumberField key={key} label={t(`image.crop.${key}`)} value={rect[index] * 100} min={0} max={100} step={1} disabled={disabled}
+                onChange={value => {
+                    const next = rect.map((coordinate, current) => current === index ? value / 100 : coordinate);
+                    if (!(next[2] > next[0] && next[3] > next[1])) return;
+                    const patch = parseImageClipInput(`RECT ${next.join(' ')}`);
+                    if (patch) onChange(patch);
+                }} />)}
+        </DetailsFields>
+    </div>;
+}
+
+function HatchFields({ entity, disabled, t, onChange }) {
+    const pattern = normalizeDrawingHatchPattern(entity.pattern);
+    const update = patch => onChange({ pattern: normalizeDrawingHatchPattern({ ...pattern, ...patch }) });
+    return <div className="drawing-creation-fields">
+        <SelectField label={t('hatch.pattern')} value={pattern.name} disabled={disabled} onChange={name => update({ name })}
+            options={['solid', 'lines', 'cross', 'gradient', 'radial'].map(name => [name, t(`hatch.${name}`)])} />
+        {['lines', 'cross'].includes(pattern.name) && <NumberField label={t('hatch.spacing')} value={pattern.spacing} min={0.02} max={1e6} disabled={disabled}
+            onChange={value => { if (Number.isFinite(value) && value >= 0.02 && value <= 1e6) update({ spacing: value, scale: 1 }); }} />}
+        {pattern.name !== 'solid' && <NumberField label={t('creation.rotation')} value={pattern.angle} disabled={disabled}
+            onChange={value => { if (Number.isFinite(value)) update({ angle: value }); }} />}
+        {['gradient', 'radial'].includes(pattern.name) && <label className="drawing-creation-field"><span>{t('hatch.endColor')}</span>
+            <input type="color" aria-label={t('hatch.endColor')} value={pattern.endColor || '#ffffff'} disabled={disabled} onChange={event => update({ endColor: event.target.value })} />
+        </label>}
+        <DetailsFields t={t}>
+            {['x', 'y'].map(axis => <NumberField key={axis} label={t('hatch.origin', { axis: axis.toUpperCase() })} value={pattern.origin[axis]} disabled={disabled}
+                onChange={value => { if (Number.isFinite(value) && Math.abs(value) <= 1e12) update({ origin: { ...pattern.origin, [axis]: value } }); }} />)}
+            {entity.sourceIds?.length > 0 && <button type="button" className="drawing-creation-action" disabled={disabled}
+                onClick={() => onChange({ sourceIds: undefined })}>{t('hatch.detach')}</button>}
+        </DetailsFields>
+    </div>;
+}
+
+function SplineDefinitionFields({ entity, disabled, t, onChange }) {
+    const [selectedPoint, setSelectedPoint] = useState(0);
+    const [selectedKnot, setSelectedKnot] = useState(0);
+    const [newKnot, setNewKnot] = useState(0.5);
+    const definition = entity.splineDefinition;
+    const pointIndex = Math.min(selectedPoint, definition.points.length - 1);
+    const knotIndex = Math.min(selectedKnot, definition.knots.length - 1);
+    const point = definition.points[pointIndex];
+    useEffect(() => { setSelectedPoint(0); setSelectedKnot(0); }, [entity.id]);
+    const update = next => { if (next !== entity) onChange(next); };
+    return <div className="drawing-creation-fields">
+        <SelectField label={t(definition.mode === 'fit' ? 'creation.splineFit' : 'creation.splineControl')}
+            value={String(pointIndex)} onChange={value => setSelectedPoint(Number(value))}
+            options={definition.points.map((point, index) => [String(index), String(index + 1)])} />
+        {['x', 'y'].map(axis => <NumberField key={axis} label={t('creation.splinePointCoordinate', { index: pointIndex + 1, axis: axis.toUpperCase() })}
+            value={point[axis]} disabled={disabled} onChange={value => update(editSplineDefinitionPoint(entity, pointIndex, { ...point, [axis]: value }))} />)}
+        <SelectField label={t('creation.splineKnot')} value={String(knotIndex)} onChange={value => setSelectedKnot(Number(value))}
+            options={definition.knots.map((knot, index) => [String(index), String(index + 1)])} />
+        <NumberField label={t('creation.splineParameter')} value={definition.knots[knotIndex]} min={0} max={1} step={0.01}
+            disabled={disabled || (definition.mode === 'fit' ? knotIndex === 0 || knotIndex === definition.knots.length - 1 : knotIndex < 4 || knotIndex >= definition.knots.length - 4)}
+            onChange={value => update(editSplineDefinitionKnot(entity, knotIndex, value))} />
+        <button type="button" className="drawing-creation-action" disabled={disabled || definition.points.length >= MAX_SPLINE_CREATION_POINTS}
+            onClick={() => {
+                const next = definition.points[pointIndex + 1];
+                const previous = definition.points[Math.max(0, pointIndex - 1)];
+                const added = next ? { x: (point.x + next.x) / 2, y: (point.y + next.y) / 2 }
+                    : { x: 2 * point.x - previous.x, y: 2 * point.y - previous.y };
+                update(changeSplinePointList(entity, pointIndex + 1, added));
+            }}>{t('creation.splineInsertPoint')}</button>
+        <button type="button" className="drawing-creation-action" disabled={disabled || definition.points.length <= (definition.mode === 'fit' ? 2 : 4)}
+            onClick={() => update(changeSplinePointList(entity, pointIndex))}>{t('creation.splineRemovePoint')}</button>
+        <span>{t('creation.splineReparameterize')}</span>
+        {definition.mode === 'control' && <DetailsFields t={t} label={t('creation.splineInsertKnot')}>
+            <NumberField label={t('creation.splineNewKnot')} value={newKnot} min={0} max={1} step={0.01} disabled={disabled} onChange={setNewKnot} />
+            <button type="button" className="drawing-creation-action" disabled={disabled || definition.points.length >= MAX_SPLINE_CREATION_POINTS}
+                onClick={() => update(insertSplineKnot(entity, newKnot))}>{t('creation.splineInsertKnot')}</button>
+        </DetailsFields>}
+        <SplineTangentFields entity={entity} disabled={disabled} t={t} onChange={update} />
+        <button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => onChange({ splineDefinition: undefined })}>{t('creation.splineBezier')}</button>
+        <SplineConversionFields entity={entity} disabled={disabled} t={t} onChange={update} />
+    </div>;
+}
+
+function SplineTangentFields({ entity, disabled, t, onChange }) {
+    const [endpoint, setEndpoint] = useState('start');
+    const definition = entity.splineDefinition;
+    const tangent = splineEndpointDerivative(entity, endpoint);
+    const key = endpoint === 'start' ? 'startTangent' : 'endTangent';
+    const natural = definition.mode === 'fit' && !definition[key];
+    if (!tangent) return null;
+    return <DetailsFields t={t} label={t('creation.splineTangent')}>
+        <SelectField label={t('creation.splineTangent')} value={endpoint} onChange={setEndpoint}
+            options={['start', 'end'].map(value => [value, t(`creation.splineTangent${value === 'start' ? 'Start' : 'End'}`)])} />
+        {['x', 'y'].map(axis => <NumberField key={axis} label={t('creation.splineDerivative', { axis: axis.toUpperCase() })}
+            value={tangent[axis]} disabled={disabled} onChange={value => onChange(editSplineEndpointTangent(entity, endpoint, { ...tangent, [axis]: value }))} />)}
+        {definition.mode === 'fit' && <button type="button" className="drawing-creation-action" disabled={disabled}
+            onClick={() => onChange(editSplineEndpointTangent(entity, endpoint, natural ? tangent : null))}>
+            {t(natural ? 'creation.splineConstrainTangent' : 'creation.splineNaturalTangent')}
+        </button>}
+    </DetailsFields>;
+}
+
+function SplineEditFields({ entity, disabled, t, onChange }) {
+    const [selectedSpan, setSelectedSpan] = useState(0);
+    const parts = entity.type === 'spline' ? [entity] : entity.parts;
+    const span = Math.min(selectedSpan, parts.length - 1);
+    useEffect(() => setSelectedSpan(0), [entity.id]);
+    const controls = normalizeCurvePrimitive(parts[span])?.controlPoints || [];
+    return <div className="drawing-creation-fields">
+        {parts.length > 1 && <SelectField label={t('creation.splineSpan')} value={String(span)}
+            onChange={value => setSelectedSpan(Number(value))} options={parts.map((part, index) => [String(index), String(index + 1)])} />}
+        {controls.map((point, index) => <React.Fragment key={index}>
+            {['x', 'y'].map(axis => <NumberField key={axis} label={t('creation.splineCoordinate', { index: index + 1, axis: axis.toUpperCase() })}
+                value={point[axis]} disabled={disabled} onChange={value => {
+                    const next = editSplineControl(entity, span, index, { ...point, [axis]: value });
+                    if (next !== entity) onChange(entity.type === 'spline' ? { controlPoints: next.controlPoints } : { parts: next.parts });
+                }} />)}
+        </React.Fragment>)}
+        <SplineConversionFields entity={entity} disabled={disabled} t={t} onChange={onChange} />
+    </div>;
+}
+
+function SplineConversionFields({ entity, disabled, t, onChange }) {
+    const [tolerance, setTolerance] = useState(0.001);
+    const update = next => { if (next !== entity) onChange(next); };
+    return <DetailsFields t={t} label={t('creation.splineConversions')}>
+        <button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => update(convertSplineToControl(entity))}>{t('creation.splineToControl')}</button>
+        <button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => update(refitSpline(entity))}>{t('creation.splineRefit')}</button>
+        <NumberField label={t('creation.splineTolerance')} value={tolerance} min={0.00000001} step={0.001} disabled={disabled} onChange={setTolerance} />
+        <button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => update(convertSplineToPolyline(entity, tolerance))}>{t('creation.splineToPolyline')}</button>
+    </DetailsFields>;
 }
 
 function RectangleCreationFields({ options, t, onChange }) {
@@ -193,6 +379,38 @@ function PolygonCreationFields({ options, t, onChange }) {
                 ['inscribed', t('creation.inscribed')],
                 ['circumscribed', t('creation.circumscribed')],
             ]} />
+        </div>
+    );
+}
+
+function EllipseFields({ entity = null, mode, options = {}, disabled = false, t, onModeChange, onChange }) {
+    const values = entity || options;
+    const isArc = entity ? !entity.fullEllipse : ['axisArc', 'centerArc'].includes(mode);
+    const update = patch => {
+        if (!entity || normalizeCurvePrimitive({ ...entity, ...patch })) onChange(patch);
+    };
+    return (
+        <div className="drawing-creation-fields">
+            {!entity && <SelectField label={t('creation.mode')} value={mode} onChange={onModeChange} options={[
+                ['axis', t('creation.ellipseAxis')], ['center', t('creation.ellipseCenter')],
+                ['axisArc', t('creation.ellipseArc')], ['centerArc', t('creation.ellipseCenterArc')],
+            ]} />}
+            {entity && <>
+                <DetailsFields t={t}>
+                    <NumberField label={t('creation.centerX')} value={entity.cx} disabled={disabled} onChange={value => updateFinite(update, 'cx', value)} />
+                    <NumberField label={t('creation.centerY')} value={entity.cy} disabled={disabled} onChange={value => updateFinite(update, 'cy', value)} />
+                    <NumberField label={t('creation.rotation')} value={entity.rotation} disabled={disabled} onChange={value => updateFinite(update, 'rotation', value)} />
+                </DetailsFields>
+                <NumberField label={t('creation.ellipseRadiusX')} value={entity.rx} min={0.0001} disabled={disabled} onChange={value => updatePositiveFinite(update, 'rx', value)} />
+                <NumberField label={t('creation.ellipseRadiusY')} value={entity.ry} min={0.0001} disabled={disabled} onChange={value => updatePositiveFinite(update, 'ry', value)} />
+                {isArc && <>
+                    <NumberField label={t('creation.arcStartAngle')} value={radiansToDegrees(entity.startAngle)} disabled={disabled} onChange={value => updateAngle(update, 'startAngle', value)} />
+                    <NumberField label={t('creation.arcEndAngle')} value={radiansToDegrees(entity.endAngle)} disabled={disabled} onChange={value => updateAngle(update, 'endAngle', value)} />
+                </>}
+            </>}
+            {isArc && <SelectField label={t('creation.direction')} value={values.counterClockwise === false ? 'clockwise' : 'counterClockwise'} disabled={disabled} onChange={value => update({ counterClockwise: value !== 'clockwise' })} options={[
+                ['counterClockwise', t('creation.counterClockwise')], ['clockwise', t('creation.clockwise')],
+            ]} />}
         </div>
     );
 }
@@ -447,7 +665,7 @@ function CheckboxField({ label, checked, onChange, disabled = false }) {
     );
 }
 
-function DetailsFields({ children, t }) {
+function DetailsFields({ children, t, label }) {
     const [open, setOpen] = useState(false);
     return (
         <div className="drawing-creation-details">
@@ -458,7 +676,7 @@ function DetailsFields({ children, t }) {
                 onClick={() => setOpen(current => !current)}
             >
                 <span aria-hidden="true">{open ? '^' : '>'}</span>
-                {t('creation.details')}
+                {label || t('creation.details')}
             </button>
             {open && <div className="drawing-creation-details-fields">{children}</div>}
         </div>

@@ -143,7 +143,7 @@ function stretchEntityPartially(entity, bounds, delta, options) {
         const insertion = blockInsertionPoint(entity);
         return insertion && pointInBounds(insertion, bounds) ? translateEntity(entity, delta.x, delta.y) : null;
     }
-    if (entity.type === 'hatch') {
+    if (['hatch', 'region'].includes(entity.type)) {
         const boundaries = getHatchBoundaryEntities(entity);
         let changed = false;
         const stretched = boundaries.map(boundary => {
@@ -284,7 +284,7 @@ function entityStretchControlPoints(entity, options) {
     }
     if (entity.type === 'linearDimension' && entity.p1 && entity.p2) return [entity.p1, entity.p2].map(finitePoint).filter(Boolean);
     if (entity.type === 'radialDimension') return [];
-    if (entity.type === 'hatch') {
+    if (['hatch', 'region'].includes(entity.type)) {
         return getHatchBoundaryEntities(entity).flatMap(boundary => entityStretchControlPoints(boundary, options));
     }
     return [];

@@ -1,6 +1,14 @@
+import { drawingDimensionPresentationPoints } from './drawingDimensionPresentation.js';
+import { drawingAttributeValues, resolveDrawingAttributeText, normalizeDrawingAttributeValues } from './drawingBlockAttributes.js';
+import { drawingAffineFrame, transformDrawingAffineFrame, framedDrawingPoint } from './drawingAffineFrame.js';
+import { IDENTITY_AFFINE_MATRIX, normalizeAffineMatrix, multiplyAffineMatrices, translationAffineMatrix, rotationAffineMatrix, scaleAffineMatrix, mirrorAffineMatrix, transformAffinePoint, affineMatrixToSvg, inverseAffineViewBox } from './drawingAffine.js';
+export { IDENTITY_AFFINE_MATRIX, normalizeAffineMatrix, multiplyAffineMatrices, translationAffineMatrix, rotationAffineMatrix, scaleAffineMatrix, mirrorAffineMatrix, transformAffinePoint, affineMatrixToSvg, inverseAffineViewBox } from './drawingAffine.js';
+import { getDrawingTextLayout, resolveDrawingTextStyle } from './drawingText.js';
+import { transformDefinedSpline } from './drawingSplineCreation.js';
+import { transformPathArrayEntity } from './drawingPathArray.js';
+import { transformPolarArrayEntity } from './drawingPolarArray.js';
 import {
     arcPoint,
-    arcSweep,
     getArcBounds,
     getRectangleOutlinePoints,
     getRegularPolygonVertices,
@@ -22,92 +30,6 @@ const MAX_BLOCK_DEFINITIONS = 1_024;
 const MAX_BLOCK_ENTITIES = 100_000;
 
 export const DRAWING_BLOCK_REFERENCE_TYPE = 'blockReference';
-export const IDENTITY_AFFINE_MATRIX = Object.freeze({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 });
-
-export function normalizeAffineMatrix(value, fallback = IDENTITY_AFFINE_MATRIX) {
-    const source = Array.isArray(value)
-        ? { a: value[0], b: value[1], c: value[2], d: value[3], e: value[4], f: value[5] }
-        : value;
-    if (!source || typeof source !== 'object') return { ...fallback };
-    const matrix = {
-        a: Number(source.a),
-        b: Number(source.b),
-        c: Number(source.c),
-        d: Number(source.d),
-        e: Number(source.e),
-        f: Number(source.f),
-    };
-    return Object.values(matrix).every(Number.isFinite) ? matrix : { ...fallback };
-}
-
-/** Returns a matrix that applies `right` first and `left` second. */
-export function multiplyAffineMatrices(left, right) {
-    const first = normalizeAffineMatrix(left);
-    const second = normalizeAffineMatrix(right);
-    return {
-        a: first.a * second.a + first.c * second.b,
-        b: first.b * second.a + first.d * second.b,
-        c: first.a * second.c + first.c * second.d,
-        d: first.b * second.c + first.d * second.d,
-        e: first.a * second.e + first.c * second.f + first.e,
-        f: first.b * second.e + first.d * second.f + first.f,
-    };
-}
-
-export function translationAffineMatrix(dx = 0, dy = 0) {
-    const x = Number(dx);
-    const y = Number(dy);
-    return { a: 1, b: 0, c: 0, d: 1, e: Number.isFinite(x) ? x : 0, f: Number.isFinite(y) ? y : 0 };
-}
-
-export function rotationAffineMatrix(angleDegrees = 0, origin = { x: 0, y: 0 }) {
-    const angle = Number(angleDegrees) * Math.PI / 180;
-    if (!Number.isFinite(angle) || !isFinitePoint(origin)) return { ...IDENTITY_AFFINE_MATRIX };
-    const cosine = Math.cos(angle);
-    const sine = Math.sin(angle);
-    const rotation = { a: cosine, b: sine, c: -sine, d: cosine, e: 0, f: 0 };
-    return matrixAroundPoint(rotation, origin);
-}
-
-export function scaleAffineMatrix(scaleX = 1, scaleY = scaleX, origin = { x: 0, y: 0 }) {
-    const x = Number(scaleX);
-    const y = Number(scaleY);
-    if (!Number.isFinite(x) || !Number.isFinite(y) || !isFinitePoint(origin)) return { ...IDENTITY_AFFINE_MATRIX };
-    return matrixAroundPoint({ a: x, b: 0, c: 0, d: y, e: 0, f: 0 }, origin);
-}
-
-export function mirrorAffineMatrix(first, second) {
-    if (!isFinitePoint(first) || !isFinitePoint(second)) return { ...IDENTITY_AFFINE_MATRIX };
-    const dx = second.x - first.x;
-    const dy = second.y - first.y;
-    const length = Math.hypot(dx, dy);
-    if (length <= EPSILON) return { ...IDENTITY_AFFINE_MATRIX };
-    const cosine = dx / length;
-    const sine = dy / length;
-    return matrixAroundPoint({
-        a: cosine * cosine - sine * sine,
-        b: 2 * cosine * sine,
-        c: 2 * cosine * sine,
-        d: sine * sine - cosine * cosine,
-        e: 0,
-        f: 0,
-    }, first);
-}
-
-export function transformAffinePoint(point, matrix) {
-    if (!isFinitePoint(point)) return point;
-    const normalized = normalizeAffineMatrix(matrix);
-    return {
-        x: normalized.a * Number(point.x) + normalized.c * Number(point.y) + normalized.e,
-        y: normalized.b * Number(point.x) + normalized.d * Number(point.y) + normalized.f,
-    };
-}
-
-export function affineMatrixToSvg(matrix) {
-    const normalized = normalizeAffineMatrix(matrix);
-    return `matrix(${normalized.a} ${normalized.b} ${normalized.c} ${normalized.d} ${normalized.e} ${normalized.f})`;
-}
-
 export function normalizeDrawingBlockReference(entity) {
     if (!entity || entity.type !== DRAWING_BLOCK_REFERENCE_TYPE) return entity;
     const legacyTransform = legacyBlockReferenceMatrix(entity);
@@ -117,6 +39,7 @@ export function normalizeDrawingBlockReference(entity) {
         type: DRAWING_BLOCK_REFERENCE_TYPE,
         blockId: typeof entity.blockId === 'string' ? entity.blockId : '',
         transform: normalizeAffineMatrix(entity.transform, legacyTransform),
+        ...(entity.attributeValues ? { attributeValues: normalizeDrawingAttributeValues(entity.attributeValues) } : {}),
         ...(definitionBounds ? { definitionBounds } : {}),
     };
 }
@@ -206,6 +129,7 @@ export function createAnonymousDrawingBlockReference(definition, {
         type: DRAWING_BLOCK_REFERENCE_TYPE,
         layerId,
         blockId: definition?.id || '',
+        ...(Object.keys(drawingAttributeValues(definition)).length ? { attributeValues: drawingAttributeValues(definition) } : {}),
         transform: translationAffineMatrix(insertion.x, insertion.y),
         ...(bounds ? { definitionBounds: bounds } : {}),
     };
@@ -215,22 +139,21 @@ export function getDrawingBlockDefinition(blocks, blockId) {
     return (Array.isArray(blocks) ? blocks : []).find(block => block?.id === blockId) || null;
 }
 
-export function getDrawingBlockDefinitionBounds(definition, blocks = []) {
+export function getDrawingBlockDefinitionBounds(definition, blocks = [], reference = {}) {
     if (!definition || !Array.isArray(definition.entities)) return null;
     const blockMap = new Map((Array.isArray(blocks) ? blocks : []).map(block => [block.id, block]));
     if (definition.id) blockMap.set(definition.id, definition);
     const entityMap = new Map(definition.entities.map(entity => [entity.id, entity]));
     return definition.entities.reduce((combined, entity) => (
-        combineBounds(combined, getDrawingBlockEntityBounds(entity, blockMap, entityMap, new Set([definition.id])))
+        combineBounds(combined, getDrawingBlockEntityBounds(resolveDrawingAttributeText(entity, reference, 'all'), blockMap, entityMap, new Set([definition.id])))
     ), null);
 }
 
 export function getDrawingBlockReferenceBounds(reference, blocks = []) {
     if (reference?.type !== DRAWING_BLOCK_REFERENCE_TYPE) return null;
     const definition = getDrawingBlockDefinition(blocks, reference.blockId);
-    const localBounds = normalizeBounds(reference.definitionBounds)
-        || normalizeBounds(definition?.bounds)
-        || getDrawingBlockDefinitionBounds(definition, blocks);
+    const localBounds = getDrawingBlockDefinitionBounds(definition, blocks, reference)
+        || normalizeBounds(reference.definitionBounds);
     if (!localBounds) return null;
     const corners = boundsCorners(localBounds).map(point => transformAffinePoint(point, reference.transform));
     return boundsFromPoints(corners);
@@ -239,13 +162,15 @@ export function getDrawingBlockReferenceBounds(reference, blocks = []) {
 export function materializeDrawingBlockReference(reference, blocks, {
     recursive = false,
     maxDepth = 16,
+    textStyles = [],
 } = {}) {
     const definition = getDrawingBlockDefinition(blocks, reference?.blockId);
     if (!definition) return [];
     return definition.entities.flatMap(entity => {
-        const transformed = transformDrawingBlockEntityAffine(cloneJson(entity), reference.transform);
+        const child = resolveDrawingBlockChild(entity, reference, 'all');
+        const transformed = transformDrawingEntityAffine(cloneJson(child), reference.transform, { textStyles });
         if (recursive && transformed.type === DRAWING_BLOCK_REFERENCE_TYPE && maxDepth > 0) {
-            return materializeDrawingBlockReference(transformed, blocks, { recursive, maxDepth: maxDepth - 1 });
+            return materializeDrawingBlockReference(transformed, blocks, { recursive, maxDepth: maxDepth - 1, textStyles });
         }
         return [transformed];
     });
@@ -306,37 +231,56 @@ export function remapDrawingBlockEntity(entity, {
 } = {}) {
     const next = cloneJson(entity);
     if (entityIdMap.has(next.id)) next.id = entityIdMap.get(next.id);
-    Object.assign(next, remapDrawingEntityDependencies(next, entityIdMap));
+    Object.assign(next, remapDrawingEntityDependencies(next, entityIdMap, { preserveAppearance: true }));
     if (next.layerId && layerIdMap.has(next.layerId)) next.layerId = layerIdMap.get(next.layerId);
     if (next.assetId && assetIdMap.has(next.assetId)) next.assetId = assetIdMap.get(next.assetId);
     if (next.blockId && blockIdMap.has(next.blockId)) next.blockId = blockIdMap.get(next.blockId);
     return next;
 }
 
-function transformDrawingBlockEntityAffine(entity, matrix) {
+export function transformDrawingEntityAffine(entity, matrix, { textStyles = [] } = {}) {
+    if (entity?.detachedSource) {
+        const { detachedSource, ...rest } = entity;
+        const transformedSource = transformDrawingEntityAffine(detachedSource, matrix, { textStyles });
+        if (['radialDimension', 'centerMark'].includes(entity.type) && !['circle', 'arc', 'ellipse'].includes(transformedSource.type)) return entity;
+        if (entity.type === 'arcLengthDimension' && !['arc', 'ellipse'].includes(transformedSource.type)) return entity;
+        return { ...transformDrawingEntityAffine(entity.type === 'radialDimension' ? { ...rest, angle: Number.isFinite(rest.angle) ? rest.angle : -Math.PI / 4 } : rest, matrix, { textStyles }), detachedSource: transformedSource };
+    }
+    if (drawingAffineFrame(entity)) return transformDrawingAffineFrame(entity, matrix);
+    if (entity.splineDefinition) {
+        const defined = transformDefinedSpline(entity, matrix);
+        if (defined) return defined;
+    }
+    if (entity.array?.kind === 'path') return transformPathArrayEntity(entity, matrix);
+    if (entity.array?.kind === 'polar') return transformPolarArrayEntity(entity, matrix);
     if (entity.type === DRAWING_BLOCK_REFERENCE_TYPE) return transformDrawingBlockReference(entity, matrix);
     if (entity.type === 'ellipse' || entity.type === 'spline') {
         return transformAdvancedCurveAffine(entity, matrix);
     }
-    if (entity.type === 'hatch') return {
+    if (['hatch', 'region'].includes(entity.type)) return {
         ...entity,
-        boundaries: getHatchBoundaryEntities(entity).map(boundary => transformDrawingBlockEntityAffine(boundary, matrix)),
-        pattern: transformHatchPatternAffine(entity.pattern, matrix),
+        ...(entity.boundaryPick ? { boundaryPick: transformAffinePoint(entity.boundaryPick, matrix) } : {}),
+        boundaries: getHatchBoundaryEntities(entity).map(boundary => transformDrawingEntityAffine(boundary, matrix)),
+        ...(entity.type === 'hatch' ? { pattern: transformHatchPatternAffine(entity.pattern, matrix) } : {}),
     };
-    if (entity.type === 'line') {
+    if (['line', 'xline', 'ray'].includes(entity.type)) {
         const first = transformAffinePoint({ x: entity.x1, y: entity.y1 }, matrix);
         const second = transformAffinePoint({ x: entity.x2, y: entity.y2 }, matrix);
         return { ...entity, x1: first.x, y1: first.y, x2: second.x, y2: second.y };
     }
     if (entity.type === 'polyline') return {
         ...entity,
+        ...transformArrayParameters(entity, matrix),
         ...(Array.isArray(entity.parts)
-            ? { parts: entity.parts.map(part => transformDrawingBlockEntityAffine(part, matrix)) }
+            ? { parts: entity.parts.map(part => transformDrawingEntityAffine(part, matrix)) }
             : { points: (entity.points || []).map(point => transformAffinePoint(point, matrix)) }),
     };
     if (entity.type === 'circle' || entity.type === 'arc') {
         const similarity = affineSimilarity(matrix);
-        if (!similarity) return curveEntityAsTransformedPolyline(entity, matrix);
+        if (!similarity) return transformAdvancedCurveAffine({
+            ...entity, type: 'ellipse', rx: Math.abs(entity.r), ry: Math.abs(entity.r), rotation: 0,
+            fullEllipse: entity.type === 'circle' || Boolean(entity.fullCircle),
+        }, matrix);
         const center = transformAffinePoint({ x: entity.cx, y: entity.cy }, matrix);
         if (entity.type === 'circle') return { ...entity, cx: center.x, cy: center.y, r: Math.abs(entity.r) * similarity.scale };
         const start = transformAffinePoint(arcPoint(entity, entity.startAngle), matrix);
@@ -356,33 +300,49 @@ function transformDrawingBlockEntityAffine(entity, matrix) {
         return entityAsTransformedPolyline(entity, points, matrix, true);
     }
     if (entity.type === 'image' || entity.type === 'text') {
-        const bounds = boundsFromPoints(rectEntityCorners(entity).map(point => transformAffinePoint(point, matrix)));
-        return bounds ? {
-            ...entity,
-            x: bounds.minX,
-            y: bounds.minY,
-            width: bounds.maxX - bounds.minX,
-            height: bounds.maxY - bounds.minY,
-            rotation: 0,
-        } : entity;
+        const similarity = affineSimilarity(matrix);
+        if (similarity) {
+            const center = transformAffinePoint({ x: entity.x + entity.width / 2, y: entity.y + entity.height / 2 }, matrix);
+            const width = entity.width * similarity.scale;
+            const height = entity.height * similarity.scale;
+            const angle = (Number(entity.rotation) || 0) * Math.PI / 180;
+            const rotation = similarity.reflected
+                ? Math.atan2(matrix.b * Math.cos(angle) + matrix.d * Math.sin(angle),
+                    matrix.a * Math.cos(angle) + matrix.c * Math.sin(angle)) * 180 / Math.PI
+                : (Number(entity.rotation) || 0) + Math.atan2(matrix.b, matrix.a) * 180 / Math.PI;
+            return { ...entity, x: center.x - width / 2, y: center.y - height / 2, width, height, rotation,
+                ...(similarity.reflected ? { mirrored: !entity.mirrored } : {}),
+                ...(entity.type === 'text' && Math.abs(similarity.scale - 1) > EPSILON ? {
+                    fontSize: resolveDrawingTextStyle(entity, textStyles).fontSize * similarity.scale,
+                    ...(entity.runs ? { runs: entity.runs.map(run => ({ ...run, marks: { ...run.marks,
+                        ...(run.marks?.fontSize ? { fontSize: run.marks.fontSize * similarity.scale } : {}),
+                    } })) } : {}),
+                } : {}),
+            };
+        }
+        return transformDrawingAffineFrame(entity, matrix);
     }
     if (isDrawingDimensionEntity(entity)) return transformDrawingDimensionAffine(entity, matrix);
     return entity;
 }
 
 function translateDrawingBlockEntity(entity, dx, dy) {
+    if (drawingAffineFrame(entity)) return transformDrawingAffineFrame(entity, translationAffineMatrix(dx, dy));
+    if (entity.splineDefinition || ['path', 'polar'].includes(entity.array?.kind) || entity.type === 'hatch') {
+        return transformDrawingEntityAffine(entity, translationAffineMatrix(dx, dy));
+    }
     if (entity.type === DRAWING_BLOCK_REFERENCE_TYPE) {
         return transformDrawingBlockReference(entity, translationAffineMatrix(dx, dy));
     }
     if (entity.type === 'ellipse' || entity.type === 'spline') {
         return transformAdvancedCurveAffine(entity, translationAffineMatrix(dx, dy));
     }
-    if (entity.type === 'hatch') return {
+    if (['hatch', 'region'].includes(entity.type)) return {
         ...entity,
         boundaries: getHatchBoundaryEntities(entity).map(boundary => translateDrawingBlockEntity(boundary, dx, dy)),
-        pattern: transformHatchPatternAffine(entity.pattern, translationAffineMatrix(dx, dy)),
+        ...(entity.type === 'hatch' ? { pattern: transformHatchPatternAffine(entity.pattern, translationAffineMatrix(dx, dy)) } : {}),
     };
-    if (entity.type === 'line') return { ...entity, x1: entity.x1 + dx, y1: entity.y1 + dy, x2: entity.x2 + dx, y2: entity.y2 + dy };
+    if (['line', 'xline', 'ray'].includes(entity.type)) return { ...entity, x1: entity.x1 + dx, y1: entity.y1 + dy, x2: entity.x2 + dx, y2: entity.y2 + dy };
     if (['rectangle', 'image', 'text'].includes(entity.type)) return { ...entity, x: entity.x + dx, y: entity.y + dy };
     if (['circle', 'polygon', 'arc'].includes(entity.type)) return { ...entity, cx: entity.cx + dx, cy: entity.cy + dy };
     if (entity.type === 'polyline') return {
@@ -407,14 +367,14 @@ function getDrawingBlockEntityBounds(entity, blockMap, entityMap, visiting) {
         nextVisiting.add(entity.blockId);
         const localMap = new Map(definition.entities.map(child => [child.id, child]));
         const localBounds = definition.entities.reduce((combined, child) => (
-            combineBounds(combined, getDrawingBlockEntityBounds(child, blockMap, localMap, nextVisiting))
+            combineBounds(combined, getDrawingBlockEntityBounds(resolveDrawingAttributeText(child, entity, 'all'), blockMap, localMap, nextVisiting))
         ), null);
         if (!localBounds) return null;
         return boundsFromPoints(boundsCorners(localBounds).map(point => transformAffinePoint(point, entity.transform)));
     }
-    if (entity.type === 'line') return boundsFromPoints([{ x: entity.x1, y: entity.y1 }, { x: entity.x2, y: entity.y2 }]);
+    if (['line', 'xline', 'ray'].includes(entity.type)) return boundsFromPoints([{ x: entity.x1, y: entity.y1 }, { x: entity.x2, y: entity.y2 }]);
     if (entity.type === 'ellipse' || entity.type === 'spline') return getAdvancedEntityBounds(entity);
-    if (entity.type === 'hatch') return getHatchBoundaryEntities(entity).reduce((combined, boundary) => (
+    if (['hatch', 'region'].includes(entity.type)) return getHatchBoundaryEntities(entity).reduce((combined, boundary) => (
         combineBounds(combined, getDrawingBlockEntityBounds(boundary, blockMap, entityMap, visiting))
     ), null);
     if (entity.type === 'circle') {
@@ -424,7 +384,8 @@ function getDrawingBlockEntityBounds(entity, blockMap, entityMap, visiting) {
     if (entity.type === 'arc') return normalizeBounds(getArcBounds(entity));
     if (entity.type === 'polygon') return boundsFromPoints(getRegularPolygonVertices(entity));
     if (entity.type === 'rectangle') return boundsFromPoints(getRectangleOutlinePoints(entity));
-    if (entity.type === 'image' || entity.type === 'text') return boundsFromPoints(rectEntityCorners(entity));
+    if (entity.type === 'text') return boundsFromPoints(textEntityCorners(entity));
+    if (entity.type === 'image') return boundsFromPoints(rectEntityCorners(entity));
     if (entity.type === 'polyline') {
         if (Array.isArray(entity.parts)) return entity.parts.reduce((combined, part) => (
             combineBounds(combined, getDrawingBlockEntityBounds(part, blockMap, entityMap, visiting))
@@ -433,7 +394,7 @@ function getDrawingBlockEntityBounds(entity, blockMap, entityMap, visiting) {
     }
     if (isDrawingDimensionEntity(entity)) {
         const geometry = getDimensionGeometry(entity, entityMap);
-        return geometry ? boundsFromPoints(geometry.points) : null;
+        return geometry ? boundsFromPoints(drawingDimensionPresentationPoints(geometry, entity)) : null;
     }
     return null;
 }
@@ -443,7 +404,7 @@ function transformDrawingDimensionAffine(entity, matrix) {
     const next = { ...entity };
     const pointProperties = [
         'p1', 'p2', 'linePoint', 'vertex', 'ray1Point', 'ray2Point',
-        'jogCenter', 'jogPoint', 'origin', 'featurePoint', 'leaderPoint',
+        'jogCenter', 'jogPoint', 'origin', 'featurePoint', 'leaderPoint', 'dimensionTextPosition',
     ];
     pointProperties.forEach(property => {
         if (isFinitePoint(entity[property])) next[property] = transformAffinePoint(entity[property], normalized);
@@ -453,7 +414,7 @@ function transformDrawingDimensionAffine(entity, matrix) {
             isFinitePoint(point) ? transformAffinePoint(point, normalized) : point
         ));
     }
-    ['angle', 'dimensionAngle'].forEach(property => {
+    ['angle', 'dimensionAngle', 'dimensionTextAngle', 'dimensionExtensionAngle'].forEach(property => {
         if (!Number.isFinite(Number(entity[property]))) return;
         const angle = Number(entity[property]);
         const direction = {
@@ -482,20 +443,9 @@ function drawingBlockEntityUsesLayer(entity, layerId) {
     if (entity?.type === 'polyline' && Array.isArray(entity.parts)) {
         return entity.parts.some(part => drawingBlockEntityUsesLayer(part, layerId));
     }
-    return entity?.type === 'hatch'
+    return ['hatch', 'region'].includes(entity?.type)
         ? getHatchBoundaryEntities(entity).some(boundary => drawingBlockEntityUsesLayer(boundary, layerId))
         : false;
-}
-
-function curveEntityAsTransformedPolyline(entity, matrix) {
-    const count = entity.type === 'circle' ? 96 : Math.max(8, Math.ceil(Math.abs(arcSweep(entity)) / (Math.PI * 2) * 96));
-    const start = entity.type === 'circle' ? 0 : Number(entity.startAngle) || 0;
-    const sweep = entity.type === 'circle' ? Math.PI * 2 : arcSweep(entity);
-    const points = Array.from({ length: entity.type === 'circle' ? count : count + 1 }, (_, index) => {
-        const angle = start + sweep * index / count;
-        return transformAffinePoint(arcPoint(entity, angle), matrix);
-    });
-    return entityAsTransformedPolyline(entity, points, IDENTITY_AFFINE_MATRIX, entity.type === 'circle');
 }
 
 function entityAsTransformedPolyline(entity, points, matrix, closed) {
@@ -518,13 +468,6 @@ function affineSimilarity(matrix) {
     return { scale: firstLength, reflected: normalized.a * normalized.d - normalized.b * normalized.c < 0 };
 }
 
-function matrixAroundPoint(matrix, point) {
-    return multiplyAffineMatrices(
-        translationAffineMatrix(point.x, point.y),
-        multiplyAffineMatrices(matrix, translationAffineMatrix(-point.x, -point.y)),
-    );
-}
-
 function legacyBlockReferenceMatrix(entity) {
     const x = Number(entity?.x);
     const y = Number(entity?.y);
@@ -535,6 +478,23 @@ function legacyBlockReferenceMatrix(entity) {
         translationAffineMatrix(Number.isFinite(x) ? x : 0, Number.isFinite(y) ? y : 0),
         multiplyAffineMatrices(rotationAffineMatrix(rotation), scaleAffineMatrix(scaleX, scaleY)),
     );
+}
+
+function textEntityCorners(entity) {
+    const layout = getDrawingTextLayout(entity);
+    if (layout.textMode !== 'singleLine') return rectEntityCorners(entity);
+    const center = { x: entity.x + entity.width / 2, y: entity.y + entity.height / 2 };
+    const angle = (Number(entity.rotation) || 0) * Math.PI / 180;
+    const cosine = Math.cos(angle); const sine = Math.sin(angle);
+    const corners = layout.styledLines.flatMap(line => {
+        const left = line.x - (line.textAnchor === 'middle' ? line.width / 2 : line.textAnchor === 'end' ? line.width : 0);
+        return boundsCorners({ minX: left, maxX: left + line.width, minY: line.top, maxY: line.top + line.height });
+    }).map(point => {
+        const dx = point.x - center.x;
+        const dy = (point.y - center.y) * (entity.mirrored ? -1 : 1);
+        return framedDrawingPoint(entity, { x: center.x + dx * cosine - dy * sine, y: center.y + dx * sine + dy * cosine });
+    });
+    return [...rectEntityCorners(entity), ...corners];
 }
 
 function rectEntityCorners(entity) {
@@ -551,7 +511,7 @@ function rectEntityCorners(entity) {
     ].map(point => {
         const dx = point.x - center.x;
         const dy = point.y - center.y;
-        return { x: center.x + dx * cosine - dy * sine, y: center.y + dx * sine + dy * cosine };
+        return framedDrawingPoint(entity, { x: center.x + dx * cosine - dy * sine, y: center.y + dx * sine + dy * cosine });
     });
 }
 
@@ -611,4 +571,40 @@ function createBlockId(prefix) {
 
 function cloneJson(value) {
     return JSON.parse(JSON.stringify(value));
+}
+
+
+export function transformArrayParameters(entity, matrix) {
+    if (!entity.array) return {};
+    if (['polar', 'path'].includes(entity.array.kind)) return {
+        array: { ...entity.array, transform: multiplyAffineMatrices(matrix, entity.array.transform || IDENTITY_AFFINE_MATRIX) },
+    };
+    const { horizontal, vertical } = entity.array;
+    if (![horizontal?.x, horizontal?.y, vertical?.x, vertical?.y].every(Number.isFinite)) return {};
+    const vector = value => ({ x: matrix.a * value.x + matrix.c * value.y, y: matrix.b * value.x + matrix.d * value.y });
+    return { array: { ...entity.array, horizontal: vector(horizontal), vertical: vector(vertical) } };
+}
+
+export function refreshDrawingBlockBounds(content) {
+    const source = content.blocks || [];
+    const bounds = new Map(source.map(block => [block.id, getDrawingBlockDefinitionBounds(block, source)]));
+    const blockMap = new Map(source.map(block => [block.id, block]));
+    const refresh = entity => {
+        if (entity.type !== 'blockReference') return entity;
+        const next = { ...entity };
+        const instanceBounds = getDrawingBlockDefinitionBounds(blockMap.get(entity.blockId), source, entity);
+        if (instanceBounds) next.definitionBounds = instanceBounds;
+        else delete next.definitionBounds;
+        return next;
+    };
+    return { ...content, blocks: source.map(block => ({ ...block, bounds: bounds.get(block.id), entities: block.entities.map(refresh) })), entities: content.entities.map(refresh) };
+}
+
+// Layer 0 follows the insertion layer; explicitly assigned child layers remain
+// independent. Applying this at each nesting level also resolves nested inserts.
+export function resolveDrawingBlockChild(entity, reference, attributeDisplay = 'normal') {
+    entity = resolveDrawingAttributeText(entity, reference, attributeDisplay);
+    if (!entity) return null;
+    return entity.layerId === 'geometry' && reference.layerId && reference.layerId !== 'geometry'
+        ? { ...entity, layerId: reference.layerId } : entity;
 }

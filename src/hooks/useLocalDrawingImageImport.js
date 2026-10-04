@@ -87,7 +87,7 @@ function readFileAsDataUrl(file) {
     });
 }
 
-function readImageDimensions(source) {
+export function readImageDimensions(source) {
     return new Promise((resolve, reject) => {
         const image = new Image();
         image.addEventListener('load', () => resolve({ width: image.naturalWidth, height: image.naturalHeight }), { once: true });
