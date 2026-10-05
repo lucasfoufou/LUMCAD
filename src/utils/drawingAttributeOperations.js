@@ -1,3 +1,4 @@
+import { isDrawingLayerVisible } from './drawingLayers.js';
 import { refreshDrawingBlockBounds } from './drawingBlocks.js';
 import { canEditEntity, createDrawingId, getLayer } from './drawingDocument.js';
 import { buildDrawingEntity } from './drawingEntityFactory.js';
@@ -21,7 +22,7 @@ export function defineDrawingAttribute(content, input) {
     if (![x, y, fontSize].every(Number.isFinite) || Math.abs(x) > 1e12 || Math.abs(y) > 1e12
         || fontSize < 0.01 || fontSize > 1000000 || text.length > 16384 || prompt.length > 256) return { error: 'defineSyntax' };
     const layer = getLayer(content, content.activeLayerId);
-    if (!layer?.visible || layer.locked) return { error: 'layer' };
+    if (!isDrawingLayerVisible(layer) || layer.locked) return { error: 'layer' };
     const entity = buildDrawingEntity('text', { x, y }, { x: x + Math.max(4, text.length * fontSize * 0.7), y: y + fontSize * 1.6 }, layer.id, createDrawingId('attribute'), {
         options: { text, textMode: 'singleLine', fontSize, textStyleId: content.activeTextStyleId },
     });

@@ -50,6 +50,24 @@ test('library export localizes geometry around BASE and import preserves the tar
     assert.ok(imported.content.blocks.some(block => block.id === imported.entryBlockIds[0]));
 });
 
+test('reference imports preserve source child identifiers and expose reversible resource mappings', () => {
+    const document = source();
+    const target = createLcadDocument({ name: 'Host' });
+    document.content.layers.push({ ...document.content.layers[0], id: 'source-layer', name: 'Source layer' });
+    document.content.entities[0].layerId = 'source-layer';
+    target.content.layers.push({ ...target.content.layers[0], id: 'source-layer', name: 'Host layer' });
+    const imported = importDrawingBlockLibrary(target, document, { preserveBlockEntityIds: true });
+    const entry = imported.content.blocks.find(block => block.id === imported.entryBlockIds[0]);
+    assert.equal(entry.entities[0].id, 'line');
+    assert.equal(entry.entities[0].layerId, imported.sourceMaps.layers['source-layer']);
+    assert.equal(imported.content.layers.find(layer => layer.id === imported.sourceMaps.layers['source-layer']).name, 'Host layer');
+    assert.equal(entry.entities[0].x1, 0);
+    assert.equal(entry.entities[0].y1, 0);
+    assert.deepEqual(target.content.entities, []);
+    const ordinary = importDrawingBlockLibrary(target, document);
+    assert.notEqual(ordinary.content.blocks.find(block => block.id === ordinary.entryBlockIds[0]).entities[0].id, 'line');
+});
+
 test('nested definitions retain dependencies and assets across conflicting imports', async () => {
     const { defineNamedDrawingBlock } = await import('./drawingNamedBlocks.js');
     const document = source();

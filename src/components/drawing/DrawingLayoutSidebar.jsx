@@ -338,7 +338,7 @@ function StandardArrangementField({ currentModelViewport, layout, onChange, t })
         const modelViewBox = currentModelViewport
             ? modelViewBoxFromViewport(currentModelViewport, 1)
             : undefined;
-        onChange(createStandardViewportArrangement(layout, arrangement, modelViewBox));
+        onChange(createStandardViewportArrangement(layout, arrangement, modelViewBox, content.layers));
     };
     return (
         <label className="drawing-sidebar-field drawing-layout-arrangement-field">

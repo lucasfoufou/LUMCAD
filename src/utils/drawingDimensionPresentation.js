@@ -62,7 +62,7 @@ export function drawingDimensionTextPoints(geometry, entity) {
     if (!geometry?.label) return [];
     const { lines } = formatDrawingDimensionLabel(geometry, entity, 'en');
     if (!lines.some(Boolean)) return [];
-    const size = Number.isFinite(entity.textSize) ? Math.max(0.01, entity.textSize) : 0.35;
+    const size = Number.isFinite(entity.textSize) ? Math.max(1e-12, entity.textSize) : 0.35;
     const width = Math.max(...lines.map(line => String(line).length), 1) * size * 0.58 + size * 0.8;
     const height = Math.max(1, lines.length) * size * 1.08 + size * 0.45;
     const left = ['radial', 'ordinate'].includes(geometry.kind) ? -size * 0.22 : -width / 2;

@@ -7,7 +7,7 @@ const MAX_IMAGE_BYTES: u64 = 25 * 1024 * 1024;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ImageSource {
+pub struct ReferenceSource {
     path: String,
     name: String,
     mime_type: &'static str,
@@ -19,31 +19,59 @@ fn error(code: &str) -> String {
 }
 
 #[tauri::command]
-pub fn read_image_source(path: String) -> Result<ImageSource, String> {
+pub fn read_image_source(path: String) -> Result<ReferenceSource, String> {
+    read_reference_source(path, SourceKind::Image)
+}
+
+#[tauri::command]
+pub fn read_pdf_source(path: String) -> Result<ReferenceSource, String> {
+    read_reference_source(path, SourceKind::Pdf)
+}
+
+#[tauri::command]
+pub fn read_shx_source(path: String) -> Result<ReferenceSource, String> {
+    read_reference_source(path, SourceKind::Shx)
+}
+
+enum SourceKind { Image, Pdf, Shx }
+
+fn read_reference_source(path: String, kind: SourceKind) -> Result<ReferenceSource, String> {
+    let failure = match kind { SourceKind::Image => "image_source_failed", SourceKind::Pdf => "pdf_source_failed", SourceKind::Shx => "shx_source_failed" };
+    let max_bytes = if matches!(kind, SourceKind::Shx) { 4 * 1024 * 1024 } else { MAX_IMAGE_BYTES };
     let path = Path::new(&path);
     if !path.is_absolute() {
-        return Err(error("image_source_failed"));
+        return Err(error(failure));
     }
-    let path = path.canonicalize().map_err(|_| error("image_source_failed"))?;
+    let path = path.canonicalize().map_err(|_| error(failure))?;
     if !path.is_file() {
-        return Err(error("image_source_failed"));
+        return Err(error(failure));
     }
-    let file = File::open(&path).map_err(|_| error("image_source_failed"))?;
-    let metadata = file.metadata().map_err(|_| error("image_source_failed"))?;
+    let file = File::open(&path).map_err(|_| error(failure))?;
+    let metadata = file.metadata().map_err(|_| error(failure))?;
     if !metadata.is_file() {
-        return Err(error("image_source_failed"));
+        return Err(error(failure));
     }
-    if metadata.len() > MAX_IMAGE_BYTES {
+    if metadata.len() > max_bytes {
         return Err(error("asset_too_large"));
     }
     let mut bytes = Vec::new();
-    file.take(MAX_IMAGE_BYTES + 1).read_to_end(&mut bytes).map_err(|_| error("image_source_failed"))?;
-    if bytes.len() as u64 > MAX_IMAGE_BYTES {
+    file.take(max_bytes + 1).read_to_end(&mut bytes).map_err(|_| error(failure))?;
+    if bytes.len() as u64 > max_bytes {
         return Err(error("asset_too_large"));
     }
     let extension = path.extension().and_then(|part| part.to_str()).unwrap_or("").to_ascii_lowercase();
-    let mime_type = image_mime_type(&bytes, &extension).ok_or_else(|| error("image_source_failed"))?;
-    Ok(ImageSource {
+    let mime_type = if matches!(kind, SourceKind::Pdf) {
+        if extension != "pdf" || !bytes.iter().take(1024).copied().collect::<Vec<_>>().windows(5).any(|part| part == b"%PDF-") {
+            return Err(error(failure));
+        }
+        "application/pdf"
+    } else if matches!(kind, SourceKind::Shx) {
+        let valid = (extension == "shx" && bytes.starts_with(b"AutoCAD-86 "))
+            || (extension == "shp" && std::str::from_utf8(&bytes).is_ok_and(|text| text.lines().any(|line| line.trim_start().starts_with('*'))));
+        if !valid { return Err(error(failure)); }
+        "application/octet-stream"
+    } else { image_mime_type(&bytes, &extension).ok_or_else(|| error(failure))? };
+    Ok(ReferenceSource {
         path: path.to_string_lossy().into_owned(),
         name: path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
         mime_type,
@@ -68,6 +96,40 @@ fn image_mime_type(bytes: &[u8], extension: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_bounded_local_shape_fonts_without_accepting_other_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("font.shp");
+        let bytes = b"*0,4,fixture\n10,2,0,0\n*65,4,A\n8,5,5,0";
+        std::fs::write(&path, bytes).unwrap();
+        let result = read_shx_source(path.to_string_lossy().into_owned()).unwrap();
+        assert_eq!(result.mime_type, "application/octet-stream");
+        assert_eq!(result.link, format!("data:application/octet-stream;base64,{}", BASE64.encode(bytes)));
+        assert!(read_shx_source("relative.shx".into()).is_err());
+        std::fs::write(&path, b"not a font").unwrap();
+        assert!(read_shx_source(path.to_string_lossy().into_owned()).is_err());
+        File::create(&path).unwrap().set_len(4 * 1024 * 1024 + 1).unwrap();
+        assert!(read_shx_source(path.to_string_lossy().into_owned()).unwrap_err().contains("asset_too_large"));
+    }
+
+    #[test]
+    fn reads_pdf_sources_without_accepting_them_as_images() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("plan.pdf");
+        let bytes = b"%PDF-1.7\n%%EOF";
+        std::fs::write(&path, bytes).unwrap();
+        let result = read_pdf_source(path.to_string_lossy().into_owned()).unwrap();
+        assert_eq!(result.mime_type, "application/pdf");
+        assert_eq!(result.path, path.canonicalize().unwrap().to_string_lossy());
+        assert_eq!(result.link, format!("data:application/pdf;base64,{}", BASE64.encode(bytes)));
+        assert!(read_image_source(path.to_string_lossy().into_owned()).is_err());
+        std::fs::write(&path, b"not a PDF").unwrap();
+        assert!(read_pdf_source(path.to_string_lossy().into_owned()).is_err());
+        assert!(read_pdf_source("relative.pdf".into()).is_err());
+        File::create(&path).unwrap().set_len(MAX_IMAGE_BYTES + 1).unwrap();
+        assert!(read_pdf_source(path.to_string_lossy().into_owned()).unwrap_err().contains("asset_too_large"));
+    }
 
     #[test]
     fn reads_snapshot_and_canonical_path_without_writing_source() {

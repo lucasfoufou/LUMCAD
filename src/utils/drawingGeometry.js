@@ -1,3 +1,7 @@
+import { drawingWorldToUcs, drawingUcsToWorld } from './drawingCoordinates.js';
+import { isDrawingLayerVisible } from './drawingLayers.js';
+import { getDrawingBlockReferenceBounds } from './drawingBlocks.js';
+import { isDrawingObjectHidden } from './drawingObjectVisibility.js';
 import { drawingDimensionPresentationPoints } from './drawingDimensionPresentation.js';
 import { drawingSnapEntities } from './drawingBlockSnapping.js';
 import { getImageClipPoints } from './drawingImageClip.js';
@@ -206,6 +210,7 @@ export function resizeViewBoxForCanvas(viewBox, previousSize, nextSize) {
 
 export function getEntityBounds(entity, entityMap = new Map()) {
     if (!entity) return null;
+    if (entity.type === 'blockReference') return getDrawingBlockReferenceBounds(entity);
     if (['line', 'xline', 'ray'].includes(entity.type)) return boundsFromPoints([{ x: entity.x1, y: entity.y1 }, { x: entity.x2, y: entity.y2 }]);
     if (entity.type === 'ellipse' || entity.type === 'spline') return getAdvancedEntityBounds(entity);
     if (['hatch', 'region'].includes(entity.type)) {
@@ -266,7 +271,7 @@ export function getDrawingBounds(content, { printableOnly = false } = {}) {
     const entityMap = new Map(content.entities.map(entity => [entity.id, entity]));
     const bounds = content.entities.reduce((combined, entity) => {
         const layer = layers.get(entity.layerId);
-        if (!layer?.visible || (printableOnly && entity.type === 'image' && !entity.includeInPdf)) return combined;
+        if (isDrawingObjectHidden(content, entity.id) || !isDrawingLayerVisible(layer) || (printableOnly && layer.plot === false) || (printableOnly && entity.type === 'image' && !entity.includeInPdf)) return combined;
         const current = getEntityBounds(entity, entityMap);
         if (!current) return combined;
         if (!combined) return current;
@@ -1079,9 +1084,9 @@ export function snapDrawingPoint(point, content, threshold, { excludeIds = [] } 
     if (geometrySnap) return geometrySnap;
     if (snaps.grid) {
         const spacing = Math.max(0.0001, Number(content.settings?.gridSpacing) || 0.5);
+        const local = drawingWorldToUcs(point, content.settings?.ucs);
         const grid = {
-            x: Math.round(point.x / spacing) * spacing,
-            y: Math.round(point.y / spacing) * spacing,
+            ...drawingUcsToWorld({ x: Math.round(local.x / spacing) * spacing, y: Math.round(local.y / spacing) * spacing }, content.settings?.ucs),
             type: 'grid',
         };
         const distance = pointDistance(point, grid);

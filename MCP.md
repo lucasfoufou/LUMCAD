@@ -353,3 +353,183 @@ Dimension maintenance: `DIMUPDATE` accepts an optional quoted style name/ID and 
 Centre-mark maintenance: `CENTERDISASSOCIATE` detaches selected unlocked centre marks, preserving native source snapshots. `CENTERREASSOCIATE` accepts a circle/arc source ID or starts an interactive source pick when input is empty; point actions use `targetId`, and Escape cancels. `CENTERRESET` restores default size/extension and current dimension-style appearance while retaining association or snapshot. Reset/detach take no arguments; mixed or locked selections fail atomically, and successful edits are undoable. Centreline creation is tracked separately in the roadmap.
 
 `CENTERLINE` uses two selected line segments or starts source picks for missing selections. MCP point actions identify each source with `targetId`; an invalid or repeated source leaves the stage active, and Escape cancels. Optional `ALTERNATE` selects the other angle bisector. Creation commits once after both valid sources exist. CENTERREASSOCIATE supports two line sources for centre lines; CENTERRESET restores their default extension and primary bisector.
+
+### Named selection groups
+
+`GROUP "name"` creates a drawing-local group from the supplied selection; `GROUP LIST` reports names and member counts. `GROUPEDIT "name" ADD|REMOVE` edits membership from the current selection, `RENAME "new name"` renames it, `ON|OFF` controls collective picking, and `SELECT` selects visible members. `UNGROUP "name"` removes the group only; without a name it removes groups touching the selection. Group commands are disabled inside BEDIT. Canvas point actions and window selection expand selectable overlapping groups, while an explicit MCP selection remains exact for membership editing.
+
+### Property and layer transfer
+
+`MATCHPROP` copies layer and explicit/ByLayer colour, line weight, line type and transparency from a picked source to the preselection. Without preselection, pick the source then a target. An optional source entity ID skips the first pick. `LAYMCH` uses the same workflow for layer only. `LAYMCUR` makes the selected/picked source layer current. `COPYTOLAYER "layer name"` duplicates the selection in place with independent IDs and remapped copied dependencies. Hidden/locked destination layers and locked targets are protected. Each successful operation is one undo step; Escape cancels unfinished picking.
+
+### Named model views
+
+`VIEW SAVE "name"` saves or updates the current model extent. `VIEW RESTORE "name"` / `VIEWGO "name"` restores it; `VIEW LIST`, `VIEW RENAME "name" "new name"` and `VIEW DELETE "name"` manage the persistent catalog. `VIEW IMPORT` opens the existing native/browser `.lcad` chooser and imports its catalog without replacing drawing contents. These commands require model space and are unavailable within BEDIT.
+
+### Temporary object visibility
+
+`HIDEOBJECTS` hides the selected model objects and `ISOLATEOBJECTS` hides the others, accumulating earlier temporary hides. `UNISOLATEOBJECTS` clears this session state without changing layer visibility. Hidden objects are excluded from model rendering, picking, group expansion, snaps, boundary detection and zoom extents. The transient state is reported as `editor.hiddenObjectIds`; it is excluded from document history, archives, layouts and publication. Explicit MCP selection skips temporarily hidden objects.
+
+### Measurement and inquiry
+
+`DIST` / `MEASUREGEOM DISTANCE`, `MEASUREGEOM ANGLE` (vertex second), and `ID` accept snapped/typed point actions; DIST and ID also accept complete space-separated numeric coordinates in their initial input. `AREA` measures selected closed objects or polygon points finished by Enter/DONE. During interactive picking, use the normal coordinate grammar (`x,y`, `x;y`, relative/polar expressions). `MEASUREGEOM RADIUS` and `LENGTH`/`PERIMETER` inspect selected or picked native curves; `MASSPROP` reports area, centroid and centroidal planar moments at unit density. Regions/hatches respect even-odd islands. Intersecting, degenerate or excessive contours are rejected; native Green-integral quadrature computes areas/moments while bounded 0.01 mm sampling determines loop nesting.
+
+`MEASUREGEOM ADD`/`SUBTRACT` accumulates the selected areas (arithmetic sums, not Boolean unions), `RESET` clears the accumulator, and `COPY` copies the result. `LIST [ALL]` reports selected/all visible entity data; `STATUS` reports drawing counts. Results appear in the shared Measurements sidebar panel and `editor.inquiryResult`; they do not create geometry or undo entries. The panel includes localized values, units, full structured data and a copy button.
+
+### Selection queries and counts
+
+`QSELECT TYPE line LAYER "name" COLOR != #ff0000 WEIGHT >= 1` replaces selection with visible objects matching every predicate. TYPE/LAYER/COLOR/LINETYPE/WEIGHT/TRANSPARENCY/BLOCK/LOCKED are supported, using effective ByLayer appearance. `FILTER SAVE "name" predicates`, `APPLY "name"`, `DELETE "name"` and `LIST` manage a persistent predicate catalog. `SELECTSIMILAR [fields...]` matches any selected source, defaulting to TYPE/LAYER/BLOCK.
+
+`SELECTCOUNT`, `COUNT [ALL]`, `COUNTAREA` (two corners or x1 y1 x2 y2) and `BCOUNT [ALL]` report grouped totals and select/highlight the counted objects. BCOUNT includes nested occurrences with inherited layers and bounded graph traversal. `COUNT TABLE x y` inserts the most recent report as a static editable native text/line group, limited to 200 rows, in one history entry. The Measurements panel and `editor.inquiryResult` expose rows and totals. Selection query commands are model-space tools and require closing BEDIT first.
+
+### Leaders
+
+`MLEADER` (also `LEADER`/`QLEADER`) accepts text or `BLOCK "name"`, followed by point actions for the arrow and bends, `DONE`, then a content anchor. `UNDO` removes the last pending point; Escape cancels. `MLEADEREDIT TEXT`, `BLOCK`, `ADD` (two picked points) and `REMOVE index` edit one selected leader. `MLEADERALIGN X|Y [gap]` aligns selected content anchors while retaining arrow points; `MLEADERCOLLECT [gap]` collects contents and branches. `MLEADERSTYLE SAVE "name" textSize arrowSize landingLength closed|open|none`, `USE`, `APPLY`, `DELETE`, `LIST` manage persistent presets. All dimensions are metres. Geometry commits are atomic and undoable; generated definitions require MLEADEREDIT or EXPLODE rather than BEDIT.
+
+### Advanced layers
+
+`LAYERSTATE LIST|SAVE|RESTORE|DELETE` and `LAYERSTATESAVE "name"` manage bounded persistent states. `LAYISO` and `LAYWALK` accept layer names (or current selection layers); `LAYUNISO`/`LAYWALK END` restore the first captured session state. `LAYMRG sources… target` and `LAYTRANS source target …` atomically remap document layers, rejecting protected system sources and locked layers. `LAYER "name" FREEZE|NEWVPFREEZE|PLOT|LOCK|VISIBLE ON|OFF` controls flags. `LAYERFILTER` sets the shared panel’s session name/flag filter; an empty input clears it. Changes except filtering participate in undo/redo.
+
+### Plot-style mappings
+
+`STYLESMANAGER` opens the reusable style panel. `PLOTSTYLE SAVE "name" sourceColor|- outputColor|- weight|- screening lineType|-` defines a rule; `APPLY "name"`, `LAYER "layer" "name"`, `DELETE` and `LIST` manage assignments/catalogs. `CONVERTPSTYLES COLOR|NAMED|OFF` changes publication mode; `CONVERTCTB` assigns matching drawing-native colour rules as named styles. This is not binary CTB import. Model colours are preserved. Output profiles and field-based plot stamps use the normal PLOT/PAGESETUP preview, persistence and publication workflow.
+
+### Units and 2D UCS
+
+`UNITS` accepts option/value pairs for display and alternate units, precisions, angle format/base/direction and insertion metadata. `UCS SET x y degrees`, `WORLD`, `SAVE/RESTORE/DELETE "name"`, `LIST` manage frames; `UCSMAN` is an alias. Typed coordinates passed through command input follow the current UCS, while MCP point actions are always world coordinates. `ID` reports local coordinates and retains `world` and `coordinateSystem` in its structured result. `UCSICON ON|OFF` toggles the indicator. `LIMITS minX minY maxX maxY` enables checked world bounds; `LIMITS ON|OFF` toggles them. All geometry remains metres; `UNITS DISPLAY` changes inquiry presentation rather than numeric document geometry.
+
+### Paper annotation commands
+
+In an active paper layout, `LINE`, `RECTANGLE`/`RECTANG`, `TEXT` and `MTEXT` create native paper annotations through two point actions or typed coordinates. Values use paper millimetres, independently of model UCS/units. Text commands optionally accept initial text. `MOVE` acts on the selected paper annotation using two points; `TEXTEDIT` opens the shared rich editor. One paper annotation may be selected by its ID in the active layout, and state selection reports its ID. Escape cancels preview without inserting geometry; deletion and document undo/redo use existing history. Snap-enabled points include visible clipped/rotated viewport geometry.
+
+### Annotation scales and shared properties
+
+`PROPERTIES` is an alias of `CREATIONPANEL`; single-object geometry and multiple-object
+appearance editing use the shared sidebar. Paper fields reuse the controls with mm labels.
+`OBJECTSCALE ON|OFF|ADD n|DELETE n|OFFSET n x y|LIST` operates atomically on editable
+selected text, dimensions, hatches and block references (including leaders). OFF keeps
+the current representation's appearance. `SCALELISTEDIT LIST|ADD n|DELETE n|RESET|CURRENT n|ALLVISIBLE ON/OFF`
+manages the denominator catalog/model context; viewport contexts always use their actual
+scale and normal scale-list visibility. Deleting the final object representation or a
+used/current catalog denominator is rejected. `ANNOUPDATE` rebases selected annotation
+geometry to the current denominator; ordinary edits already synchronize representations.
+`ANNORESET` resets their position offsets. All changes participate in document undo.
+MCP model geometry/picking uses the same resolved context as pointer input, while saved
+`.lcad` geometry remains canonical. Catalogue and expansion limits are in LCAD_FORMAT.md.
+
+
+### External drawing references
+
+`XREF`/`EXTERNALREFERENCES` reports cached references in `editor.inquiryResult`.
+`XATTACH [ATTACH|OVERLAY] ["path.lcad" [worldX worldY]]` attaches a native drawing;
+omitted paths open the shared file picker. `XREF RELOAD|UNLOAD|DETACH|BIND [id]`
+uses the selected reference when the ID is omitted. `PATH id ["path"]` relinks;
+`MODE id ATTACH|OVERLAY` changes nesting; `SELECT id` can recover a hidden or
+unloaded insertion for management. Locked insertion layers refuse edits.
+
+`XCLIP RECT x1 y1 x2 y2`, `POLYGON x1 y1 ...`, `ON`, `OFF` and `DELETE` use
+definition-local metres on one selected block/reference. `XBIND [id]` keeps the
+cached native block and clip while removing its external link.
+
+`REFEDIT [id]` reads a native linked source into an independent editor draft.
+`editor.blockEdit.referenceSource` exposes its path/revision/reference ID;
+`editor.blockEdit.content` exposes the editable source geometry. The host is shown
+faded in source coordinates. `REFSAVE` or `REFCLOSE SAVE` explicitly writes the
+source with optimistic revision validation, then reloads the host cache.
+`REFCLOSE DISCARD` discards only the unsaved draft. A changed source refuses save
+and leaves the draft open. Host undo cannot undo an external source-file write.
+
+`XCOMPARE [id ["path"]]` reports added, removed and changed source entity IDs and
+resource changes in the shared result panel/`editor.inquiryResult`, without
+committing a drawing edit. Reloads follow attached nested paths within documented
+limits, skip overlays, retain missing-source caches and refuse cycles.
+
+
+### Model/paper viewport alignment
+
+`CHSPACE ["viewport name"|viewportId] ["layout name"|layoutId]` transfers selected
+model objects to paper, or the selected paper annotation to model, depending on
+the current workspace. Omitted arguments use the active layout and selected or
+sole viewport. A paper selection must belong to the active layout. The viewport
+may remain locked because its view does not change. Native block containers keep
+curves and dependencies editable; returning a transfer container restores its
+native objects. Annotation appearance is frozen at that viewport scale. The
+command refuses locked selections and dependencies left dangling in model space;
+one undo restores both spaces. Transferred paper blocks use the shared annotation
+selector, properties, grips and move workflow.
+
+`ALIGNSPACE` requires one selected unlocked viewport in the active layout. Numeric
+input is `modelX1 modelY1 modelX2 modelY2 paperX1 paperY1 paperX2 paperY2`: model
+coordinates in metres, paper coordinates in millimetres. The command solves uniform
+scale, rotation and translation while retaining the frame, clipping and layer
+overrides. Empty input starts four point actions, all expressed in paper mm: first
+two displayed model features in that viewport, then their two paper targets. Pointer
+picks use paper/model snaps. Escape cancels; a valid fourth point commits one undo
+step. Coincident pairs, locked viewports and excessive scales are refused.
+
+`EXPORTLAYOUT ["layout name"|layoutId]` exports the specified layout, or the active
+layout when input is omitted, through the normal save dialog/browser download.
+Each viewport becomes a clipped native block with its current rotation, annotation
+representation and layer appearance. Paper annotations become native geometry;
+paper millimetres are converted to model metres. The new drawing is independent
+of linked sources and retains editable definitions. Export does not switch the
+active document or create a document-history step. Native export refuses to replace
+the active file and preserves its recovery archive.
+
+### PDF underlays
+
+`PDFATTACH ["path.pdf"] [PAGE n] [SCALE factor] [AT x y]` attaches a local page
+in model space. Omitted path opens the native/browser picker; defaults are page 1,
+physical paper scale and world origin. Coordinates are model metres. An absolute
+path is supported by the native command/MCP entry point. The document embeds the
+original PDF and a rendered cache, with native vector snapping and one undo step.
+
+`PDFCLIP RECT x1 y1 x2 y2`, `PDFCLIP POLYGON x1 y1 …`, and `PDFCLIP ON|OFF|DELETE`
+operate on one selected editable PDF reference. Clip coordinates use page-local
+metres before the insertion transform. The shared block clip affects rendering,
+selection and snaps.
+
+`PDFLAYERS [LIST]` reports the selected underlay's optional-content groups in the
+shared results panel. `PDFLAYERS ON|OFF "name or ID"` changes matching groups;
+`*` targets all groups. It reparses embedded source bytes and updates cache/snaps
+atomically, preserving insertion and cropping. One undo restores the prior view.
+`PDFIMPORT GEOMETRY ["path.pdf"] [PAGE n] [SCALE factor] [AT x y]` imports
+visible stroked paths as independent native lines/cubic splines on the active
+editable layer. `PDFIMPORT GEOMETRY UNDERLAY` uses one selected PDF's embedded
+page, current layer visibility, insertion transform and crop, retaining the source
+reference. Exact curve intervals are preserved through PDF/page clipping. Colours
+are retained; widths map to the nearest supported editor weight, dash arrays to
+the editor's dashed style and transparency to its 0–90% range. Each import is one
+undo step and the new geometry has no PDF-asset dependency.
+
+The explicit GEOMETRY filter excludes fills, text and images. `PDFIMPORT TEXT`
+accepts the same file/page/scale/placement or `UNDERLAY` arguments and imports
+visible horizontal-font text as editable native text. Affine frames retain
+baselines, rotation, reflection and shear; fitted widths retain each run's advance
+with supported substitute font families. Original embedded fonts and exact glyph
+kerning are not retained. Partially clipped text uses ordinary editable blocks
+with polygon, cubic or compound clips; text entirely inside a convex polygon clip stays directly editable.
+Glyph-based clips retain the available decoded font outlines and counters as native cubic contours. Type3/vertical fonts and missing glyph outlines are currently refused atomically. Invisible text is excluded. Geometry imports warn
+when unsupported PDF effects are omitted. `PDFIMPORT FILLS` accepts the same source and placement arguments and creates
+editable solid hatches with exact native line/cubic boundaries, implicit closing
+edges and the PDF's even-odd/nonzero winding rule. It does not add outline strokes.
+Selection and area/moment measurements follow the fill rule. Text and fill import
+share bounded native polygon/curve/compound clipping, preserving partially clipped geometry in
+editable blocks. Pattern paints and unsupported effects are reported rather than
+being replaced with the previous solid colour. SHX stroke-to-text conversion is available through `PDFSHXTEXT`, described below.
+
+`PDFIMPORT IMAGES` accepts the same file/page/placement or `UNDERLAY` arguments. It imports decoded PDF image objects as native images with embedded PNG assets, reusing identical images and preserving affine placement, pixel alpha and polygon/curve/compound clips. Images are decoded locally with bounded pixel and asset budgets. Solid-colour stencil masks retain the current PDF fill colour, inverse decoding and transparent pixels. Pattern-painted masks and unsupported graphics effects are omitted with a warning.
+
+`PDFIMPORT` defaults to `ALL`; an explicit `ALL`, `GEOMETRY`, `TEXT`, `FILLS` or `IMAGES` category may precede the file/page/placement options or `UNDERLAY`. Combined import preserves original PDF painter order across categories and places a fill before its stroke. The entire import is committed once and undone once; unsupported text or clipping that prevents safe conversion rejects the whole operation.
+
+`PDFSHXTEXT ["font.shx"|"font.shp"] HEIGHT cap-height-metres [ANGLE degrees] [THRESHOLD 80–100]`
+recognizes selected imported model strokes using a matching local font. Omit the path to open a font picker.
+Supply the known capital-letter height in drawing metres and baseline rotation in world coordinates (default 0°);
+the default recognition threshold is 95. Classic SHX 1.0/1.1, Unicode SHX 1.0 and corresponding SHP sources are supported.
+Complete glyphs are replaced with editable single-line text; compatible adjacent characters and gaps become text runs.
+Baselines, rotation, fitted width, layer and colour are retained with a substitute technical font.
+Review the recognized text: ambiguous identical outlines, incomplete glyphs, unmatched objects and locked objects are retained.
+The font is decoded locally (4 MiB maximum) and is never embedded in the drawing. Recognition is bounded to 5,000 selected
+objects, 200,000 sampled points and a shared work budget. Select a smaller area when the limit is reached.
+BIGFONT/non-Unicode multibyte fonts, vertical text, and reflected/sheared recognition are unsupported.
+One undo restores the original strokes; canceling font selection or a recognition error leaves the drawing unchanged.

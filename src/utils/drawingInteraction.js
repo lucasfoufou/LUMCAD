@@ -24,7 +24,7 @@ export function getTrimExtendPointMode(type, {
 }
 
 export function getInteractiveOperationPointMode(type, options = {}) {
-    if (['fillet', 'chamfer', 'blend', 'hatch', 'boundary', 'region', 'drawOrder'].includes(type)) return 'raw';
+    if (['fillet', 'chamfer', 'blend', 'hatch', 'boundary', 'region', 'drawOrder', 'matchProperties'].includes(type)) return 'raw';
     return getTrimExtendPointMode(type, options);
 }
 

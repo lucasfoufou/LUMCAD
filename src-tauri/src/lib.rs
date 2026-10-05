@@ -19,10 +19,15 @@ pub fn run() {
         .manage(storage::PendingOpen::default())
         .invoke_handler(tauri::generate_handler![
             image_source::read_image_source,
+            image_source::read_pdf_source,
+            image_source::read_shx_source,
             clipboard::write_drawing_clipboard,
             clipboard::read_drawing_clipboard,
             storage::read_lcad_document,
+            storage::read_lcad_reference,
+            storage::write_lcad_reference,
             storage::write_lcad_document,
+            storage::export_lcad_document,
             storage::autosave_lcad_document,
             storage::load_startup_document,
             storage::clear_recovery,

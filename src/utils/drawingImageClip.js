@@ -28,11 +28,16 @@ export function normalizeImageClip(value) {
 }
 
 export function parseImageClipInput(input, current) {
+    const result = parseDrawingClipInput(input, current, normalizeImageClip);
+    return result ? { imageClip: result.clip } : null;
+}
+
+export function parseDrawingClipInput(input, current, normalizeClip) {
     const tokens = String(input || '').trim().toUpperCase().split(/\s+/);
-    if (tokens.length === 1 && tokens[0] === 'DELETE') return { imageClip: undefined };
+    if (tokens.length === 1 && tokens[0] === 'DELETE') return { clip: undefined };
     if (tokens.length === 1 && ['ON', 'OFF'].includes(tokens[0])) {
-        const clip = normalizeImageClip(current);
-        return clip ? { imageClip: { ...clip, enabled: tokens[0] === 'ON' } } : null;
+        const clip = normalizeClip(current);
+        return clip ? { clip: { ...clip, enabled: tokens[0] === 'ON' } } : null;
     }
     const values = tokens.slice(1).map(Number);
     let points;
@@ -42,8 +47,8 @@ export function parseImageClipInput(input, current) {
     } else if (tokens[0] === 'POLYGON' && values.length >= 6 && values.length % 2 === 0) {
         points = Array.from({ length: values.length / 2 }, (_, index) => ({ x: values[index * 2], y: values[index * 2 + 1] }));
     }
-    const clip = normalizeImageClip({ points });
-    return clip ? { imageClip: clip } : null;
+    const clip = normalizeClip({ points });
+    return clip ? { clip } : null;
 }
 
 /** Clip coordinates are fractions of the unrotated image rectangle. */

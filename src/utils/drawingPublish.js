@@ -12,6 +12,8 @@ const MAX_RASTER_DIMENSION = 16_384;
 const MAX_RASTER_PIXELS = 64_000_000;
 const ZIP_TIMESTAMP = new Date('2000-01-01T00:00:00.000Z');
 const PDF_FILE_ID = '4C554D4341442D5044462D4558504F52';
+const DWFX_LOGICAL_UNITS_PER_MM = 1_000;
+const DWFX_LOGICAL_UNITS_PER_INCH = DWFX_LOGICAL_UNITS_PER_MM * 25.4;
 const DWFX_DOCUMENT_ID = '4C554D43-4144-4000-8000-000000000001';
 const DWFX_EPLOT_INTERFACE_ID = '715941D4-1AC2-4545-8185-BC40E053B551';
 const SVG_STYLE_PROPERTIES = Object.freeze([
@@ -132,13 +134,17 @@ export function createDrawingDwfxPackage(pages, { title = 'LUMCAD drawing' } = {
             paper,
             png,
             pngSize: getPngSize(png, index + 1),
+            logicalSize: {
+                width: Math.round(paper.width * DWFX_LOGICAL_UNITS_PER_MM),
+                height: Math.round(paper.height * DWFX_LOGICAL_UNITS_PER_MM),
+            },
             resourceId: `dwfresource_${index + 1}`,
             sectionId: dwfxUuid(0x100 + index),
         };
     });
     const documentPath = `dwf/documents/${DWFX_DOCUMENT_ID}`;
     const files = {};
-    addZipText(files, '[Content_Types].xml', dwfxContentTypes());
+    addZipText(files, '[Content_Types].xml', dwfxContentTypes(normalized));
     addZipText(files, '_rels/.rels', dwfxRootRelationships());
     addZipText(files, 'CoreProperties.xml', dwfxCoreProperties(title));
     addZipText(files, 'FixedDocumentSequence.fdseq', dwfxDocumentSequence());
@@ -154,6 +160,7 @@ export function createDrawingDwfxPackage(pages, { title = 'LUMCAD drawing' } = {
         addZipText(files, `${sectionPath}/FixedPage.fpage`, dwfxFixedPage(page));
         addZipText(files, `${sectionPath}/_rels/FixedPage.fpage.rels`, dwfxPageRelationships(page));
         addZipText(files, `${sectionPath}/graphics.w2x.xml`, dwfxGraphicsExtension(page, number));
+        addZipText(files, `${sectionPath}/dictionary.xml`, dwfxGraphicsDictionary(page));
         addZipText(files, `${sectionPath}/descriptor.xml`, dwfxSectionDescriptor(page, number));
         addZipText(files, `${sectionPath}/_rels/descriptor.xml.rels`, dwfxDescriptorRelationships(page, number));
         addZipBytes(files, `${sectionPath}/page.png`, page.png, 0);
@@ -612,8 +619,9 @@ function addZipBytes(files, path, bytes, level) {
     files[path] = [bytes, { level, mtime: ZIP_TIMESTAMP }];
 }
 
-function dwfxContentTypes() {
-    return xmlDocument('<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="dwfseq" ContentType="application/vnd.adsk-package.dwfx-dwfdocumentsequence+xml"/><Default Extension="fdoc" ContentType="application/vnd.ms-package.xps-fixeddocument+xml"/><Default Extension="fdseq" ContentType="application/vnd.ms-package.xps-fixeddocumentsequence+xml"/><Default Extension="fpage" ContentType="application/vnd.ms-package.xps-fixedpage+xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="text/xml"/><Override PartName="/CoreProperties.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>');
+function dwfxContentTypes(pages) {
+    const dictionaries = pages.map(page => `<Override PartName="/${dwfxSectionPath(page)}/dictionary.xml" ContentType="application/vnd.ms-package.xps-resourcedictionary+xml"/>`).join('');
+    return xmlDocument('<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="dwfseq" ContentType="application/vnd.adsk-package.dwfx-dwfdocumentsequence+xml"/><Default Extension="fdoc" ContentType="application/vnd.ms-package.xps-fixeddocument+xml"/><Default Extension="fdseq" ContentType="application/vnd.ms-package.xps-fixeddocumentsequence+xml"/><Default Extension="fpage" ContentType="application/vnd.ms-package.xps-fixedpage+xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="text/xml"/><Override PartName="/CoreProperties.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>' + dictionaries + '</Types>');
 }
 
 function dwfxRootRelationships() {
@@ -647,7 +655,7 @@ function dwfxFixedDocument(pages) {
 function dwfxManifest(pages, title) {
     const sections = pages.map(page => {
         const sectionPath = `/${dwfxSectionPath(page)}`;
-        return `<dwf:Section type="com.autodesk.dwf.ePlot" name="com.autodesk.dwf.ePlot_${page.sectionId}" title="${escapeXml(page.name)}"><dwf:Source provider="LUMCAD"/><dwf:Toc><dwf:Resource role="2d graphics extension" mime="text/xml" href="${sectionPath}/graphics.w2x.xml"/><dwf:Resource role="2d streaming graphics" mime="application/vnd.adsk-package.dwfx-fixedpage+xml" href="${sectionPath}/FixedPage.fpage?${page.resourceId}"/><dwf:Resource role="raster overlay" mime="image/png" href="${sectionPath}/page.png"/><dwf:Resource role="descriptor" mime="text/xml" href="${sectionPath}/descriptor.xml"/></dwf:Toc></dwf:Section>`;
+        return `<dwf:Section type="com.autodesk.dwf.ePlot" name="com.autodesk.dwf.ePlot_${page.sectionId}" title="${escapeXml(page.name)}"><dwf:Source provider="LUMCAD"/><dwf:Toc><dwf:Resource role="2d graphics dictionary" mime="application/vnd.ms-package.xps-resourcedictionary+xml" href="${sectionPath}/dictionary.xml"/><dwf:Resource role="2d graphics extension" mime="text/xml" href="${sectionPath}/graphics.w2x.xml"/><dwf:Resource role="2d streaming graphics" mime="application/vnd.adsk-package.dwfx-fixedpage+xml" href="${sectionPath}/FixedPage.fpage?${page.resourceId}"/><dwf:Resource role="raster reference" mime="image/png" href="${sectionPath}/page.png"/><dwf:Resource role="descriptor" mime="text/xml" href="${sectionPath}/descriptor.xml"/></dwf:Toc></dwf:Section>`;
     }).join('');
     return xmlDocument(`<dwf:Manifest xmlns:dwf="DWF-Manifest:6.0" version="6.0" objectId="${DWFX_DOCUMENT_ID}"><dwf:Interfaces><dwf:Interface objectId="${DWFX_EPLOT_INTERFACE_ID}" name="ePlot" href="http://www.autodesk.com/viewers"/></dwf:Interfaces><dwf:Properties><dwf:Property name="Title" value="${escapeXml(title)}" category="LUMCAD"/></dwf:Properties><dwf:Sections>${sections}</dwf:Sections></dwf:Manifest>`);
 }
@@ -663,28 +671,44 @@ function dwfxDwfProperties() {
 
 function dwfxFixedPage(page) {
     const size = xpsPaperSize(page.paper);
-    const width = decimal(size.width);
-    const height = decimal(size.height);
-    const scaleX = decimal(size.width / page.pngSize.width);
-    const scaleY = decimal(size.height / page.pngSize.height);
-    const imageWidth = page.pngSize.width;
-    const imageHeight = page.pngSize.height;
-    const prefix = dwfxNamePrefix(page);
-    return xmlDocument(`<FixedPage xmlns="http://schemas.microsoft.com/xps/2005/06" Width="${width}" Height="${height}" xml:lang="und"><Canvas Name="${page.resourceId}" RenderTransform="1,0,0,1,0,0"><Canvas Name="${prefix}1"><Path Name="${prefix}2" Data="M 0,0 L ${imageWidth},0 ${imageWidth},${imageHeight} 0,${imageHeight} Z" RenderTransform="${scaleX},0,0,${scaleY},0,0"><Path.Fill><ImageBrush ImageSource="page.png" Viewbox="0,0,${imageWidth},${imageHeight}" ViewboxUnits="Absolute" Viewport="0,0,${imageWidth},${imageHeight}" ViewportUnits="Absolute" TileMode="None"/></Path.Fill></Path></Canvas></Canvas></FixedPage>`);
+    const scale = 96 / DWFX_LOGICAL_UNITS_PER_INCH;
+    return xmlDocument(`<FixedPage xmlns="http://schemas.microsoft.com/xps/2005/06" Width="${decimal(size.width)}" Height="${decimal(size.height)}" xml:lang="und"><Canvas Name="${page.resourceId}" RenderTransform="${scale},0,0,${scale},0,0">${dwfxGraphicsFragment(page)}</Canvas></FixedPage>`);
 }
 
+function dwfxGraphicsFragment(page) {
+    const { width, height } = page.logicalSize;
+    const prefix = dwfxNamePrefix(page);
+    // Autodesk extracts the children of the dwfresource Canvas as an independent
+    // XML stream. Its root must declare its own namespace and must not carry a
+    // drawable name: named canvases participate in W2X object materialization.
+    // The WHIP parser treats a space before Z as another coordinate pair.
+    // A named dictionary brush also lets its W2X image shell consume the path.
+    return `<Canvas xmlns="http://schemas.microsoft.com/xps/2005/06" RenderTransform="1,0,0,1,0,0"><Canvas.Resources><ResourceDictionary Source="dictionary.xml"/></Canvas.Resources><Path Name="${prefix}1" Fill="{StaticResource LUMCAD_IMAGE}" Data="M0,0L${width},0 ${width},${height} 0,${height}Z"/></Canvas>`;
+}
+
+function dwfxGraphicsDictionary(page) {
+    const { width, height } = page.pngSize;
+    const scaleX = page.logicalSize.width / width;
+    const scaleY = page.logicalSize.height / height;
+    return xmlDocument(`<ResourceDictionary xmlns="http://schemas.microsoft.com/xps/2005/06" xmlns:x="http://schemas.microsoft.com/xps/2005/06/resourcedictionary-key"><ImageBrush x:Key="LUMCAD_IMAGE" ImageSource="page.png" Transform="${scaleX},0,0,${scaleY},0,0" Viewbox="0,0,${width},${height}" ViewboxUnits="Absolute" Viewport="0,0,${width},${height}" ViewportUnits="Absolute" TileMode="None"/></ResourceDictionary>`);
+}
+
+// An XPS ImageBrush alone is insufficient for the WHIP/XAML materializer.
+// The W2X image opcode identifies the PNG resource and its logical extents,
+// matching Autodesk's WT_XAML_PNG_Group4_Image serialization contract.
 function dwfxGraphicsExtension(page, number) {
     const prefix = dwfxNamePrefix(page);
-    const width = page.pngSize.width;
-    const height = page.pngSize.height;
-    const scaleX = decimal((page.paper.width / 25.4) / width);
-    const scaleY = decimal((page.paper.height / 25.4) / height);
-    const transform = `${scaleX},0,0,0,0,${scaleY},0,0,0,0,1,0,0,0,0,1`;
-    return xmlDocument(`<W2X VersionMajor="7" VersionMinor="0" NamePrefix="${prefix}"><Units refName="${prefix}0" Transform="${transform}"/><Named_View refName="${prefix}0" Name="${escapeXml(page.name)}" Area="0 0 ${width} ${height}"/><View refName="${prefix}1" Area="0,0,${width},${height}"/><RenditionSync refName="${prefix}1"><Viewport Transform="${transform}"/></RenditionSync><RenditionSync refName="${prefix}2"/></W2X>`);
+    const { width, height } = page.logicalSize;
+    // Keep a uniform paper coordinate system: Autodesk's cloud image placement
+    // drifts/clips with independent pixel-to-paper scales in the resource matrix.
+    // Only the image brush maps raster pixels to this shared logical grid.
+    const scale = DWFX_LOGICAL_UNITS_PER_INCH;
+    const transform = `${scale},0,0,0,0,${scale},0,0,0,0,1,0,0,0,0,1`;
+    return xmlDocument(`<W2X VersionMajor="7" VersionMinor="0" NamePrefix="${prefix}"><Units refName="${prefix}0" Label="inches" Transform="${transform}"/><Named_View refName="${prefix}0" Name="${escapeXml(page.name)}" Area="0 0 ${width} ${height}"/><PNG_Group4_Image refName="${prefix}1" Format="12" Ref="page.png" Width="${page.pngSize.width}" Height="${page.pngSize.height}" Area="0,0,${width},${height}"/></W2X>`);
 }
 
 function dwfxPageRelationships(page) {
-    return xmlDocument(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="R-image" Type="http://schemas.microsoft.com/xps/2005/06/required-resource" Target="/${dwfxSectionPath(page)}/page.png"/></Relationships>`);
+    return xmlDocument(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="R-dictionary" Type="http://schemas.microsoft.com/xps/2005/06/required-resource" Target="/${dwfxSectionPath(page)}/dictionary.xml"/><Relationship Id="R-image" Type="http://schemas.microsoft.com/xps/2005/06/required-resource" Target="/${dwfxSectionPath(page)}/page.png"/></Relationships>`);
 }
 
 function dwfxSectionDescriptor(page, number) {
@@ -693,17 +717,25 @@ function dwfxSectionDescriptor(page, number) {
     const graphicObjectId = dwfxObjectId(0x300 + number);
     const imageObjectId = dwfxObjectId(0x500 + number);
     const extensionObjectId = dwfxObjectId(0x700 + number);
-    const imageScaleX = decimal(widthInches / page.pngSize.width);
-    const imageScaleY = decimal(heightInches / page.pngSize.height);
-    const transform = '0.010416667 0 0 0 0 0.010416667 0 0 0 0 1 0 0 0 0 1';
+    const dictionaryObjectId = dwfxObjectId(0x900 + number);
+    const imageScale = 1 / DWFX_LOGICAL_UNITS_PER_INCH;
+    const transform = `${imageScale} 0 0 0 0 ${imageScale} 0 0 0 0 1 0 0 0 0 1`;
     const extensionHref = `/${dwfxSectionPath(page)}/graphics.w2x.xml`;
-    return xmlDocument(`<ePlot:Page xmlns:ePlot="DWF-ePlot:1.2" version="1.2" name="${escapeXml(page.name)}" plotOrder="${number}" color="255 255 255"><ePlot:Paper units="in" width="${decimal(widthInches)}" height="${decimal(heightInches)}" color="255 255 255" clip="0 0 ${decimal(widthInches)} ${decimal(heightInches)}"/><ePlot:Resources><ePlot:Resource role="2d graphics extension" mime="text/xml" href="${extensionHref}" title="W2X Resource" internalId="dwfresource_ext_${number}" objectId="${extensionObjectId}"/><ePlot:GraphicResource role="2d streaming graphics" mime="application/vnd.adsk-package.dwfx-fixedpage+xml" href="/${dwfxSectionPath(page)}/FixedPage.fpage?${page.resourceId}" title="${escapeXml(page.name)}" internalId="${page.resourceId}" objectId="${graphicObjectId}" clip="0 0 ${decimal(widthInches)} ${decimal(heightInches)}" transform="${transform}"><ePlot:Relationships><ePlot:Relationship objectId="${extensionObjectId}" type="http://schemas.autodesk.com/dwfx/2007/relationships/graphics2dextensionresource"/><ePlot:Relationship objectId="${imageObjectId}" type="http://schemas.autodesk.com/dwfx/2007/relationships/rasteroverlayresource"/></ePlot:Relationships></ePlot:GraphicResource><ePlot:ImageResource role="raster overlay" mime="image/png" href="/${dwfxSectionPath(page)}/page.png" title="${escapeXml(page.name)}" size="${page.png.length}" internalId="image_${number}" objectId="${imageObjectId}" clip="0 0 ${decimal(widthInches)} ${decimal(heightInches)}" zOrder="1" colorDepth="32" originalExtents="0 0 ${page.pngSize.width} ${page.pngSize.height}" transform="${imageScaleX} 0 0 0 0 ${imageScaleY} 0 0 0 0 1 0 0 0 0 1"/></ePlot:Resources></ePlot:Page>`);
+    return xmlDocument(`<ePlot:Page xmlns:ePlot="DWF-ePlot:1.2" version="1.2" name="${escapeXml(page.name)}" plotOrder="${number}" color="255 255 255"><ePlot:Paper units="in" width="${decimal(widthInches)}" height="${decimal(heightInches)}" color="255 255 255" clip="0 0 ${decimal(widthInches)} ${decimal(heightInches)}"/>${dwfxSectionProperties()}<ePlot:Resources><ePlot:Resource role="2d graphics dictionary" mime="application/vnd.ms-package.xps-resourcedictionary+xml" href="/${dwfxSectionPath(page)}/dictionary.xml" size="${strToU8(dwfxGraphicsDictionary(page)).length}" objectId="${dictionaryObjectId}"/><ePlot:Resource role="2d graphics extension" mime="text/xml" href="${extensionHref}" title="W2X Resource" size="${strToU8(dwfxGraphicsExtension(page, number)).length}" internalId="dwfresource_ext_${number}" objectId="${extensionObjectId}"/><ePlot:GraphicResource role="2d streaming graphics" mime="application/vnd.adsk-package.dwfx-fixedpage+xml" href="/${dwfxSectionPath(page)}/FixedPage.fpage?${page.resourceId}" title="${escapeXml(page.name)}" size="${strToU8(dwfxGraphicsFragment(page)).length}" internalId="${page.resourceId}" objectId="${graphicObjectId}" transform="${transform}"><ePlot:Relationships><ePlot:Relationship objectId="${dictionaryObjectId}" type="http://schemas.autodesk.com/dwfx/2007/relationships/graphics2ddictionaryresource"/><ePlot:Relationship objectId="${extensionObjectId}" type="http://schemas.autodesk.com/dwfx/2007/relationships/graphics2dextensionresource"/><ePlot:Relationship objectId="${imageObjectId}" type="http://schemas.autodesk.com/dwfx/2007/relationships/rasterreferenceresource"/></ePlot:Relationships></ePlot:GraphicResource><ePlot:Resource role="raster reference" mime="image/png" href="/${dwfxSectionPath(page)}/page.png" title="${escapeXml(page.name)}" size="${page.png.length}" internalId="image_${number}" objectId="${imageObjectId}"/></ePlot:Resources></ePlot:Page>`);
+}
+
+// Autodesk's cloud extractor requires sheet unit properties even for raster-only
+// publication. The XPS/WHIP readers accept their absence, so local rendering alone
+// does not catch this requirement. These are paper units, matching W2X Units and
+// the GraphicResource placement, rather than the source model's metre units.
+function dwfxSectionProperties() {
+    return '<ePlot:Properties><ePlot:Property name="_UnitAngular" value="degree"/><ePlot:Property name="_UnitArea" value="square_inch"/><ePlot:Property name="_UnitLinear" value="inch"/><ePlot:Property name="_UnitVolume" value="cubic_inch"/></ePlot:Properties>';
 }
 
 function dwfxDescriptorRelationships(page, number) {
     const target = `/${dwfxSectionPath(page)}/page.png`;
     const extensionTarget = `/${dwfxSectionPath(page)}/graphics.w2x.xml`;
-    return xmlDocument(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="R-extension-required-${number}" Type="http://schemas.autodesk.com/dwfx/2007/relationships/requiredresource" Target="${extensionTarget}"/><Relationship Id="R-extension-${number}" Type="http://schemas.autodesk.com/dwfx/2007/relationships/graphics2dextensionresource" Target="${extensionTarget}"/><Relationship Id="R-required-${number}" Type="http://schemas.autodesk.com/dwfx/2007/relationships/requiredresource" Target="${target}"/><Relationship Id="R-raster-${number}" Type="http://schemas.autodesk.com/dwfx/2007/relationships/rasteroverlayresource" Target="${target}"/></Relationships>`);
+    return xmlDocument(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="R-dictionary-required-${number}" Type="http://schemas.autodesk.com/dwfx/2007/relationships/requiredresource" Target="/${dwfxSectionPath(page)}/dictionary.xml"/><Relationship Id="R-dictionary-${number}" Type="http://schemas.autodesk.com/dwfx/2007/relationships/graphics2ddictionaryresource" Target="/${dwfxSectionPath(page)}/dictionary.xml"/><Relationship Id="R-extension-required-${number}" Type="http://schemas.autodesk.com/dwfx/2007/relationships/requiredresource" Target="${extensionTarget}"/><Relationship Id="R-extension-${number}" Type="http://schemas.autodesk.com/dwfx/2007/relationships/graphics2dextensionresource" Target="${extensionTarget}"/><Relationship Id="R-required-${number}" Type="http://schemas.autodesk.com/dwfx/2007/relationships/requiredresource" Target="${target}"/><Relationship Id="R-raster-${number}" Type="http://schemas.autodesk.com/dwfx/2007/relationships/rasterreferenceresource" Target="${target}"/></Relationships>`);
 }
 
 function dwfxNamePrefix(page) {

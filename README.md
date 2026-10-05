@@ -23,6 +23,8 @@ The project is now open source so that this foundation can grow into a useful ge
 - lines, rectangles, regular polygons, circles, arcs, polylines, rich single-line/multiline text, reference images, and associative dimensions;
 - layers and ByLayer/custom colors, line weights, line types, and transparency;
 - object snaps, tracking helpers, grips, selection windows, and command aliases;
+- named selection groups, temporary object isolation, property/layer transfer, saved model views, persistent selection filters, similar-object selection, spatial/nested-block counts and editable static count schedules;
+- non-persistent distance/angle/area/perimeter/radius inquiry, coordinate/entity reports, cumulative areas and planar mass properties with a shared copyable result panel;
 - ellipse and elliptical-arc creation from axis endpoints or centre, with shared parameter editing, native curve grips, associative axis/arc-length dimensions and constant-distance spline offsets;
 - persistent construction lines (`XLINE`) and rays (`RAY`) with origin/direction grips, object snaps and viewport-clipped model/paper rendering;
 - move, copy, rotate, scale, offset, exact native-curve trim/extend and break, crossing-window stretch, four-mode lengthen, mirror, exact mixed-curve join, explode/XPLODE, and rectangular/polar/path arrays with previews, live path associations and post-creation `ARRAYEDIT` controls;
@@ -32,8 +34,9 @@ The project is now open source so that this foundation can grow into a useful ge
 - local `.lcad` files with native Open and Save As dialogs plus continuous autosave;
 - atomic autosave and automatic recovery for drawings that do not yet have a file path;
 - standard or custom paper layouts with margins, importable/exportable page setups, text/line/rectangle paper annotations, templates, scrollable tabs, and pointer reordering;
+- `CHSPACE` model/paper transfer through native block containers, paired-point viewport alignment (`ALIGNSPACE`), and editable native layout export (`EXPORTLAYOUT`), preserving viewport scale and rotation;
 - multiple transparent clipped/rotated model viewports with exact `1/X` scales, locking, maximize/minimize, annotation controls, and per-viewport layer appearance;
-- plot preview and ordered current/all/Cmd-or-Ctrl-selected layout publication to direct PDF or Autodesk-compatible XPS/ePlot DWFx, with mixed paper sizes, plot areas, fit/fixed scales, margins, styles, vector/raster quality, reusable page setups, sheet-only system printing, and unattended PDF output;
+- plot preview and ordered current/all/Cmd-or-Ctrl-selected layout publication to direct PDF or raster XPS/ePlot DWFx (cloud conversion and portrait/landscape rendering verified in Autodesk Viewer), with mixed paper sizes, plot areas, fit/fixed scales, margins, styles, vector/raster quality, reusable page setups, sheet-only system printing, and unattended PDF output;
 - a local Streamable HTTP MCP server for AI-assisted drawing workflows;
 - an English and French interface, with English as the source language.
 
@@ -83,7 +86,7 @@ The release workflow uses ad-hoc signing on macOS and does not yet notarize the 
 
 ### Requirements
 
-- Node.js 22 (the exact version is recorded in `.nvmrc`);
+- Node.js 22.13 or newer (the recommended exact version is recorded in `.nvmrc`);
 - the stable Rust toolchain;
 - the [Tauri 2 system prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform.
 
@@ -220,3 +223,92 @@ Dimension creation previews use the current style before placement. Styled arrow
 `DIMTEDIT` provides independent label placement with snapped point picking or POSITION/ANGLE/HOME input. `DIMEDIT ROTATE` changes label rotation; OBLIQUE sets the extension-line direction. `DIMSPACE` evenly spaces parallel linear or concentric angular dimensions; POINT offers interactive gap measurement, while AUTO derives spacing from text height. `DIMBREAK` accepts manual point intervals or AUTO intersection gaps, with shared model/print/SVG output and bounded obstacle processing.
 
 `CENTERLINE [ALTERNATE]` creates an associative midline/bisector from two selected line segments or two source picks. Its properties and end grip control extension beyond source extents. `CENTERREASSOCIATE` accepts circle/arc sources for centre marks and paired line sources for centre lines, or starts interactive picking. `CENTERDISASSOCIATE` retains geometry as local snapshots; `CENTERRESET` restores default geometry settings and current dimension-style appearance. All support cancellation where interactive and one-step undo for completed edits.
+
+### Shared creation and properties
+
+Creation options and selected-object geometry share the right sidebar. Select one object
+(or run `PROPERTIES`) to edit its supported geometry, layer and appearance; multiple
+selection exposes common appearance fields. Compound objects use their position fields,
+existing grips and transform commands. Leader text, arrow and landing settings are editable
+there too. Paper annotations reuse these controls with millimetre labels; model values use
+metres. Contextual options and point/value entry use the same draft and parser as the command
+bar. Cancel/Escape discards an unfinished creation; property edits apply live and can be
+undone. Continuous LINE entry remains active until cancelled. Rich text uses the shared
+in-place editor with explicit apply/cancel.
+
+### Annotation scales
+
+The sidebar's annotation-scale section selects the model denominator independently of
+screen zoom. Enable annotation on selected text, dimensions, hatches or blocks/leaders,
+then add the scales needed by your layouts. A viewport shows the object's representation
+only when its actual scale is listed; the model's show-all option helps inspect other
+scales. Geometry edits synchronize the representations. `OBJECTSCALE OFFSET n x y`
+adjusts one scale's position, `ANNORESET` clears offsets, and `ANNOUPDATE` rebases the
+canonical representation. Dimension witnesses, hatch contours and leader arrow targets
+remain attached to model geometry when their annotation appearance changes scale.
+
+External `.lcad` drawings can be attached with `XATTACH` and managed with `XREF`.
+Their cached geometry remains portable when source files are unavailable. `XCLIP`
+clips native blocks/references, `XBIND` converts a reference to an ordinary block,
+and `XCOMPARE` reports changes in the source. In the desktop application, `REFEDIT`
+opens the source in the shared editor with faded host context; `REFSAVE` checks the
+source revision before writing. Source writes are explicit and cannot be undone
+from the host drawing. See [MCP.md](./MCP.md) for the command grammar.
+
+## PDF underlays
+
+`PDFATTACH ["path.pdf"] [PAGE n] [SCALE factor] [AT x y]` attaches a local page
+in model space. Omitted path opens the native/browser picker; defaults are page 1,
+physical paper scale and world origin. Coordinates are model metres. An absolute
+path is supported by the native command/MCP entry point. The document embeds the
+original PDF and a rendered cache, with native vector snapping and one undo step.
+
+`PDFCLIP RECT x1 y1 x2 y2`, `PDFCLIP POLYGON x1 y1 …`, and `PDFCLIP ON|OFF|DELETE`
+operate on one selected editable PDF reference. Clip coordinates use page-local
+metres before the insertion transform. The shared block clip affects rendering,
+selection and snaps.
+
+`PDFLAYERS [LIST]` reports the selected underlay's optional-content groups in the
+shared results panel. `PDFLAYERS ON|OFF "name or ID"` changes matching groups;
+`*` targets all groups. It reparses embedded source bytes and updates cache/snaps
+atomically, preserving insertion and cropping. One undo restores the prior view.
+`PDFIMPORT GEOMETRY ["path.pdf"] [PAGE n] [SCALE factor] [AT x y]` imports
+visible stroked paths as independent native lines/cubic splines on the active
+editable layer. `PDFIMPORT GEOMETRY UNDERLAY` uses one selected PDF's embedded
+page, current layer visibility, insertion transform and crop, retaining the source
+reference. Exact curve intervals are preserved through PDF/page clipping. Colours
+are retained; widths map to the nearest supported editor weight, dash arrays to
+the editor's dashed style and transparency to its 0–90% range. Each import is one
+undo step and the new geometry has no PDF-asset dependency.
+
+The explicit GEOMETRY filter excludes fills, text and images. `PDFIMPORT TEXT`
+accepts the same file/page/scale/placement or `UNDERLAY` arguments and imports
+visible horizontal-font text as editable native text. Affine frames retain
+baselines, rotation, reflection and shear; fitted widths retain each run's advance
+with supported substitute font families. Original embedded fonts and exact glyph
+kerning are not retained. Partially clipped text uses ordinary editable blocks
+with polygon, cubic or compound clips; text entirely inside a convex polygon clip stays directly editable.
+Glyph-based clips retain the available decoded font outlines and counters as native cubic contours. Type3/vertical fonts and missing glyph outlines are currently refused atomically. Invisible text is excluded. Geometry imports warn
+when unsupported PDF effects are omitted. `PDFIMPORT FILLS` accepts the same source and placement arguments and creates
+editable solid hatches with exact native line/cubic boundaries, implicit closing
+edges and the PDF's even-odd/nonzero winding rule. It does not add outline strokes.
+Selection and area/moment measurements follow the fill rule. Text and fill import
+share bounded native polygon/curve/compound clipping, preserving partially clipped geometry in
+editable blocks. Pattern paints and unsupported effects are reported rather than
+being replaced with the previous solid colour. SHX stroke-to-text conversion is available through `PDFSHXTEXT`, described below.
+
+`PDFIMPORT IMAGES` accepts the same file/page/placement or `UNDERLAY` arguments. It imports decoded PDF image objects as native images with embedded PNG assets, reusing identical images and preserving affine placement, pixel alpha and polygon/curve/compound clips. Images are decoded locally with bounded pixel and asset budgets. Solid-colour stencil masks retain the current PDF fill colour, inverse decoding and transparent pixels. Pattern-painted masks and unsupported graphics effects are omitted with a warning.
+
+`PDFIMPORT` defaults to `ALL`; an explicit `ALL`, `GEOMETRY`, `TEXT`, `FILLS` or `IMAGES` category may precede the file/page/placement options or `UNDERLAY`. Combined import preserves original PDF painter order across categories and places a fill before its stroke. The entire import is committed once and undone once; unsupported text or clipping that prevents safe conversion rejects the whole operation.
+
+`PDFSHXTEXT ["font.shx"|"font.shp"] HEIGHT cap-height-metres [ANGLE degrees] [THRESHOLD 80–100]`
+recognizes selected imported model strokes using a matching local font. Omit the path to open a font picker.
+Supply the known capital-letter height in drawing metres and baseline rotation in world coordinates (default 0°);
+the default recognition threshold is 95. Classic SHX 1.0/1.1, Unicode SHX 1.0 and corresponding SHP sources are supported.
+Complete glyphs are replaced with editable single-line text; compatible adjacent characters and gaps become text runs.
+Baselines, rotation, fitted width, layer and colour are retained with a substitute technical font.
+Review the recognized text: ambiguous identical outlines, incomplete glyphs, unmatched objects and locked objects are retained.
+The font is decoded locally (4 MiB maximum) and is never embedded in the drawing. Recognition is bounded to 5,000 selected
+objects, 200,000 sampled points and a shared work budget. Select a smaller area when the limit is reached.
+BIGFONT/non-Unicode multibyte fonts, vertical text, and reflected/sheared recognition are unsupported.
+One undo restores the original strokes; canceling font selection or a recognition error leaves the drawing unchanged.

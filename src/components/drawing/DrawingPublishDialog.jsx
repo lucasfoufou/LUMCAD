@@ -1,3 +1,4 @@
+import { DRAWING_DEVICE_PROFILES, applyDrawingDeviceProfile, normalizeDrawingPlotStamp } from '~utils/drawingPlot';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import DrawingLayoutPage from '~components/drawing/DrawingLayoutPage';
@@ -284,6 +285,9 @@ export default function DrawingPublishDialog({
                         )}
                         <fieldset>
                             <legend>{t('publish.style')}</legend>
+                            <PublishSelect label={t('plotStyle.deviceProfile')} value={settings.deviceProfile || 'pdfVector'} onChange={profile => setSettings(current => applyDrawingDeviceProfile(current, profile))}>
+                                {DRAWING_DEVICE_PROFILES.map(profile => <option key={profile} value={profile}>{t(`plotStyle.profile.${profile}`)}</option>)}
+                            </PublishSelect>
                             <PublishSelect label={t('publish.colorMode')} value={settings.style.colorMode} onChange={colorMode => updateNestedSettings('style', { colorMode })}>
                                 {DRAWING_PLOT_COLOR_MODES.map(mode => <option key={mode} value={mode}>{t(`publish.color.${mode}`)}</option>)}
                             </PublishSelect>
@@ -292,6 +296,16 @@ export default function DrawingPublishDialog({
                                 label={t('publish.lineweights')}
                                 onChange={plotLineweights => updateNestedSettings('style', { plotLineweights })}
                             />
+                        </fieldset>
+                        <fieldset>
+                            <legend>{t('plotStyle.stamp')}</legend>
+                            <PublishToggle checked={settings.stamp?.enabled === true} label={t('plotStyle.stampEnabled')}
+                                onChange={enabled => updateNestedSettings('stamp', { ...normalizeDrawingPlotStamp(settings.stamp), enabled })} />
+                            <label className="drawing-sidebar-field"><span>{t('plotStyle.stampText')}</span>
+                                <input value={normalizeDrawingPlotStamp(settings.stamp).text} maxLength={512} onChange={event => updateNestedSettings('stamp', { ...normalizeDrawingPlotStamp(settings.stamp), text: event.target.value })} />
+                            </label>
+                            <PublishNumber label={t('plotStyle.stampSize')} min={1} max={10} value={normalizeDrawingPlotStamp(settings.stamp).sizeMm}
+                                onChange={sizeMm => updateNestedSettings('stamp', { ...normalizeDrawingPlotStamp(settings.stamp), sizeMm })} />
                         </fieldset>
                         <fieldset>
                             <legend>{t('publish.quality')}</legend>

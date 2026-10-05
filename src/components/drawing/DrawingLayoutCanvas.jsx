@@ -1,3 +1,7 @@
+import DrawingInteractionOverlay from '~components/drawing/DrawingInteractionOverlay';
+import { alignDrawingViewportPoints } from '~utils/drawingSpaceTransfer';
+import { createDrawingPaperEntityFromPoints, commitDrawingPaperEntity, resolveDrawingPaperSnap } from '~utils/drawingPaperOperations';
+import { createTrackingAnchor, addTrackingAnchor, constrainOrthogonalPoint } from '~utils/drawingTracking';
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 
 import { DrawingReferenceControls } from '~components/drawing/DrawingInteractionOverlay';
@@ -20,6 +24,7 @@ import {
     setDrawingViewportClipPoint,
     translateDrawingPaperAnnotation,
     updateDrawingPaperAnnotation,
+    removeDrawingPaperAnnotation,
     updateDrawingViewport,
 } from '~utils/drawingLayouts';
 import { operationScaleFactor, previewReferenceTransform } from '~utils/drawingOperations';
@@ -38,6 +43,7 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
     onSelectedPaperEntityChange,
     onSelectedViewportChange,
     onStatus,
+    onToolChange,
     operation,
     selectedPaperEntityId,
     selectedViewportId,
@@ -45,6 +51,9 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
     const { t } = useI18n();
     const svgRef = useRef(null);
     const [gesture, setGesture] = useState(null);
+    const [paperCreation, setPaperCreation] = useState(null);
+    const [paperSnap, setPaperSnap] = useState(null);
+    const [trackingAnchors, setTrackingAnchors] = useState([]);
     const [operationPoint, setOperationPoint] = useState(null);
     const [editingPaperEntityId, setEditingPaperEntityId] = useState(null);
     const paperSize = getDrawingPaperSize(layout);
@@ -98,7 +107,7 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
     const operationPaperPoint = (event, { shift = event?.shiftKey } = {}) => {
         let point = paperPoint(event);
         const origin = getOperationOrthogonalOrigin(operation);
-        if (shift && origin) point = constrainOrthogonalPoint(point, origin);
+        if (shift && origin) point = constrainOrthogonalPoint(origin, point);
         return point;
     };
 
@@ -118,6 +127,51 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
         };
     };
 
+    const snapPaperPoint = (point, shift = false, excludeIds = []) => {
+        const threshold = displayViewBox.width / (svgRef.current?.getBoundingClientRect().width || 1000) * 12;
+        const snapped = resolveDrawingPaperSnap(point, content, layout, threshold, {
+            trackingAnchors, excludeIds, temporaryOrtho: shift,
+            orthogonalOrigin: gesture?.kind === 'paper-create' ? gesture.first : gesture?.start || null,
+        });
+        setPaperSnap(snapped);
+        const anchor = content.settings?.tracking ? createTrackingAnchor(snapped, { ...content.settings, ucs: null }) : null;
+        if (anchor) setTrackingAnchors(current => addTrackingAnchor(current, anchor));
+        return { ...snapped, x: clamp(snapped.x, 0, paper.width), y: clamp(snapped.y, 0, paper.height) };
+    };
+    const acceptPaperPoint = point => {
+        if (!paperCreation) return false;
+        if (paperCreation.type === 'alignSpace') {
+            const viewport = layout.viewports.find(item => item.id === paperCreation.viewportId);
+            if (!viewport || viewport.locked) { onStatus?.(t('spaceTransfer.alignmentInvalid')); return true; }
+            const points = [...paperCreation.points, point];
+            if (points.length === 2 && Math.hypot(points[0].x - point.x, points[0].y - point.y) < 1e-6) {
+                onStatus?.(t('spaceTransfer.alignmentInvalid')); return true;
+            }
+            if (points.length < 4) {
+                setPaperCreation({ ...paperCreation, points });
+                onStatus?.(t(`spaceTransfer.alignPoint${points.length + 1}`)); return true;
+            }
+            const aligned = alignDrawingViewportPoints(viewport, points.slice(0, 2).map(value => paperPointToViewportModelPoint(viewport, value)), points.slice(2));
+            if (!aligned) { onStatus?.(t('spaceTransfer.alignmentInvalid')); return true; }
+            onChange({ ...layout, viewports: layout.viewports.map(item => item.id === viewport.id ? aligned : item) });
+            setGesture(null); setPaperCreation(null); setPaperSnap(null); setTrackingAnchors([]);
+            onStatus?.(t('spaceTransfer.aligned')); return true;
+        }
+        if (gesture?.kind !== 'paper-create') {
+            setGesture({ kind: 'paper-create', first: point, current: point }); onStatus?.(t('paperWorkflow.secondPoint')); return true;
+        }
+        if (paperCreation.type === 'move') {
+            const next = translateDrawingPaperAnnotation(layout, paperCreation.entityId, point.x - gesture.first.x, point.y - gesture.first.y);
+            onChange(next); setGesture(null); setPaperCreation(null); setPaperSnap(null); setTrackingAnchors([]);
+            onStatus?.(t('paperWorkflow.created')); return true;
+        }
+        const result = commitDrawingPaperEntity(content, layout, paperCreation.type, gesture.first, point, paperCreation.options);
+        if (!result) { onStatus?.(t('paperWorkflow.invalid')); return true; }
+        onChange(result.layout); onSelectedPaperEntityChange?.(result.entity.id); onSelectedViewportChange(null);
+        setGesture(null); setPaperCreation(null); setPaperSnap(null); setTrackingAnchors([]); onToolChange?.('select');
+        if (result.entity.type === 'text' && !result.entity.text) setEditingPaperEntityId(result.entity.id);
+        onStatus?.(t('paperWorkflow.created')); return true;
+    };
     const commitCreate = point => {
         const rect = paperRectFromPoints(gesture.first, point);
         if (rect.width < MIN_VIEWPORT_SIZE_MM || rect.height < MIN_VIEWPORT_SIZE_MM) {
@@ -129,7 +183,7 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
         const modelViewBox = currentModelViewport
             ? modelViewBoxFromViewport(currentModelViewport, aspect)
             : fitViewBox(content, aspect);
-        const viewport = constrainViewportToPaper(createDrawingViewport({ rect, modelViewBox }), paper);
+        const viewport = constrainViewportToPaper(createDrawingViewport({ rect, modelViewBox, hiddenLayerIds: content.layers.filter(layer => layer.newViewportFrozen).map(layer => layer.id) }), paper);
         onChange({ ...layout, viewports: [...layout.viewports, viewport] });
         onSelectedViewportChange(viewport.id);
         onStatus?.(t('layout.viewportCreated'));
@@ -137,20 +191,56 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
     };
 
     useImperativeHandle(forwardedRef, () => ({
-        cancel() { setGesture(null); setOperationPoint(null); },
+        cancel() { setGesture(null); setOperationPoint(null); setPaperCreation(null); setPaperSnap(null); setTrackingAnchors([]); },
+        beginPaperCreation(type, options = {}) {
+            setGesture(null); setEditingPaperEntityId(null); setPaperCreation({ type, options }); setPaperSnap(null); setTrackingAnchors([]);
+            onStatus?.(t('paperWorkflow.firstPoint')); return true;
+        },
+        beginSpaceAlignment(viewportId) {
+            const viewport = layout.viewports.find(item => item.id === viewportId);
+            if (!viewport || viewport.locked) return false;
+            setGesture(null); setEditingPaperEntityId(null); setPaperSnap(null); setTrackingAnchors([]);
+            setPaperCreation({ type: 'alignSpace', viewportId, points: [] });
+            onStatus?.(t('spaceTransfer.alignPoint1')); return true;
+        },
+        getPaperSelection() { return selectedPaperEntityId; },
+        movePaperSelection() {
+            const entity = layout.paperEntities?.find(entity => entity.id === selectedPaperEntityId);
+            if (!entity || !canEditEntity(content, entity)) return false;
+            setGesture(null); setPaperCreation({ type: 'move', entityId: entity.id }); onStatus?.(t('paperWorkflow.firstPoint')); return true;
+        },
+        removePaperSelection() {
+            const entity = layout.paperEntities?.find(entity => entity.id === selectedPaperEntityId);
+            if (!entity || !canEditEntity(content, entity)) return false;
+            onChange(removeDrawingPaperAnnotation(layout, entity.id)); onSelectedPaperEntityChange?.(null); return true;
+        },
+        editPaperSelection() {
+            const entity = layout.paperEntities?.find(entity => entity.id === selectedPaperEntityId);
+            if (entity?.type !== 'text' || !canEditEntity(content, entity)) return false;
+            setEditingPaperEntityId(entity.id); return true;
+        },
+        selectPaperEntity(id) {
+            if (id && !layout.paperEntities?.some(entity => entity.id === id && canEditEntity(content, entity))) return false;
+            onSelectedPaperEntityChange?.(id); return true;
+        },
+        isPaperCreating() { return Boolean(paperCreation); },
         fitPaper() { setLayoutViewBox(fitPaperViewBox(paper)); },
         zoomPaper(factor) {
             setLayoutViewBox(current => zoomPaperViewBox(current, factor, viewBoxCenter(current), paper));
         },
         getPrecisionInputContext() {
             return {
-                referencePoint: gesture?.kind === 'create'
+                referencePoint: ['create', 'paper-create'].includes(gesture?.kind)
                     ? gesture.first
                     : getOperationOrthogonalOrigin(operation),
-                directionPoint: gesture?.kind === 'create' ? gesture.current : operationPoint,
+                directionPoint: ['create', 'paper-create'].includes(gesture?.kind) ? gesture.current : operationPoint,
             };
         },
         submitPoint(point, options = {}) {
+            if (paperCreation) {
+                const bounded = { x: clamp(point.x, 0, paper.width), y: clamp(point.y, 0, paper.height) };
+                return acceptPaperPoint(options.snap ? snapPaperPoint(bounded, options.shift) : bounded);
+            }
             if (operation?.scope === 'viewport') {
                 if (operation.stage === 'select') {
                     const viewport = layout.viewports.find(item => item.id === options.targetId);
@@ -162,7 +252,7 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
                     y: clamp(Number(point?.y) || 0, 0, paper.height),
                 };
                 const origin = getOperationOrthogonalOrigin(operation);
-                if (options.shift && origin) next = constrainOrthogonalPoint(next, origin);
+                if (options.shift && origin) next = constrainOrthogonalPoint(origin, next);
                 onOperationPoint?.(next);
                 return true;
             }
@@ -229,6 +319,7 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
         }
 
         const point = paperPoint(event);
+        if (paperCreation) { event.preventDefault(); acceptPaperPoint(snapPaperPoint(point, event.shiftKey)); return; }
 
         if (activeTool === 'viewport') {
             event.preventDefault();
@@ -324,7 +415,9 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
             setOperationPoint(operationPaperPoint(event));
             return;
         }
-        const point = gesture?.kind === 'pan-model' ? canvasPoint(event) : paperPoint(event);
+        let point = gesture?.kind === 'pan-model' ? canvasPoint(event) : paperPoint(event);
+        if (paperCreation || ['paper-move', 'paper-grip'].includes(gesture?.kind)) point = snapPaperPoint(point, event.shiftKey, gesture?.entityId ? [gesture.entityId] : []);
+        if (gesture?.kind === 'paper-create') { setGesture(current => ({ ...current, current: point })); return; }
         if (gesture?.kind === 'create') {
             setGesture(current => ({ ...current, current: point }));
             return;
@@ -471,6 +564,11 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
             previewLayout = scaleDrawingViewport(layout, operation.viewportId, factor, basePoint);
         }
     }
+    if (gesture?.kind === 'paper-create' && paperCreation) {
+        if (paperCreation.type === 'move') previewLayout = translateDrawingPaperAnnotation(layout, paperCreation.entityId, gesture.current.x - gesture.first.x, gesture.current.y - gesture.first.y);
+        const draft = createDrawingPaperEntityFromPoints(content, layout, paperCreation.type, gesture.first, gesture.current, paperCreation.options);
+        if (draft) previewLayout = { ...previewLayout, paperEntities: [...previewLayout.paperEntities, draft] };
+    }
     const draftViewport = gesture?.kind === 'create' ? paperRectFromPoints(gesture.first, gesture.current) : null;
     const canvasWidth = svgRef.current?.getBoundingClientRect().width || 1000;
     const canvasRect = svgRef.current?.getBoundingClientRect();
@@ -493,13 +591,14 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
                 interactive
                 layout={previewLayout}
                 maximizedViewportId={maximizedViewportId}
-                overlay={(
+                overlay={(<>
+                    <DrawingInteractionOverlay hoverSnap={paperSnap} trackingGuides={paperSnap?.guides || []} trackingAnchors={trackingAnchors} markerSize={markerSize} viewBox={displayViewBox} />
                     <DrawingReferenceControls
                         currentPoint={operationPoint}
                         markerSize={markerSize}
                         operation={operation}
                     />
-                )}
+                </>)}
                 selectedViewportId={selectedViewportId}
                 selectedPaperEntityId={selectedPaperEntityId}
                 onDoubleClick={handleDoubleClick}
@@ -553,12 +652,6 @@ function resizeViewport(viewport, handle, point, paper) {
 
 function clamp(value, minimum, maximum) {
     return Math.min(maximum, Math.max(minimum, value));
-}
-
-function constrainOrthogonalPoint(point, origin) {
-    return Math.abs(point.x - origin.x) >= Math.abs(point.y - origin.y)
-        ? { x: point.x, y: origin.y }
-        : { x: origin.x, y: point.y };
 }
 
 function fitPaperViewBox(paper) {

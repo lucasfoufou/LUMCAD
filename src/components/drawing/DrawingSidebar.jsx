@@ -1,3 +1,7 @@
+import DrawingAnnotationFields from '~components/drawing/DrawingAnnotationFields';
+import DrawingPlotStylesPanel from '~components/drawing/DrawingPlotStylesPanel';
+import { filterDrawingLayers } from '~utils/drawingLayers';
+import DrawingInquiryPanel from '~components/drawing/DrawingInquiryPanel';
 import { createDimensionSourceMap } from '~utils/drawingDimensionSources';
 import { presentDrawingDimension } from '~utils/drawingDimensionPresentation';
 import { retainDimensionStyleOverrides } from '~utils/drawingDimensionStyles';
@@ -25,7 +29,7 @@ import {
 } from '~utils/drawingDimensions';
 import { rebuildQdimSeriesResult } from '~utils/drawingDimensionCommands';
 
-export default function DrawingSidebar({ content, selectedIds, onCommit, panel, onPanelChange, blockSearch, onBlockSearch, onBlockDefine, onBlockInsert, onBlockEdit, onBlockImport, onBlockExport, onManageAttribute, onDefineAttribute, onDimensionStyleCommand }) {
+export default function DrawingSidebar({ content, selectedIds, onCommit, panel, onPanelChange, blockSearch, onBlockSearch, onBlockDefine, onBlockInsert, onBlockEdit, onBlockImport, onBlockExport, onManageAttribute, onDefineAttribute, onDimensionStyleCommand, inquiryResult, onCopyInquiry, layerFilter, onLayerFilter, onPlotStyleCommand, onCreationControlsMount, onAnnotationCommand }) {
     const { t } = useI18n();
     const [internalTab, setInternalTab] = useState('layers');
     const tab = panel || internalTab;
@@ -35,8 +39,8 @@ export default function DrawingSidebar({ content, selectedIds, onCommit, panel, 
     };
     useEffect(() => {
         const selected = content.entities.find(entity => selectedIds.includes(entity.id));
-        if (selected?.type === 'text') setTab('selection');
-    }, [content.entities, selectedIds]);
+        if (selected) setTab('selection');
+    }, [selectedIds.join('|')]);
     return (
         <aside className="drawing-sidebar">
             <div className="drawing-sidebar-tabs" role="tablist">
@@ -45,9 +49,15 @@ export default function DrawingSidebar({ content, selectedIds, onCommit, panel, 
                 <button type="button" className={tab === 'textStyles' ? 'is-active' : ''} onClick={() => setTab('textStyles')}>{t('sidebar.textStyles')}</button>
                 <button type="button" className={tab === 'dimensionStyles' ? 'is-active' : ''} onClick={() => setTab('dimensionStyles')}>{t('commands.dimensionStyle')}</button>
                 <button type="button" className={tab === 'blocks' ? 'is-active' : ''} onClick={() => setTab('blocks')}>{t('block.palette')}</button>
+                <button type="button" className={tab === 'plotStyles' ? 'is-active' : ''} onClick={() => setTab('plotStyles')}>{t('commands.styleManager')}</button>
+                <button type="button" className={tab === 'inquiry' ? 'is-active' : ''} onClick={() => setTab('inquiry')}>{t('inquiry.title')}</button>
             </div>
             <div className="drawing-sidebar-content">
-                {tab === 'layers' && <LayersPanel content={content} onCommit={onCommit} t={t} />}
+                <DrawingAnnotationFields content={content} selectedIds={selectedIds} onCommand={onAnnotationCommand} t={t} />
+                <div className="drawing-properties-mount" ref={onCreationControlsMount} />
+                {tab === 'plotStyles' && <DrawingPlotStylesPanel content={content} onCommand={onPlotStyleCommand} t={t} />}
+                {tab === 'inquiry' && <DrawingInquiryPanel settings={content.settings} result={inquiryResult} onCopy={onCopyInquiry} t={t} />}
+                {tab === 'layers' && <LayersPanel content={content} onCommit={onCommit} filter={layerFilter} onFilter={onLayerFilter} t={t} />}
                 {tab === 'selection' && <SelectionPanel content={content} selectedIds={selectedIds} onCommit={onCommit} t={t} />}
                 {tab === 'textStyles' && <TextStylesPanel content={content} onCommit={onCommit} t={t} />}
                 {tab === 'dimensionStyles' && <DrawingDimensionStylesPanel content={content} selectedIds={selectedIds} onCommand={onDimensionStyleCommand} t={t} />}
@@ -139,7 +149,7 @@ function drawingTextStyleLabels(t) {
     };
 }
 
-function LayersPanel({ content, onCommit, t }) {
+function LayersPanel({ content, onCommit, filter, onFilter, t }) {
     const entityCounts = useMemo(() => content.entities.reduce((counts, entity) => {
         counts[entity.layerId] = (counts[entity.layerId] || 0) + 1;
         return counts;
@@ -150,8 +160,9 @@ function LayersPanel({ content, onCommit, t }) {
                 <div><strong>{t('sidebar.layers')}</strong><small>{t('sidebar.layerCount', { count: content.layers.length })}</small></div>
                 <button type="button" onClick={() => onCommit(addLayer(content, t('document.newLayer', { number: content.layers.length + 1 })))}>{t('sidebar.add')}</button>
             </div>
+            <input aria-label={t('layerManager.filter')} placeholder={t('layerManager.filterHint')} value={filter || ''} onChange={event => onFilter?.(event.target.value)} />
             <div className="drawing-layer-list">
-                {content.layers.map(layer => (
+                {filterDrawingLayers(content.layers, filter).map(layer => (
                     <div key={layer.id} className={`drawing-layer-row ${content.activeLayerId === layer.id ? 'is-active' : ''}`}>
                         <div className="drawing-layer-row-header">
                             <input
@@ -186,6 +197,13 @@ function LayersPanel({ content, onCommit, t }) {
                                     onClick={() => onCommit(removeEmptyLayer(content, layer.id))}
                                 >×</button>
                             </div>
+                        </div>
+                        <div className="drawing-layer-flags">
+                            {['frozen', 'newViewportFrozen', 'plot'].map(field => <label key={field}>
+                                <input type="checkbox" checked={field === 'plot' ? layer[field] !== false : Boolean(layer[field])}
+                                    onChange={event => onCommit(updateLayer(content, layer.id, { [field]: event.target.checked }))} />
+                                {t(`layerManager.${field}`)}
+                            </label>)}
                         </div>
                         <DrawingLayerAppearanceFields
                             layer={layer}

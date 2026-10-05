@@ -75,6 +75,8 @@ export default function DrawingLayoutEditor({
             <DrawingLayoutToolbar
                 activeTool={activeTool}
                 hasSelection={Boolean(selectedViewportId)}
+                hasPaperSelection={Boolean(selectedPaperEntityId)}
+                onPaperCreate={type => { onToolChange('select'); canvasRef.current?.beginPaperCreation(type, { fontSize: 3, textMode: 'multiline' }); }}
                 onDelete={onDeleteViewport}
                 onFitPaper={() => canvasRef.current?.fitPaper()}
                 onMaximize={onMaximizeViewport && selectedViewport
@@ -106,6 +108,7 @@ export default function DrawingLayoutEditor({
                     onSelectedPaperEntityChange={selectPaperEntity}
                     onSelectedViewportChange={selectViewport}
                     onStatus={onStatus}
+                    onToolChange={onToolChange}
                     operation={operation}
                     selectedPaperEntityId={selectedPaperEntityId}
                     selectedViewportId={selectedViewportId}

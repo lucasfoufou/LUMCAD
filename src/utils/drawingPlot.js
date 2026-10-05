@@ -1,3 +1,4 @@
+import { DRAWING_PLOT_PRESENTATION, normalizeDrawingPlotStyles } from './drawingPlotStyles.js';
 import { normalizeDrawingColor } from './drawingDocument.js';
 import { getDrawingBounds } from './drawingGeometry.js';
 
@@ -44,6 +45,8 @@ export function normalizeDrawingPlotSettings(value) {
     const style = isRecord(source.style) ? source.style : {};
     const quality = isRecord(source.quality) ? source.quality : {};
     return {
+        ...(DRAWING_DEVICE_PROFILES.includes(source.deviceProfile) ? { deviceProfile: source.deviceProfile } : {}),
+        ...(isRecord(source.stamp) ? { stamp: normalizeDrawingPlotStamp(source.stamp) } : {}),
         area: {
             mode: acceptedValue(area.mode, DRAWING_PLOT_AREA_MODES, DEFAULT_AREA.mode),
             window: normalizePlotRect(area.window, DEFAULT_WINDOW),
@@ -184,10 +187,19 @@ export function resolveDrawingPlotTransform(
 export function applyDrawingPlotStyle(content, styleSettings) {
     if (!isRecord(content)) return content;
     const style = normalizeDrawingPlotSettings({ style: styleSettings }).style;
-    if (style.colorMode === 'asDisplayed' && style.plotLineweights) return content;
+    const styles = normalizeDrawingPlotStyles(content.plotStyles);
+    const mode = content.settings?.plotStyleMode;
+    if (styleSettings && styles.length && ['named', 'color'].includes(mode)) {
+        return { ...content, layers: content.layers.map(layer => ({ ...layer,
+            visible: layer.visible !== false && layer.plot !== false,
+            [DRAWING_PLOT_PRESENTATION]: { ...style, styles, mode },
+        })) };
+    }
+    const hidesLayers = styleSettings && content.layers?.some(layer => layer.plot === false);
+    if (style.colorMode === 'asDisplayed' && style.plotLineweights && !hidesLayers) return content;
     return {
         ...content,
-        layers: mapDrawingCollection(content.layers, layer => applyPlotAppearance(layer, style)),
+        layers: mapDrawingCollection(content.layers, layer => applyPlotAppearance(hidesLayers && layer.plot === false ? { ...layer, visible: false } : layer, style)),
         entities: mapDrawingCollection(content.entities, entity => applyPlotEntityStyle(entity, style)),
         blocks: mapDrawingCollection(content.blocks, block => ({
             ...block,
@@ -312,4 +324,26 @@ function finiteOr(value, fallback) {
 
 function isRecord(value) {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+export const DRAWING_DEVICE_PROFILES = Object.freeze(['pdfVector', 'pdfRaster', 'systemPrint']);
+
+export function applyDrawingDeviceProfile(settings, profile) {
+    if (!DRAWING_DEVICE_PROFILES.includes(profile)) return normalizeDrawingPlotSettings(settings);
+    return normalizeDrawingPlotSettings({ ...settings, deviceProfile: profile,
+        quality: { ...settings?.quality, mode: profile === 'pdfRaster' ? 'raster' : 'vector', rasterDpi: 300, imageDpi: 300 } });
+}
+
+export function normalizeDrawingPlotStamp(value) {
+    return { enabled: value?.enabled === true, text: typeof value?.text === 'string' ? value.text.slice(0, 512).replace(/[\r\n]/g, ' ') : '{layout} · {date}',
+        sizeMm: typeof value?.sizeMm === 'number' && Number.isFinite(value.sizeMm) ? Math.max(1, Math.min(10, value.sizeMm)) : 2.5 };
+}
+
+export function drawingPlotStampText(stamp, layout, date = new Date()) {
+    const normalized = normalizeDrawingPlotStamp(stamp);
+    if (!normalized.enabled) return '';
+    return normalized.text.replace(/\{(layout|date|scale)\}/g, (_, key) => ({
+        layout: layout?.name || '', date: date.toISOString().slice(0, 10),
+        scale: normalizeDrawingPlotSettings(layout?.plotSettings).scale.mode === 'fixed' ? `1:${normalizeDrawingPlotSettings(layout?.plotSettings).scale.denominator}` : '—',
+    })[key]);
 }

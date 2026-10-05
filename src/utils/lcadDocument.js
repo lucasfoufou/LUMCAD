@@ -105,7 +105,7 @@ function normalizeEmbeddedAssets(assets) {
     return assets.flatMap(asset => {
         if (!asset || typeof asset !== 'object' || typeof asset.id !== 'string') return [];
         const link = typeof asset.link === 'string' ? asset.link : '';
-        const mimeType = normalizeLcadImageMimeType(inferDataUrlMimeType(link));
+        const mimeType = normalizeLcadAssetMimeType(inferDataUrlMimeType(link));
         if (!mimeType) return [];
         const width = Number(asset.width);
         const height = Number(asset.height);
@@ -125,6 +125,11 @@ export function normalizeLcadImageMimeType(value) {
     const normalized = String(value || '').trim().toLowerCase();
     if (normalized === 'image/jpg') return 'image/jpeg';
     return SUPPORTED_LCAD_IMAGE_MIME_TYPES.includes(normalized) ? normalized : null;
+}
+
+export function normalizeLcadAssetMimeType(value) {
+    return String(value || '').trim().toLowerCase() === 'application/pdf'
+        ? 'application/pdf' : normalizeLcadImageMimeType(value);
 }
 
 function inferDataUrlMimeType(link) {

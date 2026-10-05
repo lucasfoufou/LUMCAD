@@ -1,6 +1,14 @@
+import { createPortal } from 'react-dom';
+import DrawingCoordinateOverlay from '~components/drawing/DrawingCoordinateOverlay';
+import { drawingPointWithinLimits } from '~utils/drawingCoordinates';
+import { isDrawingLayerVisible } from '~utils/drawingLayers';
+import { editDrawingLeaderGrip } from '~utils/drawingLeaders';
+import { namedDrawingViewBox } from '~utils/drawingNamedViews';
+import { expandDrawingGroupSelection } from '~utils/drawingGroups';
 import { spaceDimensionsAtPoint } from '~utils/drawingDimensionSpacing';
 import { placeDimensionTextAtPoint, advanceDimensionBreak } from '~utils/drawingDimensionMaintenance';
 import { drawingAffineFrame, framedDrawingPoint } from '~utils/drawingAffineFrame';
+import { affineMatrixToSvg, inverseAffineViewBox } from '~utils/drawingAffine';
 import { insertNamedDrawingBlock } from '~utils/drawingNamedBlocks';
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 
@@ -120,10 +128,13 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     dimensionMode = 'auto',
     editEntity = null,
     onEditEntityChange = null,
+    creationControlsTarget = null,
+    onCancelCommand = null,
     onImageSource = null,
     imageSourceBusy = false,
     onEntityCreated = null,
     dynamicInput = null,
+    backgroundContext = null,
 }, forwardedRef) {
     const { t } = useI18n();
     const svgRef = useRef(null);
@@ -628,7 +639,10 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             });
         } else if (!preserveRawTarget && !options.precision && orthogonalOrigin
             && isOrthoTrackingEnabled(content.settings, options.shift)) {
-            point = constrainOrthogonalPoint(orthogonalOrigin, point);
+            point = constrainOrthogonalPoint(orthogonalOrigin, point, content.settings?.ucs?.rotation || 0);
+        }
+        if ((interactiveOperation || activeTool !== 'select') && !drawingPointWithinLimits(point, content.settings)) {
+            onStatus?.(t('coordinates.outsideLimits')); return true;
         }
         setOperationPoint(point);
         showPointerFeedback(point);
@@ -675,7 +689,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
 
         if (drawingTools.has(activeTool)) {
             const activeLayer = getLayer(content, content.activeLayerId);
-            if (!activeLayer?.visible || activeLayer.locked) {
+            if (!isDrawingLayerVisible(activeLayer) || activeLayer.locked) {
                 onStatus?.(t('canvas.activeLayerUnavailable'));
                 return false;
             }
@@ -683,7 +697,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         }
 
         if ((activeTool === 'select' || interactiveOperation?.stage === 'select') && targetEntity && canSelectEntity(content, targetEntity)) {
-            onSelectionChange(applySelectionOperation(selectedIds, [targetId], options.shift ? 'remove' : 'add'));
+            onSelectionChange(applySelectionOperation(selectedIds, expandDrawingGroupSelection(content, [targetId]), options.shift ? 'remove' : 'add'));
             return true;
         }
         return false;
@@ -754,6 +768,10 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 x: current.x + current.width / 2,
                 y: current.y + current.height / 2,
             }, canvasSize));
+        },
+        restoreNamedView(view) {
+            const box = namedDrawingViewBox(view, canvasSize);
+            if (box) setViewBox(box);
         },
         setScaleRatio(scaleRatio) {
             setViewBox(current => scaleDrawingViewBox(current, canvasSize, scaleRatio));
@@ -848,12 +866,13 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const snapPoint = (event, excludeIds = [], orthogonalOrigin = null) => {
         const point = worldPoint(event);
         const threshold = worldUnitsPerPixel * 12;
-        return resolveDrawingSnap(point, content, threshold, {
+        const snapped = resolveDrawingSnap(point, content, threshold, {
             excludeIds,
             trackingAnchors,
             orthogonalOrigin,
             temporaryOrtho: Boolean(event.shiftKey),
         });
+        return drawingPointWithinLimits(snapped, content.settings) ? snapped : point;
     };
 
     const showPointerFeedback = point => {
@@ -911,7 +930,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         if (pointDistance(gesture.start, current) > worldUnitsPerPixel * 3) {
             const window = createSelectionWindow(gesture.start, current);
             const candidateIds = drawingSelectionCandidates(content, window);
-            onSelectionChange(applySelectionOperation(selectedIds, candidateIds, gesture.operation));
+            onSelectionChange(applySelectionOperation(selectedIds, expandDrawingGroupSelection(content, candidateIds), gesture.operation));
             onStatus?.(t(gesture.operation === 'remove' ? 'canvas.selectionRemoved' : 'canvas.selectionAdded', { count: candidateIds.length }));
         }
         setGesture(null);
@@ -931,6 +950,9 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             return;
         }
 
+        if ((interactiveOperation || !['select', 'pan'].includes(activeTool)) && !drawingPointWithinLimits(worldPoint(event), content.settings)) {
+            onStatus?.(t('coordinates.outsideLimits')); return;
+        }
         if (temporaryTrackingPointMode) {
             event.preventDefault();
             const point = snapPoint(
@@ -1021,7 +1043,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
 
         if (drawingTools.has(activeTool)) {
             const activeLayer = getLayer(content, content.activeLayerId);
-            if (!activeLayer?.visible || activeLayer.locked) {
+            if (!isDrawingLayerVisible(activeLayer) || activeLayer.locked) {
                 onStatus?.(t('canvas.activeLayerUnavailable'));
                 return;
             }
@@ -1061,7 +1083,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             }
             if (targetEntity && canSelectEntity(content, targetEntity)) {
                 const operation = event.shiftKey ? 'remove' : 'add';
-                onSelectionChange(applySelectionOperation(selectedIds, [targetId], operation));
+                onSelectionChange(applySelectionOperation(selectedIds, expandDrawingGroupSelection(content, [targetId]), operation));
                 return;
             }
             const start = worldPoint(event);
@@ -1184,6 +1206,11 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         if (gesture?.kind === 'select-window') {
             // Selection windows are confirmed by a second click, not by button
             // release, so pointer-up intentionally leaves the preview active.
+            return;
+        }
+        if (gesture && !drawingPointWithinLimits(worldPoint(event), content.settings)) {
+            onStatus?.(t('coordinates.outsideLimits')); setGesture(null);
+            if (svgRef.current?.hasPointerCapture(event.pointerId)) svgRef.current.releasePointerCapture(event.pointerId);
             return;
         }
         if (gesture?.kind === 'trim-fence' && (gesture.points?.length || 0) > 1) {
@@ -1420,7 +1447,10 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const wipeoutDraft = interactiveOperation?.type === 'wipeout' && interactiveOperation.points.length
         ? { id: 'wipeout-preview', type: 'polyline', layerId: content.activeLayerId, closed: true,
             points: [...interactiveOperation.points, ...(operationPoint ? [operationPoint] : [])] } : null;
-    const draftEntities = [gestureDraft, wipeoutDraft, blockInsertDraft, ...mirrorDrafts, ...arrayDrafts, ...alignDrafts, ...cornerDrafts,
+    const leaderDraft = interactiveOperation?.type === 'leaderCreation' && interactiveOperation.points.length
+        ? { id: 'leader-preview', type: 'polyline', layerId: content.activeLayerId, closed: false,
+            points: [...interactiveOperation.points, ...(operationPoint ? [operationPoint] : [])] } : null;
+    const draftEntities = [gestureDraft, wipeoutDraft, leaderDraft, blockInsertDraft, ...mirrorDrafts, ...arrayDrafts, ...alignDrafts, ...cornerDrafts,
         ...breakDrafts, ...stretchDrafts, ...lengthenDrafts,
         ...(clipboardPreview?.entities || []), ...offsetPreview,
         ...copyPreview, ...transformCopyPreview, ...trimPreviewEntities, ...extendPreviewEntities].filter(Boolean);
@@ -1437,7 +1467,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const previewSelectedIds = selectionWindow
         ? applySelectionOperation(
             selectedIds,
-            drawingSelectionCandidates(content, selectionWindow).filter(id => (
+            (stretchSelectionWindow ? drawingSelectionCandidates(content, selectionWindow) : expandDrawingGroupSelection(content, drawingSelectionCandidates(content, selectionWindow))).filter(id => (
                 !stretchSelectionWindow || !interactiveOperation.targetIds || interactiveOperation.targetIds.includes(id)
             )),
             gesture?.operation,
@@ -1489,7 +1519,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const blurCreationControlBeforeDrawing = event => {
         if (!svgRef.current?.contains(event.target)) return;
         const focused = document.activeElement;
-        if (focused && wrapperRef.current?.contains(focused) && /^(?:INPUT|SELECT|TEXTAREA|BUTTON)$/.test(focused.tagName)) {
+        if (focused && (wrapperRef.current?.contains(focused) || creationControlsTarget?.contains(focused)) && /^(?:INPUT|SELECT|TEXTAREA|BUTTON)$/.test(focused.tagName)) {
             focused.blur();
         }
     };
@@ -1539,6 +1569,11 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 aria-label={t('canvas.area')}
             >
                 <DrawingGrid content={content} viewBox={viewBox} worldUnitsPerPixel={worldUnitsPerPixel} />
+                <DrawingCoordinateOverlay settings={content.settings} viewBox={viewBox} worldUnitsPerPixel={worldUnitsPerPixel} t={t} />
+                {backgroundContext && <g opacity="0.25" pointerEvents="none" aria-hidden="true" transform={affineMatrixToSvg(backgroundContext.transform)}>
+                    <DrawingScene content={backgroundContext.content} assets={backgroundContext.assets}
+                        viewBox={inverseAffineViewBox(viewBox, backgroundContext.transform)} />
+                </g>}
                 <DrawingScene
                     content={clipboardPreview ? { ...previewContent, layers: clipboardPreview.content.layers, blocks: clipboardPreview.content.blocks } : previewContent}
                     assets={clipboardPreview?.assets || assets}
@@ -1603,8 +1638,14 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 anchor={dynamicInputPosition}
                 enabled={dynamicInputVisible}
             />
-            {!editingText && (
+            {!editingText && creationControlsTarget && createPortal(
                 <DrawingCreationControls
+                    content={content}
+                    key={editEntity?.id || activeTool}
+                    operation={interactiveOperation}
+                    commandInput={dynamicInput}
+                    onCancel={onCancelCommand}
+                    embedded
                     activeTool={activeTool}
                     mode={creationMode}
                     options={creationOptions}
@@ -1614,7 +1655,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                     onImageSource={onImageSource}
                     imageSourceBusy={imageSourceBusy}
                     textStyles={content.textStyles}
-                />
+                />, creationControlsTarget
             )}
         </div>
     );
@@ -1635,6 +1676,7 @@ function drawingDimensionSources(content, entity) {
 }
 
 function applyDrawingGripEdit(content, entityId, gripId, point) {
+    if (gripId.startsWith('leader-')) return editDrawingLeaderGrip(content, entityId, gripId, point).content || content;
     if (isQdimGrip(gripId)) {
         return rebuildQdimSeriesFromGripResult(content, entityId, gripId, point).content;
     }

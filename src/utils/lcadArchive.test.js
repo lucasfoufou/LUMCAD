@@ -19,6 +19,19 @@ import {
 const IMAGE_BYTES = Uint8Array.from([0, 1, 2, 3, 254, 255]);
 const IMAGE_DATA_URL = 'data:image/png;base64,AAECA/7/';
 
+test('PDF sources use separate binary archive assets and retain their exact bytes', () => {
+    const bytes = strToU8('%PDF-1.7\nsource bytes\n%%EOF');
+    const link = `data:application/pdf;base64,${Buffer.from(bytes).toString('base64')}`;
+    const document = createLcadDocument({ name: 'PDF source' });
+    document.assets = [{ id: 'pdf-source', name: 'plan.pdf', width: 1, height: 1, link, mimeType: 'application/pdf' }];
+    const archive = createLcadArchive(createLcadEnvelope(document));
+    const entries = unzipSync(archive);
+    const path = Object.keys(entries).find(path => path.endsWith('.pdf'));
+    assert.ok(path);
+    assert.deepEqual(entries[path], bytes);
+    assert.equal(readLcadArchive(archive).document.assets[0].link, link);
+});
+
 test('.lcad is a standard ZIP with a manifest and separate image assets', () => {
     const envelope = createLcadEnvelope({
         ...createLcadDocument({ name: 'Archive plan' }),

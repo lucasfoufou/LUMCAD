@@ -159,7 +159,16 @@ Layouts and reusable page setups also store the same normalized `plotSettings` o
 
 Missing plot settings normalize to `layout`, fit-to-paper at a nominal `1/100`, centred with zero offset, as-displayed colours, enabled lineweights, vector output, `300` DPI for raster and image content, and JPEG quality `0.9`. This is an additive version 2 field: existing version 1 and version 2 manifests without it remain readable and receive those defaults.
 
-`paperEntities` contains text, line, and rectangle annotations in paper millimetres. They use the same normalized entity/editing primitives as their model-space counterparts while remaining scoped to one layout. Viewport rectangle coordinates and dimensions also use paper millimetres. `modelViewBox` points to the visible model-space rectangle in metres; its aspect ratio is normalized to the paper viewport so printed geometry is not distorted. `hiddenLayerIds` hides layers only inside that viewport and does not change their model-space visibility.
+`paperEntities` contains text, line, rectangle annotations and native block references in paper millimetres. They use the same normalized entity/editing primitives as their model-space counterparts while remaining scoped to one layout. Viewport rectangle coordinates and dimensions also use paper millimetres. `modelViewBox` points to the visible model-space rectangle in metres; its aspect ratio is normalized to the paper viewport so printed geometry is not distorted. `hiddenLayerIds` hides layers only inside that viewport and does not change their model-space visibility.
+
+`CHSPACE` packages model selections and their dependencies in a native paper block,
+whose affine insertion maps model metres to paper millimetres. It preserves curves
+and geometry outside the paper boundaries; block movement is not clamped to the
+sheet. The boolean `spaceTransfer: true` marks this container for unpacking on
+return to model space. Original child IDs survive unless a model ID collision
+requires remapping; dependencies follow that mapping. Annotation representations
+are snapshotted at the chosen viewport scale and become non-annotative. Definitions
+shared by other objects are retained. Both spaces change in one history step.
 
 Viewport `viewRotation` is stored in degrees. A polygonal `clipBoundary` uses normalized viewport coordinates from `0` through `1`. `locked` prevents accidental model-view changes. `visualSettings`, `annotationSettings`, and `layerOverrides` control only that viewport and leave model-space entities unchanged. Layer overrides may contain a colour, linetype, and/or lineweight.
 
@@ -226,7 +235,7 @@ Selection exposes one position grip for an array. Edit its parameters with `ARRA
 
 ## Rich text and dimensions
 
-Model-space and paper-space text use the same normalized text entity. `text` is the plain compatibility value, while ordered `runs` preserve rich marks such as bold, italic, underline, strikethrough, colour, font family, and font size. `textMode` is `singleLine` or `multiline`; `wrapMode` is `word`, `character`, or `none`. `textStyleId` refers to a named entry in `document.content.textStyles`. Entity-level fields remain optional overrides so later named-style edits can propagate.
+Model-space and paper-space text use the same normalized text entity. `text` is the plain compatibility value, while ordered `runs` preserve rich marks such as bold, italic, underline, strikethrough, colour, font family, and font size. `textMode` is `singleLine` or `multiline`; `wrapMode` is `word`, `character`, or `none`. `textStyleId` refers to a named entry in `document.content.textStyles`. Entity-level fields remain optional overrides so later named-style edits can propagate. Optional `fitWidth: true` on single-line text fits the displayed line to its available rectangle width using SVG `textLength`/`spacingAndGlyphs`; it is removed for multiline text. PDF text import uses this with an `affineFrame` to preserve physical baselines and run widths while substituting a supported font family. Local text metrics remain in the affine frame’s coordinate system. Native storage and clipboard preserve both fields.
 
 The persistent dimension families are `linearDimension`, `radialDimension`, `angularDimension`, `arcLengthDimension`, `ordinateDimension`, and `centerMark`. Their geometry is stored exactly in metres/radians and may be free or associative through `sourceId`/`sourceIds`. `dimensionFormat` stores precision, prefix/suffix, deviation/symmetric/limits tolerance, alternate length units, and inspection label/rate. The formatter is shared by canvas, layout, clipboard SVG, and exploded text so these representations remain consistent.
 
@@ -308,15 +317,35 @@ Clipboard payloads inherit the 8 MiB JSON limit and additionally cap entity coun
 
 Affinity interoperability is SVG-specific: LUMCAD copy advertises native SVG and complete SVG text on macOS. In the other direction, Affinity's **Copy items as SVG** setting must be enabled so its clipboard contains SVG text (or a native SVG flavour). A normal Affinity copy that exposes only Serif-private, PDF, or bitmap flavours is not imported as editable LUMCAD geometry.
 
-## Supported embedded images
+## Supported embedded assets
 
 - PNG (`image/png`)
 - JPEG (`image/jpeg`)
 - GIF (`image/gif`)
 - WebP (`image/webp`)
 - SVG (`image/svg+xml`)
+- PDF source (`application/pdf`)
 
 Assets keep their existing compressed bytes in the ZIP. The JSON manifest uses DEFLATE compression.
+PDF source bytes use an `assets/*.pdf` entry and the same per-asset and aggregate
+limits as images. Their descriptor retains positive width/height metadata; the
+PDF parser determines the selected page's physical dimensions. PDF is accepted
+by archive storage, not by the image attachment MIME validator.
+
+PDF underlays are native block references with a `pdfUnderlay` descriptor:
+`version: 1`, source `assetId`/`name`, `pageNumber`/`pageCount`, local metre
+`width`/`height`, optional-content `layers` (`id`, `name`, `visible`),
+`snapsEnabled`, and bounded native `snapEntities`. The anonymous definition contains
+one PNG image cache. The reference transform controls placement/scale; the shared
+`blockClip` controls cropping. Source bytes remain authoritative for layer changes;
+the cache supports portable display without reparsing. Clipboard resource remapping
+retains both source and preview assets. Undo restores the reference and cached
+geometry; unused assets may remain cached for history.
+
+Decoding permits at most 10,000 pages, 2,048 optional-content groups and 100,000
+vector segments per page, with a 25-second reader timeout and a four-million-pixel
+preview. PDF JavaScript/evaluation and XFA are disabled. Fonts, character maps and
+decoder resources are bundled locally; no remote resource service is used.
 
 ## Safety limits
 
@@ -328,7 +357,7 @@ The desktop and browser readers apply the same limits:
 - embedded assets: 512 maximum;
 - asset paths must remain below `assets/` and cannot contain traversal components.
 
-Duplicate paths, missing files, unreferenced entries, unsupported image types, malformed ZIP data, and invalid manifests are rejected.
+Duplicate paths, missing files, unreferenced entries, unsupported asset types, malformed ZIP data, and invalid manifests are rejected.
 
 ## Versioning
 
@@ -337,6 +366,15 @@ The current writer emits `formatVersion: 2`. Readers accept versions 1 and 2; ve
 ## Atomic writes and recovery
 
 The desktop application creates the complete ZIP beside the target as a temporary file, flushes and synchronizes it, and atomically replaces the target. Unsaved drawings use the same ZIP structure in `recovery.lcad` inside LUMCAD's application data directory.
+
+`EXPORTLAYOUT` writes a separate native archive using the same atomic writer. It
+refuses the active drawing's path (including an existing symlink alias) and does
+not clear that drawing's recovery file. Its model uses metres: paper coordinates
+are divided by 1000. Each viewport is a native block insertion with a local polygon
+clip and separate layer snapshot; paper annotations form another insertion.
+Annotation representations are frozen at the viewport scale and external links
+are replaced by their cached native geometry. Unloaded references and hidden
+viewport geometry remain hidden. No archive version change is required.
 
 ### Construction lines and rays
 
@@ -380,7 +418,7 @@ Point insertion/removal rebuilds the initial FIT chord or CONTROL uniform parame
 
 `hatch` entities retain `boundaries` as closed native curve paths and optional `sourceIds` for their selected source entities. Creation accepts closed curves and unbranched endpoint-connected chains, bounded to 512 native parts and 512 source entities. No curve-to-chord conversion is stored. Multiple loops use even-odd filling for islands. `pattern.name` is `solid`, `lines`, `cross`, `gradient` or `radial`; `spacing` and `origin` are in metres, `angle` in degrees. Gradient `endColor` is a six-digit hex colour; its start colour resolves through normal entity/ByLayer appearance. Whole-entity transparency applies without extra implicit opacity.
 
-History commits and document loading refresh associated boundary snapshots from current sources. Independent hatch geometry changes detach `sourceIds` instead of snapping back; explicit DETACH does the same. Missing/open sources on reload detach while retaining the last closed snapshot. Ordinary source deletion follows the existing dependency-deletion policy. Shared source+hatch transforms retain association when their geometry agrees. Clipboard dependency remapping preserves associations and embedded JSON; its SVG flavour renders patterns, gradients and even-odd loops. The shared model/layout/print renderer uses the same paint definitions. Native archives preserve these additive version-2 fields without a schema-version change.
+History commits and document loading refresh associated boundary snapshots from current sources. Independent hatch geometry changes detach `sourceIds` instead of snapping back; explicit DETACH does the same. Missing/open sources on reload detach while retaining the last closed snapshot. Ordinary source deletion follows the existing dependency-deletion policy. Shared source+hatch transforms retain association when their geometry agrees. Clipboard dependency remapping preserves associations and embedded JSON; its SVG flavour renders patterns, gradients and even-odd loops. The shared model/layout/print renderer uses the same paint definitions. Optional `fillRule: "nonzero"` switches a hatch from its default even-odd interior to the nonzero winding rule; optional `boundaryStroke: false` suppresses its outline. PDF solid-fill import uses these additive fields. Selection, SVG output and simple disjoint-loop area/moment measurements respect the chosen rule; nonzero area/perimeter exclude redundant same-winding inner loops. Regions retain their even-odd contract and discard these hatch-only fields. Native archives preserve these additive version-2 fields without a schema-version change.
 
 Interior-picked hatches also store finite `boundaryPick: {x, y}` in model metres. Their `sourceIds` contain participating contours only. Refresh redetects the face at that seed; shared affine transforms transform the seed with the hatch. If the seed no longer identifies a valid face, refresh detaches the association and seed while preserving the last snapshot. A source edit that moves the intended region away from its seed therefore requires a new pick. Interior containment sampling never replaces persisted native curves.
 
@@ -447,3 +485,104 @@ Block-obstacle extraction also caps the total inspected child occurrences at 10,
 ### Centre-line annotations
 
 `centerLine` is an additive dimension-family entity in archive version 2. `sourceIds` contains two line-segment IDs; the annotation follows their midline (parallel sources) or angle bisector (intersecting sources). `alternateBisector` selects the perpendicular bisector for intersecting lines. Extents project the four source endpoints onto the annotation axis; `extension` adds a nonnegative metre distance at both ends (default 0.25, maximum 1e6). Detached annotations retain unextended world endpoints in `p1`/`p2`. Source endpoint reversal preserves the chosen bisector. Invalid or missing sources produce no geometry. There is no measurement label. The shared dimension rendering, bounds, copy/remapping and transform paths apply.
+
+### Named selection groups
+
+`content.groups` is an optional array of `{ id, name, entityIds, selectable }` records. Names are unique ignoring case and limited to 256 characters; up to 10,000 groups are normalized. Membership refers to stable model entity IDs without owning or transforming geometry. Overlapping selectable groups expand selection transitively over visible members. Empty groups, duplicate IDs/names and dangling members are removed at normalization boundaries. Groups are drawing-local (not block definitions or clipboard payloads). Existing files without groups load with an empty catalog. Group edits use document undo/redo; deleting a member and undoing restores its membership.
+
+### Named model views
+
+`content.namedViews` stores up to 256 `{ id, name, x, y, width, height }` records. Coordinates are the view centre in metres and width/height are positive model extents. Names are case-insensitively unique and limited to 128 characters; extents are finite and bounded to 1e9 metres with spans of at least 1e-6 metres. Invalid or duplicate records are discarded on load. Restoring a view preserves its centre and includes the saved extent at the current canvas aspect ratio. Import from another `.lcad` regenerates only imported view IDs and suffixes colliding names. Catalog edits participate in undo/redo; viewport navigation does not alter geometry history.
+
+### Saved selection filters
+
+`content.selectionFilters` contains up to 128 `{ id, name, criteria }` records with unique IDs and case-insensitively unique names (1–128 characters). Each filter has 1–16 `{ field, operator, value }` predicates. Supported fields are TYPE, LAYER, COLOR, LINETYPE, WEIGHT, TRANSPARENCY, BLOCK and LOCKED. String predicates support equality/inequality; weight/transparency also support ordered numeric comparisons. Invalid entries are discarded on normalization. Filters store criteria, not stale object IDs. Static count schedules consist solely of ordinary grouped text and line entities and require no new entity schema.
+
+### Leader annotations
+
+A leader is a native `blockReference` with optional validated `leader` metadata: version 1, 1–32 local-coordinate branches (2–128 points each, at most 1024 total), and a style snapshot (`textSize`, `arrowSize`, `landingLength`, `arrowType`: closed/open/none). Its anonymous definition contains ordinary line/hatch geometry followed by a text or nested block annotation. Content and arrow editing regenerate that definition with copy-on-write isolation. General affine transforms remain on the reference. Invalid metadata is discarded without deleting its native geometry. `content.leaderStyles` stores up to 128 case-insensitively unique named presets (names up to 128 characters); absent catalogs default to empty. Presets do not create live style associations. Clipboard and library dependency remapping use the existing nested block graph; metadata contains no definition IDs.
+
+### Layer states and flags
+
+Layers optionally carry `frozen` and `newViewportFrozen` (default false), and `plot` (default true). Frozen layers retain geometry but do not participate in display, selection or snapping. New-viewport freeze initializes the new viewport’s existing `hiddenLayerIds`; it never retroactively changes saved windows. Non-plot layers remain visible in editing and are hidden in publication.
+
+`content.layerStates` contains up to 128 unique named snapshots, each with `name` (128 characters maximum), `activeLayerId` and up to 2048 layer records keyed by stable `id`. Snapshots retain visibility, freeze, locking, plotting and appearance. Restoration updates surviving layer IDs only, preserving new layers and geometry. Layer merging remaps model/nested/paper geometry and viewport hidden-layer references atomically with the existing document history. Source appearance overrides in viewports are dropped in favor of target-layer settings.
+
+### Plot styles and output profiles
+
+`content.plotStyles` contains up to 256 unique named rules (`name` up to 128 characters, optional `sourceColor`, output `color`, `lineWeight`, `lineType`, and `screening` 0–100). `content.settings.plotStyleMode` is `off`, `color`, or `named`; entities/layers may carry `plotStyleName`. These are drawing-native CTB/STB-like tables, not binary Autodesk CTB/STB files. Mapping resolves effective layer/instance appearance only during publication; stored model appearance is unchanged.
+
+Normalized layout/page-setup `plotSettings` may include `deviceProfile` (`pdfVector`, `pdfRaster`, `systemPrint`) and `stamp` (`enabled`, single-line `text` up to 512 characters, `sizeMm` 1–10). Profiles initialize rendering quality and retain normal explicit publication controls; physical-printer selection remains in the system dialog. Stamps expand `{layout}`, `{date}` (UTC publication date), and `{scale}` (fixed plot scale or a dash for fit), are placed in paper millimetres, and are fitted to printable width. Existing page-setup archive/import paths retain these fields.
+
+### Units, UCS and drawing limits
+
+Internal coordinates, lengths and `.lcad` geometry remain metres. `content.settings.units` optionally defines display/alternate/insertion units (`mm`, `cm`, `m`, `km`, `in`, `ft`, `yd`), 0–8 digit precision, angle format (`degrees`, `radians`, `gradians`), angle precision, base angle in degrees and clockwise input direction. The insertion unit is metadata for unitless interchange; known-metre native drawings are not rescaled. Bare length input retains metre semantics, and explicit suffixes are converted by the existing expression parser.
+
+`settings.ucs` stores finite world origin `x`, `y` and normalized degree `rotation`; absent values mean world origin/zero rotation. `content.namedUcs` stores up to 128 case-insensitively unique named frames. `settings.ucsIcon` defaults true. `settings.limits` is null or finite ordered world bounds `minX/minY/maxX/maxY` plus `enabled`. Origins/bounds are limited to ±1e9 metres. These affect coordinate entry/display and drafting aids, never rewrite entity coordinates. The stored Y axis remains screen-down.
+
+### Annotative objects
+
+Text, dimensions, hatches and block references may carry
+`annotation: { baseScale, scales: [{ scale, offset: { x, y } }] }`.
+Denominators are finite numbers from 0.001 to 1,000,000. Each object has 1–64
+unique representations; the ratio to `baseScale` is bounded to 1e-6–1e6.
+Offsets are finite world-metre coordinates bounded to ±1e9. Optional
+`content.annotationScales` is a unique sorted catalog of at most 128 denominators;
+`settings.annotationScale` chooses the model context (default 100), and
+`settings.annotationShowAll` exposes otherwise unlisted model representations.
+
+Canonical geometry is stored at the base denominator. Contextual geometry is derived
+for model interaction and for each viewport's actual scale. Symbols used to invert
+live edits never enter the archive. Text/block geometry scales about its insertion;
+dimensions scale their presentation without moving witness geometry; hatch spacing
+scales without moving its boundary. Representation offsets move text/block insertions,
+dimension labels, or hatch origins. Leaders derive text/arrow/landing geometry while
+preserving their arrow targets, including when the content offset changes. Temporary
+leader definitions are discarded when edits return to canonical storage. Their bounded
+expansion permits at most 1,024 derived definitions and 100,000 generated children;
+excessive contexts are hidden with an editor warning. Explicit OFF/rebase operations
+retain the required native snapshot definitions within normal document limits.
+
+Native archives, clipboard payloads and shared geometry edits retain scale metadata.
+Clipboard SVG uses the source model annotation scale while the embedded native payload
+retains canonical geometry. Tiny text representations use native affine frames so
+font validation does not distort paper size. Paper annotations remain in millimetres
+and do not acquire model annotation scaling.
+
+
+### Block clipping and reference storage foundation
+
+A block reference may contain `blockClip: { enabled, points }`, with 3–128
+simple polygon vertices in definition-local coordinates. Coordinates are finite
+and bounded to ±1e9. Normalization drops degenerate or self-crossing contours.
+Rendering, SVG publication, selection bounds and recursive native-curve snapping
+respect the same transformed contour. EXPLODE refuses an enabled clipped reference
+until its clip is disabled, avoiding silently revealing discarded geometry. A
+clip may alternatively carry `paths` (1–1024 closed contours, at most 4096 line or
+four-control-point cubic `spline` parts in total) and `rule: "evenodd" | "nonzero"`.
+These definition-local native curves use the same ±1e9 coordinate bound. The
+renderer and SVG retain exact curves and winding holes; bounds use cubic extrema,
+while snapping intersects native curves and classifies intervals with bounded
+boundary sampling. The alternative is additive in archive version 2. XCLIP
+ON/OFF/DELETE also operates on imported curve clips; RECT/POLYGON replaces them.
+
+Native reference reads return a canonical source path and a SHA-256 file revision,
+with a 300 MiB input limit. Reference writes require that revision and check it
+immediately before atomic replacement. They do not clear the host recovery file.
+This detects stale edits; it is an optimistic check, not a filesystem transaction
+against writes from other processes. Source editing uses an explicit revision-checked save from a separate editor draft.
+
+External drawing reference snapshots use ordinary block definitions and assets.
+Their root insertion carries bounded `externalReference` version 1 metadata:
+source path/name/document ID, `attach` or `overlay` mode, loaded flag, revision,
+source base point, source-to-host resource maps and imported resource ownership.
+Unloaded snapshots stay in the archive but have no rendered geometry, bounds or
+snaps. Overlay insertions are omitted when their host drawing is attached elsewhere.
+Reload preserves the host insertion ID, transform and clip; orphaned owned resources
+are reclaimed while shared definitions and catalog assignments remain. Binding
+removes reference metadata, retaining the cached native geometry. Linked insertions
+must be bound before EXPLODE. Native source editing preserves the full source document (including layouts, groups and unused resources), edits it in source coordinates with faded host context, and writes only on REFSAVE or REFCLOSE SAVE. Host undo restores its cached insertion, never the external file. Browser snapshots can be relinked in the desktop application for source editing.
+
+Nested reload follows attached sources up to 8 levels and 32 files, with an aggregate 300 MiB serialized-cache budget. Missing nested files retain cached geometry and report a warning; cycles and budget overflow refuse the reload. Clipboard remaps reference resource mappings and ownership, retaining source child IDs and protecting pre-existing destination resources. XCOMPARE compares native entities and referenced resources without updating the cache.
+
+Image entities may set `imageRendering: "pixelated"` to retain nearest-pixel sampling (notably for PDF images with interpolation disabled). Missing or invalid values use normal browser interpolation. The field is preserved by native storage, clipboard SVG and shared model/paper rendering; it is additive in archive version 2.

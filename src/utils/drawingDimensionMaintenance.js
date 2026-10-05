@@ -1,3 +1,4 @@
+import { isDrawingLayerVisible } from './drawingLayers.js';
 import { createDimensionSourceMap } from './drawingDimensionSources.js';
 import { normalizeDimensionBreaks, pickDimensionBreak } from './drawingDimensionBreaks.js';
 import { presentDrawingDimension } from './drawingDimensionPresentation.js';
@@ -39,7 +40,7 @@ export function maintainDrawingDimensions(content, selectedIds, operation, input
             const curves = getDimensionBreakSourceCurves(entity, sources);
             return curves.length > 0 || curves.truncated;
         };
-        const candidates = tokens.length > 2 ? tokens.slice(2) : content.entities.filter(entity => !ids.has(entity.id) && getLayer(content, entity.layerId)?.visible && supported(entity)).map(entity => entity.id);
+        const candidates = tokens.length > 2 ? tokens.slice(2) : content.entities.filter(entity => !ids.has(entity.id) && isDrawingLayerVisible(getLayer(content, entity.layerId)) && supported(entity)).map(entity => entity.id);
         const sourceIds = [...new Set(candidates)];
         if (!sourceIds.length || sourceIds.length > 1000 || sourceIds.some(id => !sources.has(id) || ids.has(id) || !supported(sources.get(id)))) return { error: 'breakSources' };
         const replacements = new Map();

@@ -1,3 +1,7 @@
+import { getDrawingTextLayout } from './drawingText.js';
+import { drawingBlockClipShape } from './drawingBlockClip.js';
+import { remapDrawingReferenceResources } from './drawingReferenceMetadata.js';
+import { ANNOTATION_HIDDEN, currentAnnotationScale, resolveDrawingAnnotationContent, restoreDrawingAnnotationContent } from './drawingAnnotations.js';
 import { normalizeDimensionStyles, normalizeDimensionStyleValues } from './drawingDimensionStyles.js';
 import { createDimensionSourceMap } from './drawingDimensionSources.js';
 import { presentDrawingDimension } from './drawingDimensionPresentation.js';
@@ -67,7 +71,7 @@ export function createDrawingClipboardPayload(source, selectedIds, {
     sourceDocumentId = source?.id || null,
     limits = DRAWING_CLIPBOARD_LIMITS,
 } = {}) {
-    const content = source?.content || source;
+    const content = restoreDrawingAnnotationContent(source?.content || source);
     const assets = Array.isArray(source?.assets) ? source.assets : [];
     if (!content || !Array.isArray(content.entities)) throw clipboardError('invalid-source');
     const knownIds = new Set(content.entities.map(entity => entity.id));
@@ -86,7 +90,9 @@ export function createDrawingClipboardPayload(source, selectedIds, {
     const styleIds = collectPropertyValues(dependencyEntities, 'dimensionStyleId');
     const dimensionStyles = normalizeDimensionStyles(content.dimensionStyles).filter(style => styleIds.has(style.id));
     const selectedAssets = assets.filter(asset => assetIds.has(asset.id)).map(cloneJson);
-    const bounds = clipboardEntitiesBounds(entities, blocks);
+    const display = resolveDrawingAnnotationContent(source?.content || source);
+    const copiedIds = new Set(entities.map(entity => entity.id));
+    const bounds = clipboardEntitiesBounds(display.entities.filter(entity => copiedIds.has(entity.id)), display.blocks);
     const resolvedBasePoint = normalizePoint(basePoint)
         || (bounds ? { x: bounds.minX, y: bounds.minY } : { x: 0, y: 0 });
     const payload = {
@@ -94,6 +100,7 @@ export function createDrawingClipboardPayload(source, selectedIds, {
         version: DRAWING_CLIPBOARD_VERSION,
         unit: 'm',
         attributeDisplay: content.settings?.attributeDisplay || 'normal',
+        annotationScale: currentAnnotationScale(content),
         basePoint: resolvedBasePoint,
         originalBounds: bounds,
         selectionIds: requestedIds,
@@ -144,6 +151,7 @@ export function validateDrawingClipboardPayload(candidate, limits = DRAWING_CLIP
         if (typeof entity.type !== 'string' || !entity.type) throw clipboardError('invalid-entity');
         if (entity.layerId && !layerIds.has(entity.layerId)) throw clipboardError('missing-layer');
         if (entity.assetId && !assetIds.has(entity.assetId)) throw clipboardError('missing-asset');
+        if (entity.pdfUnderlay?.assetId && !assetIds.has(entity.pdfUnderlay.assetId)) throw clipboardError('missing-asset');
         if (entity.type === 'blockReference' && (!entity.blockId || !blockIds.has(entity.blockId))) {
             throw clipboardError('missing-block');
         }
@@ -233,6 +241,7 @@ export function pasteDrawingClipboardPayload(target, payload, {
     mode = 'insert',
     insertionPoint = null,
     blockLayerId = null,
+    preserveBlockEntityIds = false,
     limits = DRAWING_CLIPBOARD_LIMITS,
 } = {}) {
     const normalized = validateDrawingClipboardPayload(payload, limits);
@@ -246,17 +255,37 @@ export function pasteDrawingClipboardPayload(target, payload, {
     const styleMerge = mergeClipboardDimensionStyles(content.dimensionStyles, normalized.dimensionStyles);
     const remapStyle = entity => remapClipboardDimensionStyle(entity, styleMerge.idMap);
     const incomingBlocks = normalized.blocks.map(block => ({ ...block, entities: block.entities.map(remapStyle) }));
+    const referenceBlocks = new Set([...normalized.entities, ...incomingBlocks.flatMap(block => block.entities)]
+        .filter(entity => entity.externalReference).flatMap(entity => [entity.blockId, ...entity.externalReference.owned.blocks]));
     const blockMerge = mergeClipboardBlocks(content.blocks || [], incomingBlocks, {
         layerIdMap: layerMerge.idMap,
         assetIdMap: assetMerge.idMap,
+        entityIdMap: new Map(incomingBlocks.filter(block => preserveBlockEntityIds || referenceBlocks.has(block.id))
+            .flatMap(block => block.entities.map(entity => [entity.id, entity.id]))),
     });
+    const existingResourceIds = {
+        blocks: new Set((content.blocks || []).map(block => block.id)),
+        layers: new Set(content.layers.map(layer => layer.id)), assets: new Set(targetAssets.map(asset => asset.id)),
+        textStyles: new Set((content.textStyles || []).map(style => style.id)),
+        dimensionStyles: new Set((content.dimensionStyles || []).map(style => style.id)),
+    };
+    const preserveExistingOwnership = entity => {
+        if (!entity.externalReference) return entity;
+        return { ...entity, externalReference: { ...entity.externalReference,
+            owned: Object.fromEntries(Object.entries(entity.externalReference.owned).map(([key, ids]) => [key,
+                ids.filter(id => !existingResourceIds[key]?.has(id)),
+            ])),
+        } };
+    };
+    blockMerge.blocks = blockMerge.blocks.map(block => existingResourceIds.blocks.has(block.id) ? block
+        : { ...block, entities: block.entities.map(preserveExistingOwnership) });
     const entityIdMap = new Map(normalized.entities.map(entity => [entity.id, createDrawingId(entity.type || 'entity')]));
-    const remappedEntities = normalized.entities.map(entity => remapDrawingBlockEntity(remapStyle(entity), {
+    const remappedEntities = normalized.entities.map(entity => preserveExistingOwnership(remapDrawingBlockEntity(remapStyle(entity), {
         blockIdMap: blockMerge.idMap,
         entityIdMap,
         layerIdMap: layerMerge.idMap,
         assetIdMap: assetMerge.idMap,
-    }));
+    })));
     const basePoint = normalized.basePoint;
     const defaultInsertion = { x: basePoint.x + 0.5, y: basePoint.y + 0.5 };
     const insertion = normalizePoint(insertionPoint) || defaultInsertion;
@@ -282,6 +311,7 @@ export function pasteDrawingClipboardPayload(target, payload, {
             mode,
             delta: { x: insertion.x - basePoint.x, y: insertion.y - basePoint.y },
             layerIdMap: layerMerge.idMap,
+            dimensionStyleIdMap: styleMerge.idMap,
             assetIdMap: assetMerge.idMap,
             blockIdMap: new Map([...blockMerge.idMap, [definition.id, definition.id]]),
         };
@@ -305,15 +335,17 @@ export function pasteDrawingClipboardPayload(target, payload, {
         mode,
         delta,
         layerIdMap: layerMerge.idMap,
+        dimensionStyleIdMap: styleMerge.idMap,
         assetIdMap: assetMerge.idMap,
         blockIdMap: blockMerge.idMap,
     };
 }
 
 export function drawingClipboardPayloadToSvg(payload, serialized = null) {
-    const normalized = validateDrawingClipboardPayload(payload);
-    const json = serialized || serializeDrawingClipboardPayload(normalized);
-    const bounds = normalizeBounds(normalized.originalBounds) || clipboardEntitiesBounds(normalized.entities, normalized.blocks)
+    const canonical = validateDrawingClipboardPayload(payload);
+    const json = serialized || serializeDrawingClipboardPayload(canonical);
+    const normalized = resolveDrawingAnnotationContent(canonical, currentAnnotationScale({ settings: { annotationScale: canonical.annotationScale } }), { showAll: false });
+    const bounds = clipboardEntitiesBounds(normalized.entities.filter(entity => !entity[ANNOTATION_HIDDEN]), normalized.blocks) || normalizeBounds(normalized.originalBounds)
         || { minX: 0, minY: 0, maxX: 1, maxY: 1 };
     const width = Math.max(1e-9, bounds.maxX - bounds.minX);
     const height = Math.max(1e-9, bounds.maxY - bounds.minY);
@@ -446,6 +478,7 @@ function mergeClipboardDimensionStyles(existing, incoming) {
 
 function remapClipboardDimensionStyle(entity, idMap) {
     const result = { ...entity };
+    if (entity.externalReference) result.externalReference = remapDrawingReferenceResources(entity.externalReference, { dimensionStyles: idMap });
     if (entity.dimensionStyleId) {
         // Old clipboard payloads may carry snapshots without a catalog. Do not
         // accidentally bind those snapshots to an unrelated destination style.
@@ -976,6 +1009,7 @@ function isIdentitySvgMatrix(matrix) {
 }
 
 function entityToSvg(entity, context) {
+    if (entity[ANNOTATION_HIDDEN]) return '';
     const frame = drawingAffineFrame(entity);
     if (frame) {
         const { affineFrame, ...local } = entity;
@@ -1019,6 +1053,10 @@ function entityToSvg(entity, context) {
         const tag = entity.closed ? 'polygon' : 'polyline';
         return `<${tag} points="${svgPoints(entity.points || [])}"${common}/>`;
     }
+    if (entity.type === 'text' && entity.fitWidth) {
+        const layout = getDrawingTextLayout(entity);
+        return `<text transform="${drawingRectTransform(entity) || ''}" font-family="${escapeXml(layout.baseStyle.cssFontFamily)}" font-size="${layout.fontSize}" font-weight="${layout.baseStyle.fontWeight}" font-style="${layout.baseStyle.fontStyle}" x="${layout.textX}" y="${layout.firstBaseline}" textLength="${layout.availableWidth}" lengthAdjust="spacingAndGlyphs" fill="${escapeXml(appearance.color)}" opacity="${appearance.opacity}">${escapeXml(entity.text || '')}</text>`;
+    }
     if (entity.type === 'text') return `<text transform="${drawingRectTransform(entity) || ''}" font-size="${Number(entity.fontSize) || 0.35}" x="${entity.x}" y="${Number(entity.y) + (Number(entity.fontSize) || 0.35)}" fill="${escapeXml(appearance.color)}">${escapeXml(entity.text || '')}</text>`;
     if (entity.type === 'region') {
         const d = extractEntityPaths(entity).map(path => curvePathToSvgData(path)).join(' ');
@@ -1039,12 +1077,12 @@ function entityToSvg(entity, context) {
             const attributes = name === 'radial' ? '' : ` x1="0" y1="0.5" x2="1" y2="0.5" gradientTransform="rotate(${angle} 0.5 0.5)"`;
             definition = `<${tag} id="${id}"${attributes}><stop offset="0%" stop-color="${color}"/><stop offset="100%" stop-color="${endColor}"/></${tag}>`;
         } else if (name !== 'solid') {
-            const spacing = Math.max(0.02, Math.abs(Number(pattern.spacing) || Number(pattern.scale) || 0.25));
+            const spacing = Math.max(entity.annotation ? 1e-12 : 0.02, Math.abs(Number(pattern.spacing) || Number(pattern.scale) || 0.25));
             const x = Number(pattern.origin?.x) || 0; const y = Number(pattern.origin?.y) || 0;
             const cross = name === 'cross' ? `<line x1="0" y1="0" x2="0" y2="${spacing}" stroke="${color}" stroke-width="${appearance.lineWeight}"/>` : '';
             definition = `<pattern id="${id}" patternUnits="userSpaceOnUse" x="${x}" y="${y}" width="${spacing}" height="${spacing}" patternTransform="rotate(${angle} ${x} ${y})"><line x1="0" y1="0" x2="${spacing}" y2="0" stroke="${color}" stroke-width="${appearance.lineWeight}"/>${cross}</pattern>`;
         }
-        return `${definition ? `<defs>${definition}</defs>` : ''}<path d="${escapeXml(d)}" fill="${name === 'solid' ? color : `url(#${id})`}" fill-rule="evenodd" stroke="${color}" stroke-width="${appearance.lineWeight}" opacity="${appearance.opacity}"/>`;
+        return `${definition ? `<defs>${definition}</defs>` : ''}<path d="${escapeXml(d)}" fill="${name === 'solid' ? color : `url(#${id})`}" fill-rule="${entity.fillRule === 'nonzero' ? 'nonzero' : 'evenodd'}" stroke="${entity.boundaryStroke === false ? 'none' : color}" stroke-width="${appearance.lineWeight}" opacity="${appearance.opacity}"/>`;
     }
     if (entity.type === 'block') {
         const paths = extractEntityPaths(entity, {
@@ -1064,11 +1102,11 @@ function entityToSvg(entity, context) {
             const defs = `<defs>${adjusted ? imageAdjustmentFilterMarkup(id, entity.imageAdjustments) : ''}${clip ? `<clipPath id="${id}-clip" clipPathUnits="userSpaceOnUse"><polygon points="${svgPoints(clip)}"/></clipPath>` : ''}</defs>`;
             const rectTransform = drawingRectTransform(entity);
             const transform = rectTransform ? ` transform="${rectTransform}"` : '';
-            return `${defs}<image x="${entity.x}" y="${entity.y}" width="${entity.width}" height="${entity.height}" href="${escapeXml(link)}" opacity="${(entity.opacity ?? 0.55) * appearance.opacity}" preserveAspectRatio="none"${transform}${adjusted ? ` filter="url(#${id})"` : ''}${clip ? ` clip-path="url(#${id}-clip)"` : ''}/>`;
+            return `${defs}<image x="${entity.x}" y="${entity.y}" width="${entity.width}" height="${entity.height}" href="${escapeXml(link)}" opacity="${(entity.opacity ?? 0.55) * appearance.opacity}" preserveAspectRatio="none"${entity.imageRendering === 'pixelated' ? ' style="image-rendering:pixelated"' : ''}${transform}${adjusted ? ` filter="url(#${id})"` : ''}${clip ? ` clip-path="url(#${id}-clip)"` : ''}/>`;
         }
     }
     if (entity.type === 'blockReference') {
-        if (context.visited.has(entity.blockId)) return '';
+        if (entity.externalReference?.loaded === false || context.visited.has(entity.blockId)) return '';
         const definition = context.blockMap.get(entity.blockId);
         if (!definition) return '';
         const next = {
@@ -1078,9 +1116,12 @@ function entityToSvg(entity, context) {
             viewBox: inverseAffineViewBox(context.viewBox, entity.transform),
         };
         const matrix = entity.transform || { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
-        return `<g transform="matrix(${matrix.a} ${matrix.b} ${matrix.c} ${matrix.d} ${matrix.e} ${matrix.f})">${definition.entities.map(child => resolveDrawingBlockChild(child, entity, context.attributeDisplay))
-            .filter(child => child && context.layerMap.get(child.layerId)?.visible !== false)
-            .map(child => entityToSvg(child, next)).join('')}</g>`;
+        const clip = drawingBlockClipShape(entity);
+        const clipId = `block-clip-${context.paintIds.next++}`;
+        const clipDefinition = clip ? `<defs><clipPath id="${clipId}" clipPathUnits="userSpaceOnUse"><path d="${escapeXml(clip.paths.map(curvePathToSvgData).join(' '))}" clip-rule="${clip.rule}"/></clipPath></defs>` : '';
+        return `<g transform="matrix(${matrix.a} ${matrix.b} ${matrix.c} ${matrix.d} ${matrix.e} ${matrix.f})">${clipDefinition}<g${clip ? ` clip-path="url(#${clipId})"` : ''}>${definition.entities.map(child => resolveDrawingBlockChild(child, entity, context.attributeDisplay))
+            .filter(child => child && (context.layerMap.get(child.layerId)?.visible !== false && !context.layerMap.get(child.layerId)?.frozen))
+            .map(child => entityToSvg(child, next)).join('')}</g></g>`;
     }
     return '';
 }
@@ -1156,7 +1197,7 @@ function curveSweepValue(entity) {
 }
 
 function dimensionToSvg(entity, sources, common, color) {
-    const textSize = Math.max(0.01, Number(entity.textSize) || 0.35);
+    const textSize = Math.max(1e-12, Number(entity.textSize) || 0.35);
     const geometry = presentDrawingDimension(getDimensionGeometry(entity, sources), entity, textSize);
     if (!geometry) return '';
     const line = (first, second) => `<line x1="${first.x}" y1="${first.y}" x2="${second.x}" y2="${second.y}"${common}/>`;
@@ -1255,6 +1296,7 @@ function collectPropertyValues(entities, property) {
     const values = new Set();
     const visit = entity => {
         if (entity?.[property]) values.add(entity[property]);
+        if (property === 'assetId' && entity?.pdfUnderlay?.assetId) values.add(entity.pdfUnderlay.assetId);
         if (entity?.type === 'polyline' && Array.isArray(entity.parts)) entity.parts.forEach(visit);
     };
     entities.forEach(visit);

@@ -1,3 +1,4 @@
+import { drawingPlotStampText, normalizeDrawingPlotStamp } from '~utils/drawingPlot';
 import React, { forwardRef, useId, useMemo } from 'react';
 
 import { inverseAffineViewBox, rotationAffineMatrix } from '~utils/drawingBlocks';
@@ -36,6 +37,8 @@ const DrawingLayoutPage = forwardRef(function DrawingLayoutPage({
     const paper = getDrawingPaperSize(layout);
     const printableArea = getDrawingPrintableArea(layout);
     const normalizedPlotSettings = plotSettings ? normalizeDrawingPlotSettings(plotSettings) : null;
+    const stampText = drawingPlotStampText(normalizedPlotSettings?.stamp, { ...layout, plotSettings: normalizedPlotSettings });
+    const stampSize = normalizeDrawingPlotStamp(normalizedPlotSettings?.stamp).sizeMm;
     const plotTransform = useMemo(
         () => resolveLayoutPlotTransform(layout, paper, printableArea, normalizedPlotSettings, content),
         [content, layout, normalizedPlotSettings, paper, printableArea],
@@ -109,6 +112,14 @@ const DrawingLayoutPage = forwardRef(function DrawingLayoutPage({
                 )}
                 </g>
             </g>
+            {normalizedPlotSettings?.stamp?.enabled && <text className="drawing-plot-stamp"
+                x={printableArea.x + 1} y={printableArea.y + printableArea.height - 1}
+                fontSize={stampSize}
+                textLength={stampText.length * stampSize * 0.6 > printableArea.width - 2 ? printableArea.width - 2 : undefined}
+                lengthAdjust="spacingAndGlyphs" fill="#000000"
+                fontFamily="Arial, sans-serif" style={{ pointerEvents: 'none' }}>
+                {stampText}
+            </text>}
             {interactive && !maximizedViewportId && (
                 <rect
                     className="drawing-layout-printable-area"

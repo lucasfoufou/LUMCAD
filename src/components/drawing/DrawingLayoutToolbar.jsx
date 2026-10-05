@@ -6,7 +6,9 @@ import { useI18n } from '~i18n/I18nProvider';
 export default function DrawingLayoutToolbar({
     activeTool,
     hasSelection,
+    hasPaperSelection = false,
     onClip,
+    onPaperCreate,
     onDelete,
     onFitPaper,
     onMaximize,
@@ -78,6 +80,10 @@ export default function DrawingLayoutToolbar({
                 )}
             </div>
             <div className="drawing-toolbar-group">
+                {['text', 'line', 'rectangle'].map(type => <DrawingToolButton key={type} glyph={{ text: 'T', line: '╱', rectangle: '▭' }[type]}
+                    label={t(`layout.paperAnnotation.${type}`)} onClick={() => onPaperCreate?.(type)} />)}
+            </div>
+            <div className="drawing-toolbar-group">
                 <DrawingToolButton glyph="＋" label={t('layout.paperZoomIn')} onClick={onZoomIn} />
                 <DrawingToolButton glyph="−" label={t('layout.paperZoomOut')} onClick={onZoomOut} />
                 <DrawingToolButton glyph="□" label={t('layout.fitPaper')} onClick={onFitPaper} />
@@ -85,9 +91,9 @@ export default function DrawingLayoutToolbar({
             <div className="drawing-toolbar-group">
                 <DrawingToolButton
                     danger
-                    disabled={!hasSelection}
+                    disabled={!hasSelection && !hasPaperSelection}
                     glyph="⌫"
-                    label={t('layout.deleteViewport')}
+                    label={t(hasPaperSelection ? 'layout.deletePaperAnnotation' : 'layout.deleteViewport')}
                     onClick={onDelete}
                 />
             </div>

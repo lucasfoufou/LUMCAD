@@ -1,3 +1,12 @@
+import { normalizeDrawingAnnotation, normalizeAnnotationScales, supportsDrawingAnnotation, restoreDrawingAnnotationContent, currentAnnotationScale } from './drawingAnnotations.js';
+import { normalizeDrawingUnits, normalizeDrawingUcs, normalizeDrawingNamedUcs, normalizeDrawingLimits } from './drawingCoordinates.js';
+import { normalizeDrawingPlotStyles, resolveDrawingPlotAppearance } from './drawingPlotStyles.js';
+import { isDrawingLayerVisible, normalizeDrawingLayerStates } from './drawingLayers.js';
+import { normalizeDrawingLeaderStyles } from './drawingLeaders.js';
+import { normalizeDrawingSelectionFilters } from './drawingSelectionFilters.js';
+import { isDrawingObjectHidden } from './drawingObjectVisibility.js';
+import { normalizeNamedDrawingViews } from './drawingNamedViews.js';
+import { normalizeDrawingGroups } from './drawingGroups.js';
 import { DEFAULT_DIMENSION_STYLE_ID, normalizeDimensionStyles } from './drawingDimensionStyles.js';
 import { normalizeDrawingAttributeDefinition, normalizeDrawingAttributeValues } from './drawingBlockAttributes.js';
 import { drawingAffineFrame } from './drawingAffineFrame.js';
@@ -80,6 +89,13 @@ export function createDefaultDrawingContent({
         activeDimensionStyleId: DEFAULT_DIMENSION_STYLE_ID,
         textStyles: [{ ...DEFAULT_DRAWING_TEXT_STYLE }],
         activeTextStyleId: DEFAULT_DRAWING_TEXT_STYLE_ID,
+        selectionFilters: [],
+        leaderStyles: [],
+        layerStates: [],
+        plotStyles: [],
+        namedUcs: [],
+        namedViews: [],
+        groups: [],
         blocks: [],
         entities: [],
         settings: {
@@ -87,6 +103,10 @@ export function createDefaultDrawingContent({
             snaps: { grid: true, endpoint: true, midpoint: true, center: true, intersection: true, nearest: false },
             dynamicInput: true,
             attributeDisplay: 'normal',
+            plotStyleMode: 'off',
+            ucs: normalizeDrawingUcs(),
+            ucsIcon: true,
+            limits: null,
             ...draftingSettings,
         },
         metadata: {
@@ -108,6 +128,7 @@ export function createDefaultDrawingContent({
 export function normalizeDrawingContent(content) {
     const defaults = createDefaultDrawingContent();
     if (!content || typeof content !== 'object') return defaults;
+    content = restoreDrawingAnnotationContent(content);
     const sourceLayers = Array.isArray(content.layers) && content.layers.length > 0 ? content.layers : defaults.layers;
     const layers = (sourceLayers.some(layer => layer.id === DEFAULT_LAYER_IDS.geometry)
         ? sourceLayers
@@ -140,14 +161,28 @@ export function normalizeDrawingContent(content) {
         activeDimensionStyleId,
         textStyles,
         activeTextStyleId,
+        selectionFilters: normalizeDrawingSelectionFilters(content.selectionFilters),
+        leaderStyles: normalizeDrawingLeaderStyles(content.leaderStyles),
+        layerStates: normalizeDrawingLayerStates(content.layerStates),
+        plotStyles: normalizeDrawingPlotStyles(content.plotStyles),
+        namedUcs: normalizeDrawingNamedUcs(content.namedUcs),
+        ...(content.annotationScales ? { annotationScales: normalizeAnnotationScales(content.annotationScales) } : {}),
+        namedViews: normalizeNamedDrawingViews(content.namedViews),
+        groups: normalizeDrawingGroups(content.groups, blockContent.entities),
         blocks: blockContent.blocks,
         entities: refreshDrawingHatches(refreshPathArrays({ entities: blockContent.entities })).entities,
         activeLayerId: layers.some(layer => layer.id === content.activeLayerId) ? content.activeLayerId : layers[0].id,
         settings: {
             ...defaults.settings,
             ...sourceSettings,
+            ...(sourceSettings.annotationScale !== undefined ? { annotationScale: currentAnnotationScale(content) } : {}),
+            ...(sourceSettings.annotationShowAll !== undefined ? { annotationShowAll: sourceSettings.annotationShowAll === true } : {}),
+            plotStyleMode: ['off', 'named', 'color'].includes(sourceSettings.plotStyleMode) ? sourceSettings.plotStyleMode : 'off',
             attributeDisplay: ['normal', 'all', 'off'].includes(sourceSettings.attributeDisplay) ? sourceSettings.attributeDisplay : 'normal',
             ...draftingSettings,
+            ...(sourceSettings.units ? { units: normalizeDrawingUnits(sourceSettings.units) } : {}),
+            ucs: normalizeDrawingUcs(sourceSettings.ucs), ucsIcon: sourceSettings.ucsIcon !== false,
+            limits: normalizeDrawingLimits(sourceSettings.limits),
             dynamicInput: sourceSettings.dynamicInput !== false,
             snaps: { ...defaults.settings.snaps, ...(sourceSettings.snaps || {}) },
         },
@@ -194,12 +229,12 @@ export function getEntityTransparency(content, entity) {
 }
 
 export function getEntityAppearance(content, entity) {
-    return {
+    return resolveDrawingPlotAppearance({
         color: getEntityColor(content, entity),
         lineWeight: getEntityLineWeight(content, entity),
         lineType: getEntityLineType(content, entity),
         transparency: getEntityTransparency(content, entity),
-    };
+    }, entity, getLayer(content, entity?.layerId));
 }
 
 export function normalizeDrawingColor(value) {
@@ -244,11 +279,11 @@ export function getReferenceLayerId(content) {
 
 export function canEditEntity(content, entity) {
     const layer = getLayer(content, entity.layerId);
-    return Boolean(layer?.visible && !layer.locked && !entity?.locked);
+    return Boolean(isDrawingLayerVisible(layer) && !layer.locked && !entity?.locked && !isDrawingObjectHidden(content, entity.id));
 }
 
 export function canSelectEntity(content, entity) {
-    return Boolean(getLayer(content, entity.layerId)?.visible);
+    return Boolean(isDrawingLayerVisible(getLayer(content, entity.layerId)) && !isDrawingObjectHidden(content, entity.id));
 }
 
 export function applySelectionOperation(selectedIds, candidateIds, operation = 'add') {
@@ -603,6 +638,9 @@ export function addLayer(content, name = null) {
         transparency: DEFAULT_DRAWING_TRANSPARENCY,
         visible: true,
         locked: false,
+        frozen: false,
+        newViewportFrozen: false,
+        plot: true,
     };
     return { ...content, layers: [...content.layers, layer], activeLayerId: id };
 }
@@ -643,6 +681,9 @@ function createDefaultLayer(id, name, color) {
         transparency: DEFAULT_DRAWING_TRANSPARENCY,
         visible: true,
         locked: false,
+        frozen: false,
+        newViewportFrozen: false,
+        plot: true,
     };
 }
 
@@ -658,12 +699,18 @@ function normalizeDrawingLayer(layer) {
         transparency: normalizeDrawingTransparency(layer?.transparency) ?? DEFAULT_DRAWING_TRANSPARENCY,
         visible: layer?.visible !== false,
         locked: Boolean(layer?.locked),
+        frozen: Boolean(layer?.frozen),
+        newViewportFrozen: Boolean(layer?.newViewportFrozen),
+        plot: layer?.plot !== false,
     };
 }
 
 function normalizeDrawingEntityAppearance(entity, textOptions = {}) {
     if (!entity || typeof entity !== 'object') return entity;
     const normalized = normalizeDrawingEntityGeometry(entity, textOptions);
+    const annotation = supportsDrawingAnnotation(entity) && normalizeDrawingAnnotation(entity.annotation);
+    if (annotation) normalized.annotation = annotation;
+    else delete normalized.annotation;
     const attribute = entity.type === 'text' && normalizeDrawingAttributeDefinition(entity.attributeDefinition);
     if (attribute) normalized.attributeDefinition = attribute;
     else delete normalized.attributeDefinition;
@@ -729,6 +776,8 @@ function normalizeDrawingEntityGeometry(entity, textOptions = {}) {
         if (source) normalized.imageSource = source;
         else delete normalized.imageSource;
     }
+    if (entity.type === 'image' && entity.imageRendering === 'pixelated') normalized.imageRendering = 'pixelated';
+    else delete normalized.imageRendering;
     if (entity.type === 'image' && entity.imageAdjustments) normalized.imageAdjustments = normalizeImageAdjustments(entity.imageAdjustments);
     if (entity.type === 'image' && entity.imageClip) {
         const clip = normalizeImageClip(entity.imageClip);

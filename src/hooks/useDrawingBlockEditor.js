@@ -23,6 +23,7 @@ export default function useDrawingBlockEditor({ modelHistory, modelAssets, setMo
     };
     const save = ({ close = false } = {}) => {
         if (!session) return { error: 'notEditing' };
+        if (session.referenceSource) return { error: 'referenceSource' };
         const result = saveDrawingBlockEdit(modelHistory.content, session.blockId, draftHistory.content);
         if (result.error) return result;
         if (result.changed) modelHistory.commit(result.content);
@@ -40,8 +41,31 @@ export default function useDrawingBlockEditor({ modelHistory, modelAssets, setMo
         setSession(null);
         return {};
     };
+    const beginReference = (reference, loaded) => {
+        if (session) return { error: 'editing' };
+        const source = loaded.envelope.document;
+        const draft = { blockId: reference.blockId, name: source.name, content: source.content,
+            referenceSource: { referenceId: reference.id, reference, path: loaded.path, revision: loaded.revision, document: source } };
+        draftHistory.reset({ content: source.content, layouts: source.layouts, pageSetups: source.pageSetups });
+        setDraftAssets(source.assets);
+        setSession({ ...draft, baseline: source.content, assets: source.assets });
+        return draft;
+    };
+    const acceptReferenceSave = (reference, loaded, close, preserveDraft = false) => {
+        if (close) setSession(null);
+        else {
+            const source = loaded.envelope.document;
+            if (!preserveDraft) {
+                draftHistory.reset({ content: source.content, layouts: source.layouts, pageSetups: source.pageSetups });
+                setDraftAssets(source.assets);
+            }
+            setSession({ blockId: reference.blockId, name: source.name, content: source.content,
+                referenceSource: { referenceId: reference.id, reference, path: loaded.path, revision: loaded.revision, document: source },
+                baseline: source.content, assets: source.assets });
+        }
+    };
     return {
-        session, dirty, begin, save, discard,
+        session, dirty, begin, save, discard, beginReference, acceptReferenceSave,
         history: session ? draftHistory : modelHistory,
         assets: session ? draftAssets : modelAssets,
         setAssets: session ? setDraftAssets : setModelAssets,

@@ -78,6 +78,8 @@ function normalizeStructuredError(error) {
 
 const STORAGE_ERROR_KEYS = Object.freeze({
     image_source_failed: 'image.sourceFailed',
+    pdf_source_failed: 'pdf.sourceFailed',
+    shx_source_failed: 'shx.sourceFailed',
     invalid_json_object: 'storage.invalidJsonObject',
     invalid_format: 'storage.invalidFormat',
     unsupported_version: 'storage.unsupportedVersion',
@@ -99,6 +101,9 @@ const STORAGE_ERROR_KEYS = Object.freeze({
     finalize_file: 'storage.finalizeFile',
     sync_file: 'storage.syncFile',
     replace_file: 'storage.replaceFile',
+    reference_changed: 'storage.referenceChanged',
+    protected_drawing: 'storage.protectedDrawing',
+    reference_too_large: 'storage.referenceTooLarge',
     recovery_directory: 'storage.recoveryDirectory',
     remove_recovery: 'storage.removeRecovery',
     invalid_publish_format: 'publish.error.invalidFormat',

@@ -1,3 +1,8 @@
+import { drawingBlockClipShape } from '~utils/drawingBlockClip';
+import { ANNOTATION_HIDDEN } from '~utils/drawingAnnotations';
+import { resolveDrawingPlotEntityDetails } from '~utils/drawingPlotStyles';
+import { isDrawingLayerVisible } from '~utils/drawingLayers';
+import { isDrawingObjectHidden } from '~utils/drawingObjectVisibility';
 import { createDimensionSourceMap } from '~utils/drawingDimensionSources';
 import { applyCurrentStyleToNewDimensions } from '~utils/drawingDimensionStyles';
 import { presentDrawingDimension } from '~utils/drawingDimensionPresentation';
@@ -79,10 +84,10 @@ export default function DrawingScene({
         <g className="drawing-scene">
             {content.entities.map(entity => {
                 const renderMode = getDrawingEntityRenderMode(entity.id, hidden, hitOnly);
-                if (renderMode === 'hidden') return null;
+                if (renderMode === 'hidden' || isDrawingObjectHidden(content, entity.id)) return null;
                 const visualHidden = renderMode === 'hit-only';
                 const layer = layerMap.get(entity.layerId);
-                if (!layer?.visible || hiddenLayers.has(entity.layerId)) return null;
+                if (!isDrawingLayerVisible(layer) || hiddenLayers.has(entity.layerId)) return null;
                 return (
                     <DrawingEntity
                         key={entity.id}
@@ -171,7 +176,9 @@ function DrawingEntity({
     textStyles = [],
     attributeDisplay = 'normal',
 }) {
+    if (entity[ANNOTATION_HIDDEN]) return null;
     const isTrimPreview = draft && entity.previewMode === 'trim';
+    entity = resolveDrawingPlotEntityDetails(entity, layerMap.get(entity.layerId));
     const appearanceOpacity = draft ? 1 : transparencyToOpacity(appearance.transparency);
     const strokeWidth = isTrimPreview ? 4 : draft ? 1.5 : appearance.lineWeight;
     const lineTypeProps = draft && !isTrimPreview
@@ -291,18 +298,22 @@ function BlockReferenceGeometry({
     textStyles,
     attributeDisplay,
 }) {
-    if (!block || visitedBlockIds.has(block.id)) return null;
+    const clipId = `block-clip-${useId().replace(/:/g, '')}`;
+    const clip = drawingBlockClipShape(reference);
+    if (!block || reference.externalReference?.loaded === false || visitedBlockIds.has(block.id)) return null;
     const childMap = createDimensionSourceMap(block.entities, blockMap, { layers: [...layerMap.values()], textStyles });
     const localViewBox = inverseAffineViewBox(viewBox, reference.transform);
     const nextVisited = new Set(visitedBlockIds);
     nextVisited.add(block.id);
     return (
         <g transform={affineMatrixToSvg(reference.transform)}>
+            {clip && <defs><clipPath id={clipId} clipPathUnits="userSpaceOnUse"><path d={clip.paths.map(path => curvePartsPath(path.parts, true)).join(' ')} clipRule={clip.rule} /></clipPath></defs>}
+            <g clipPath={clip ? `url(#${clipId})` : undefined}>
             {block.entities.map(child => {
                 const entity = resolveDrawingBlockChild(child, reference, attributeDisplay);
                 if (!entity) return null;
                 const layer = layerMap.get(entity.layerId);
-                if (!layer?.visible || hiddenLayers.has(entity.layerId)) return null;
+                if (!isDrawingLayerVisible(layer) || hiddenLayers.has(entity.layerId)) return null;
                 return (
                     <DrawingEntity
                         key={entity.id}
@@ -330,6 +341,7 @@ function BlockReferenceGeometry({
                     />
                 );
             })}
+            </g>
         </g>
     );
 }
@@ -524,6 +536,8 @@ function DrawingTextShape({ entity, color, opacity, textStyles }) {
                         key={`${index}-${line.text}`}
                         x={layout.textX}
                         y={line.baseline}
+                        textLength={layout.fitWidth ? layout.availableWidth : undefined}
+                        lengthAdjust={layout.fitWidth ? 'spacingAndGlyphs' : undefined}
                     >
                         {line.spans.length ? line.spans.map((span, spanIndex) => (
                             <tspan
@@ -567,10 +581,13 @@ function HitShape({ entity, sources, viewBox, circleGeometryCache }) {
     if (entity.type === 'arc') return <path d={getArcPath(entity)} {...hitProps} />;
     if (entity.type === 'ellipse') return <EllipseGeometry entity={entity} shapeProps={hitProps} />;
     if (entity.type === 'spline') return <SplineGeometry entity={entity} shapeProps={hitProps} />;
-    if (['hatch', 'region'].includes(entity.type)) return <path d={hatchPath(entity)} {...hitProps} fillRule="evenodd" pointerEvents="all" />;
+    if (['hatch', 'region'].includes(entity.type)) return <path d={hatchPath(entity)} {...hitProps} fillRule={entity.fillRule === 'nonzero' ? 'nonzero' : 'evenodd'} pointerEvents="all" />;
     if (entity.type === 'blockReference') {
         const bounds = getDrawingBlockReferenceBounds(entity);
-        return bounds ? <rect {...rectFromBounds(bounds)} {...hitProps} pointerEvents="all" /> : null;
+        const clip = drawingBlockClipShape(entity, { world: true });
+        if (!bounds) return null;
+        return clip ? <path d={clip.paths.map(path => curvePartsPath(path.parts, true)).join(' ')} {...hitProps} fillRule={clip.rule} pointerEvents="all" />
+            : <rect {...rectFromBounds(bounds)} {...hitProps} pointerEvents="all" />;
     }
     const geometry = presentDrawingDimension(getDimensionGeometry(entity, sources), entity, entity.textSize);
     if (!geometry) return null;
@@ -658,7 +675,7 @@ function HatchGeometry({ entity, shapeProps }) {
     const pattern = entity.pattern || {};
     const gradient = ['gradient', 'radial'].includes(pattern.name);
     const solid = String(pattern.name || 'solid').toLowerCase() === 'solid';
-    const spacing = Math.max(0.02, Math.abs(Number(pattern.spacing) || Number(pattern.scale) || 0.25));
+    const spacing = Math.max(entity.annotation ? 1e-12 : 0.02, Math.abs(Number(pattern.spacing) || Number(pattern.scale) || 0.25));
     const fill = solid ? shapeProps.stroke : `url(#${patternId})`;
     return (
         <>
@@ -689,7 +706,8 @@ function HatchGeometry({ entity, shapeProps }) {
                 d={d}
                 {...shapeProps}
                 fill={fill}
-                fillRule="evenodd"
+                fillRule={entity.fillRule === 'nonzero' ? 'nonzero' : 'evenodd'}
+                stroke={entity.boundaryStroke === false ? 'none' : shapeProps.stroke}
                 fillOpacity={1}
             />
         </>
@@ -723,7 +741,7 @@ function ReferenceImage({ entity, href, rect, opacity }) {
             </feComponentTransfer>
             {settings.monochrome && <feColorMatrix type="saturate" values="0" />}
         </filter></defs>}
-        <image href={href} {...rect} opacity={opacity} preserveAspectRatio="none" transform={rectTransform(entity)}
+        <image href={href} {...rect} opacity={opacity} style={entity.imageRendering === 'pixelated' ? { imageRendering: 'pixelated' } : undefined} preserveAspectRatio="none" transform={rectTransform(entity)}
             clipPath={clip ? `url(#${id}-clip)` : undefined}
             filter={adjusted ? `url(#${id})` : undefined}
             data-image-key={settings.transparentColor} data-image-key-tolerance={settings.colorTolerance}
@@ -920,7 +938,7 @@ function lineTypeStrokeProps(lineType, lineWeight) {
 function transparencyToOpacity(transparency) {
     const value = Number(transparency);
     if (!Number.isFinite(value)) return 1;
-    return 1 - Math.max(0, Math.min(90, value)) / 100;
+    return 1 - Math.max(0, Math.min(100, value)) / 100;
 }
 
 function DimensionText({ point, angle, color, textSize, anchor = 'middle', inspection = false, lines = [] }) {

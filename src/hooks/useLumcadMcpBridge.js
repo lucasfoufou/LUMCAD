@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -11,26 +11,35 @@ const MCP_REQUEST_EVENT = 'lumcad://mcp-request';
 
 export default function useLumcadMcpBridge(handlers) {
     const handlersRef = useLatestRef(handlers);
+    const [, setRenderRevision] = useState(0);
 
     useEffect(() => {
         if (!isTauriRuntime()) return undefined;
         const clientId = globalThis.crypto?.randomUUID?.() || `frontend-${Date.now()}-${Math.random()}`;
         let disposed = false;
         let unlisten = null;
+        const handledRequests = new Set();
 
         const start = async () => {
             unlisten = await listen(MCP_REQUEST_EVENT, async event => {
                 const id = String(event.payload?.id || '');
-                if (!id) return;
+                if (disposed || !id || handledRequests.has(id)) return;
+                // Hot reload can leave a native event subscription delivering
+                // the same request twice. Never execute a CAD mutation twice or
+                // let an early duplicate answer race the actual async command.
+                handledRequests.add(id);
+                if (handledRequests.size > 256) handledRequests.delete(handledRequests.values().next().value);
                 let result;
                 try {
                     const data = await runMcpFrontendRequest(event.payload.request, () => ({
                         ...handlersRef.current,
                         executeAction: action => flushHandlerUpdate(
                             () => handlersRef.current.executeAction(action),
+                            () => { if (!disposed) setRenderRevision(value => value + 1); },
                         ),
                         replaceDocument: document => flushHandlerUpdate(
                             () => handlersRef.current.replaceDocument(document),
+                            () => { if (!disposed) setRenderRevision(value => value + 1); },
                         ),
                     }));
                     result = { ok: true, data };
@@ -56,8 +65,13 @@ export default function useLumcadMcpBridge(handlers) {
     }, [handlersRef]);
 }
 
-function flushHandlerUpdate(callback) {
+async function flushHandlerUpdate(callback, render) {
     let result;
     flushSync(() => { result = callback(); });
-    return result;
+    const value = await result;
+    // Async file/decoder work schedules state after the initial flushSync scope.
+    // A real update on the editor owner flushes those updates even when WebKit
+    // suspends background rendering, before the next MCP action reads handlers.
+    flushSync(render);
+    return value;
 }

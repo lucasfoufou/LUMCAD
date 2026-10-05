@@ -15,7 +15,7 @@ export function createDrawingBoundaries(entities, point, layerId, createId) {
     return detected.boundaries.map(boundary => ({ ...boundary, id: createId(), layerId }));
 }
 
-function contains(polygon, point) {
+export function drawingPolygonContainsPoint(polygon, point) {
     let inside = false;
     for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
         const a = polygon[i]; const b = polygon[j];
@@ -23,6 +23,21 @@ function contains(polygon, point) {
             && point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
     }
     return inside;
+}
+
+export function sampleDrawingBoundaryPath(path) {
+    const budget = { samples: 0 };
+    const points = [];
+    for (const part of path.parts) {
+        const divisions = part.type === 'line' ? 1 : 4;
+        for (let index = 0; index < divisions; index += 1) {
+            const curve = divisions === 1 ? part : curveSubcurve(part, index / divisions, (index + 1) / divisions);
+            const sampled = curve && sampleCurve(curve, budget);
+            if (!sampled) return null;
+            points.push(...sampled);
+        }
+    }
+    return points;
 }
 
 function sampleCurve(curve, budget, depth = 0) {
@@ -144,14 +159,14 @@ export function detectDrawingBoundary(entities, point) {
         }, 0) / 2;
         if (area > EPSILON ** 2) faces.push({ area, polygon, edges: boundaryEdges });
     }
-    const outer = faces.filter(face => contains(face.polygon, point)).sort((a, b) => a.area - b.area)[0];
+    const outer = faces.filter(face => drawingPolygonContainsPoint(face.polygon, point)).sort((a, b) => a.area - b.area)[0];
     if (!outer) return null;
     const enclosed = faces.filter(face => face !== outer && face.area < outer.area
-        && face.polygon.every(vertex => contains(outer.polygon, vertex)));
+        && face.polygon.every(vertex => drawingPolygonContainsPoint(outer.polygon, vertex)));
     // A face excludes each immediate island in its entirety. Deeper nested faces
     // belong to another connected area and must not refill that island.
     const loops = [outer, ...enclosed.filter(face => !enclosed.some(parent => parent !== face
-        && parent.area > face.area && face.polygon.every(vertex => contains(parent.polygon, vertex))))];
+        && parent.area > face.area && face.polygon.every(vertex => drawingPolygonContainsPoint(parent.polygon, vertex))))];
     return {
         boundaries: loops.map(face => ({ type: 'polyline', closed: true, parts: face.edges.map(index => edges[index].curve) })),
         sourceIds: [...new Set(loops.flatMap(face => face.edges.map(index => edges[index].sourceId)).filter(Boolean))],

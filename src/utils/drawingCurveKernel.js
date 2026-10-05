@@ -235,6 +235,12 @@ export function curveTangentAt(curve, parameter, options = {}) {
     return normalizeVector(curveDerivativeAtNormalized(normalized, t), resolveLimits(options).epsilon);
 }
 
+export function curveDerivativeAt(curve, parameter, options = {}) {
+    const normalized = normalizeCurvePrimitive(curve, options);
+    const t = finiteUnitParameter(parameter);
+    return normalized && t !== null ? curveDerivativeAtNormalized(normalized, t) : null;
+}
+
 export function curveLength(curve, options = {}) {
     const normalized = normalizeCurvePrimitive(curve, options);
     if (!normalized) return null;

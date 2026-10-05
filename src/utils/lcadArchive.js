@@ -6,7 +6,7 @@ import {
     LCAD_FORMAT_VERSION,
     LCAD_MIN_READABLE_FORMAT_VERSION,
     normalizeLcadEnvelope,
-    normalizeLcadImageMimeType,
+    normalizeLcadAssetMimeType,
 } from './lcadDocument.js';
 
 export const LCAD_MANIFEST_PATH = 'manifest.json';
@@ -23,6 +23,7 @@ const IMAGE_MIME_TYPES = new Map([
     ['image/gif', 'gif'],
     ['image/webp', 'webp'],
     ['image/svg+xml', 'svg'],
+    ['application/pdf', 'pdf'],
 ]);
 
 export function createLcadArchive(envelope) {
@@ -181,7 +182,7 @@ function decodeImageDataUrl(value) {
 }
 
 function normalizeImageMimeType(value) {
-    return normalizeLcadImageMimeType(value);
+    return normalizeLcadAssetMimeType(value);
 }
 
 function enforceAssetSize(size, currentTotal) {

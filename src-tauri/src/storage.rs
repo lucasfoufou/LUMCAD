@@ -11,6 +11,7 @@ use std::{
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::Serialize;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager};
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
 
@@ -24,6 +25,8 @@ const MAX_MANIFEST_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ASSET_BYTES: usize = 25 * 1024 * 1024;
 const MAX_TOTAL_ASSET_BYTES: usize = 200 * 1024 * 1024;
 const MAX_ASSET_COUNT: usize = 512;
+const MAX_REFERENCE_BYTES: u64 = 300 * 1024 * 1024;
+static DOCUMENT_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -391,6 +394,11 @@ pub fn is_lcad_path(path: &Path) -> bool {
 }
 
 fn atomic_write(path: &Path, envelope: &Value) -> Result<(), String> {
+    atomic_write_checked(path, envelope, None)
+}
+
+fn atomic_write_checked(path: &Path, envelope: &Value, revision: Option<&str>) -> Result<(), String> {
+    let _guard = DOCUMENT_WRITE_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let (manifest, assets) = prepare_archive(envelope)?;
     let parent = path
         .parent()
@@ -424,6 +432,11 @@ fn atomic_write(path: &Path, envelope: &Value) -> Result<(), String> {
             .sync_all()
             .map_err(|error| format_io_error("sync_file", &temporary_path, error))?;
 
+        if let Some(expected) = revision {
+            if reference_revision(path)? != expected {
+                return Err(storage_error("reference_changed", Some(path), None, None));
+            }
+        }
         replace_file(&temporary_path, path)
             .map_err(|error| format_io_error("replace_file", path, error))?;
         Ok(())
@@ -605,6 +618,7 @@ fn normalize_image_mime_type(value: &str) -> Option<&'static str> {
         "image/gif" => Some("image/gif"),
         "image/webp" => Some("image/webp"),
         "image/svg+xml" => Some("image/svg+xml"),
+        "application/pdf" => Some("application/pdf"),
         _ => None,
     }
 }
@@ -616,6 +630,7 @@ fn image_extension(mime_type: &str) -> &'static str {
         "image/gif" => "gif",
         "image/webp" => "webp",
         "image/svg+xml" => "svg",
+        "application/pdf" => "pdf",
         _ => "bin",
     }
 }
@@ -652,6 +667,60 @@ pub fn read_lcad_document(path: String) -> Result<LoadedDocument, String> {
     load_from_path(Path::new(&path), false)
 }
 
+#[derive(Debug, Serialize)]
+pub struct LoadedReference {
+    loaded: LoadedDocument,
+    revision: String,
+}
+
+fn reference_path(path: &str) -> Result<PathBuf, String> {
+    let target = Path::new(path);
+    if !is_lcad_path(target) {
+        return Err(storage_error("invalid_format", Some(target), None, None));
+    }
+    fs::canonicalize(target).map_err(|error| format_io_error("open_file", target, error))
+}
+
+fn reference_revision(path: &Path) -> Result<String, String> {
+    let file = File::open(path).map_err(|error| format_io_error("open_file", path, error))?;
+    let mut reader = BufReader::new(file).take(MAX_REFERENCE_BYTES + 1);
+    let mut hash = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    let mut size = 0_u64;
+    loop {
+        let count = reader.read(&mut buffer)
+            .map_err(|error| format_io_error("open_file", path, error))?;
+        if count == 0 { break; }
+        size += count as u64;
+        if size > MAX_REFERENCE_BYTES {
+            return Err(storage_error("reference_too_large", Some(path), None, None));
+        }
+        hash.update(&buffer[..count]);
+    }
+    Ok(format!("{:x}", hash.finalize()))
+}
+
+#[tauri::command]
+pub fn read_lcad_reference(path: String) -> Result<LoadedReference, String> {
+    let target = reference_path(&path)?;
+    let revision = reference_revision(&target)?;
+    let loaded = load_from_path(&target, false)?;
+    if reference_revision(&target)? != revision {
+        return Err(storage_error("reference_changed", Some(&target), None, None));
+    }
+    Ok(LoadedReference { loaded, revision })
+}
+
+#[tauri::command]
+pub fn write_lcad_reference(path: String, envelope: Value, expected_revision: String) -> Result<LoadedReference, String> {
+    let target = reference_path(&path)?;
+    if expected_revision.len() != 64 || !expected_revision.bytes().all(|value| value.is_ascii_hexdigit()) {
+        return Err(storage_error("reference_changed", Some(&target), None, None));
+    }
+    atomic_write_checked(&target, &envelope, Some(&expected_revision))?;
+    read_lcad_reference(target.to_string_lossy().into_owned())
+}
+
 #[tauri::command]
 pub fn write_lcad_document(
     app: AppHandle,
@@ -666,6 +735,20 @@ pub fn write_lcad_document(
         saved_at: saved_at_millis(),
         recovery: false,
     })
+}
+
+#[tauri::command]
+pub fn export_lcad_document(path: String, envelope: Value, protected_path: Option<String>) -> Result<SaveResult, String> {
+    let target = normalized_save_path(PathBuf::from(path))?;
+    if let Some(protected) = protected_path {
+        let protected = PathBuf::from(protected);
+        if target == protected || fs::canonicalize(&target).ok().zip(fs::canonicalize(&protected).ok())
+            .is_some_and(|(target, protected)| target == protected) {
+            return Err(storage_error("protected_drawing", Some(&target), None, None));
+        }
+    }
+    atomic_write(&target, &envelope)?;
+    Ok(SaveResult { path: Some(target.to_string_lossy().into_owned()), saved_at: saved_at_millis(), recovery: false })
 }
 
 #[tauri::command]
@@ -792,6 +875,40 @@ mod tests {
     }
 
     #[test]
+    fn reference_edits_require_the_loaded_revision_and_preserve_external_changes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("source.lcad");
+        let path_string = path.to_string_lossy().into_owned();
+        atomic_write(&path, &valid_envelope("Original")).unwrap();
+        let original = read_lcad_reference(path_string.clone()).unwrap();
+        assert_eq!(original.revision.len(), 64);
+        assert_eq!(original.loaded.path.unwrap(), fs::canonicalize(&path).unwrap().to_string_lossy());
+        let edited = write_lcad_reference(path_string.clone(), valid_envelope("Edited"), original.revision.clone()).unwrap();
+        assert_ne!(edited.revision, original.revision);
+        assert_eq!(edited.loaded.envelope["document"]["name"], "Edited");
+        let before = fs::read(&path).unwrap();
+        let error = write_lcad_reference(path_string.clone(), valid_envelope("Stale"), original.revision).unwrap_err();
+        assert!(error.contains("reference_changed"));
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+        assert!(write_lcad_reference(path_string, valid_envelope("Invalid"), String::new()).is_err());
+    }
+
+    #[test]
+    fn layout_export_refuses_the_active_file_and_writes_a_separate_archive() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("host.lcad");
+        let output = directory.path().join("sheet.lcad");
+        atomic_write(&source, &valid_envelope("Host")).unwrap();
+        let original = fs::read(&source).unwrap();
+        let protected = Some(source.to_string_lossy().into_owned());
+        assert!(export_lcad_document(source.to_string_lossy().into_owned(), valid_envelope("Export"), protected.clone()).unwrap_err().contains("protected_drawing"));
+        export_lcad_document(output.to_string_lossy().into_owned(), valid_envelope("Export"), protected).unwrap();
+        assert_eq!(fs::read(&source).unwrap(), original);
+        assert_eq!(load_from_path(&output, false).unwrap().envelope["document"]["name"], "Export");
+    }
+
+    #[test]
     fn writes_a_zip_archive_and_hydrates_embedded_assets() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("plan.lcad");
@@ -813,6 +930,144 @@ mod tests {
 
         let loaded = read_envelope(&path).unwrap();
         assert_eq!(loaded["document"]["assets"][0]["link"], PIXEL_DATA_URL);
+    }
+
+    #[test]
+    fn preserves_units_ucs_and_plot_catalogs() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("presentation.lcad");
+        let mut envelope = valid_envelope("Presentation");
+        let settings = json!({"ucs": {"x": 10, "y": 20, "rotation": 90}, "units": {"display": "mm", "precision": 2}, "plotStyleMode": "color"});
+        envelope["document"]["content"]["settings"] = settings.clone();
+        let styles = json!([{"name": "Roof", "sourceColor": "#172033", "color": "#ff0000", "screening": 50}]);
+        envelope["document"]["content"]["plotStyles"] = styles.clone();
+        atomic_write(&path, &envelope).unwrap();
+        let loaded = read_envelope(&path).unwrap();
+        assert_eq!(loaded["document"]["content"]["settings"], settings);
+        assert_eq!(loaded["document"]["content"]["plotStyles"], styles);
+    }
+
+    #[test]
+    fn preserves_layer_state_flags() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("layers.lcad");
+        let mut envelope = valid_envelope("Layers");
+        let states = json!([{"name": "Roof", "activeLayerId": "geometry", "layers": [{"id": "geometry", "visible": true, "frozen": true, "newViewportFrozen": true, "plot": false}]}]);
+        envelope["document"]["content"]["layerStates"] = states.clone();
+        atomic_write(&path, &envelope).unwrap();
+        assert_eq!(read_envelope(&path).unwrap()["document"]["content"]["layerStates"], states);
+    }
+
+    #[test]
+    fn preserves_pdf_source_assets() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("pdf-source.lcad");
+        let mut envelope = envelope_with_asset("PDF source");
+        let link = "data:application/pdf;base64,JVBERi0xLjcKJSVFT0Y=";
+        envelope["document"]["assets"][0]["link"] = json!(link);
+        envelope["document"]["assets"][0]["mimeType"] = json!("application/pdf");
+        atomic_write(&path, &envelope).unwrap();
+        let loaded = read_envelope(&path).unwrap();
+        assert_eq!(loaded["document"]["assets"][0]["link"], link);
+        assert_eq!(loaded["document"]["assets"][0]["mimeType"], "application/pdf");
+    }
+
+    #[test]
+    fn preserves_native_curved_block_clips() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("curve-clips.lcad");
+        let mut envelope = valid_envelope("Curve clips");
+        let entities = json!([{"id": "clipped", "type": "blockReference", "layerId": "geometry", "blockId": "source",
+            "transform": {"a": 1, "b": 0, "c": 0, "d": 1, "e": 0, "f": 0},
+            "blockClip": {"enabled": true, "rule": "evenodd", "paths": [{"closed": true, "parts": [
+                {"type": "spline", "controlPoints": [{"x": 0, "y": 0}, {"x": 0, "y": 3}, {"x": 4, "y": 3}, {"x": 4, "y": 0}]},
+                {"type": "line", "x1": 4, "y1": 0, "x2": 0, "y2": 0}
+            ]}]}}]);
+        envelope["document"]["content"]["entities"] = entities.clone();
+        envelope["document"]["content"]["blocks"] = json!([{"id": "source", "name": "Source", "basePoint": {"x": 0, "y": 0}, "entities": [
+            {"id": "line", "type": "line", "layerId": "geometry", "x1": -1, "y1": 1, "x2": 5, "y2": 1}
+        ]}]);
+        atomic_write(&path, &envelope).unwrap();
+        assert_eq!(read_envelope(&path).unwrap()["document"]["content"]["entities"], entities);
+    }
+
+    #[test]
+    fn preserves_native_paper_transfer_blocks() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("paper-transfer.lcad");
+        let mut envelope = valid_envelope("Paper transfer");
+        let blocks = json!([{"id": "transfer", "name": "Paper", "basePoint": {"x": 0, "y": 0}, "entities": [{"id": "source-circle", "type": "circle", "layerId": "geometry", "cx": 2, "cy": 3, "r": 1}]}]);
+        let layouts = json!([{"id": "sheet", "name": "Sheet", "format": "A4", "viewports": [], "paperEntities": [{"id": "paper-block", "type": "blockReference", "layerId": "geometry", "blockId": "transfer", "spaceTransfer": true, "transform": {"a": 0, "b": 10, "c": -10, "d": 0, "e": 20, "f": 30}}]}]);
+        envelope["document"]["content"]["blocks"] = blocks.clone();
+        envelope["document"]["layouts"] = layouts.clone();
+        atomic_write(&path, &envelope).unwrap();
+        let loaded = read_envelope(&path).unwrap();
+        assert_eq!(loaded["document"]["content"]["blocks"], blocks);
+        assert_eq!(loaded["document"]["layouts"], layouts);
+    }
+
+    #[test]
+    fn preserves_annotation_scale_representations() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("annotations.lcad");
+        let mut envelope = valid_envelope("Annotations");
+        let annotation = json!({"baseScale": 100, "scales": [{"scale": 50, "offset": {"x": 2, "y": 3}}, {"scale": 100, "offset": {"x": 0, "y": 0}}]});
+        envelope["document"]["content"]["annotationScales"] = json!([50, 100]);
+        envelope["document"]["content"]["settings"]["annotationScale"] = json!(50);
+        envelope["document"]["content"]["entities"] = json!([{"id": "note", "type": "text", "layerId": "geometry", "x": 0, "y": 0, "width": 4, "height": 2, "fontSize": 0.35, "text": "Note", "annotation": annotation}]);
+        atomic_write(&path, &envelope).unwrap();
+        let loaded = read_envelope(&path).unwrap();
+        assert_eq!(loaded["document"]["content"]["entities"][0]["annotation"], annotation);
+        assert_eq!(loaded["document"]["content"]["settings"]["annotationScale"], 50);
+        assert_eq!(loaded["document"]["content"]["annotationScales"], json!([50, 100]));
+    }
+
+    #[test]
+    fn preserves_leader_metadata_and_styles() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("leaders.lcad");
+        let mut envelope = valid_envelope("Leaders");
+        let leader = json!({"version": 1, "branches": [[{"x": -5, "y": -2}, {"x": -2, "y": 0}]],
+            "style": {"textSize": 0.35, "arrowSize": 0.2, "landingLength": 0.75, "arrowType": "closed"}});
+        envelope["document"]["content"]["entities"] = json!([{"id": "leader-1", "type": "blockReference", "blockId": "b1", "layerId": "geometry", "leader": leader}]);
+        envelope["document"]["content"]["leaderStyles"] = json!([{"name": "Standard", "textSize": 0.35}]);
+        atomic_write(&path, &envelope).unwrap();
+        let loaded = read_envelope(&path).unwrap();
+        assert_eq!(loaded["document"]["content"]["entities"][0]["leader"], leader);
+        assert_eq!(loaded["document"]["content"]["leaderStyles"], envelope["document"]["content"]["leaderStyles"]);
+    }
+
+    #[test]
+    fn preserves_named_selection_filters() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("filters.lcad");
+        let mut envelope = valid_envelope("Filters");
+        let filters = json!([{"id": "filter-1", "name": "Lines", "criteria": [{"field": "TYPE", "operator": "=", "value": "line"}]}]);
+        envelope["document"]["content"]["selectionFilters"] = filters.clone();
+        atomic_write(&path, &envelope).unwrap();
+        assert_eq!(read_envelope(&path).unwrap()["document"]["content"]["selectionFilters"], filters);
+    }
+
+    #[test]
+    fn preserves_named_model_views() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("views.lcad");
+        let mut envelope = valid_envelope("Views");
+        let views = json!([{"id": "view-1", "name": "Roof", "x": 50, "y": -10, "width": 20, "height": 10}]);
+        envelope["document"]["content"]["namedViews"] = views.clone();
+        atomic_write(&path, &envelope).unwrap();
+        assert_eq!(read_envelope(&path).unwrap()["document"]["content"]["namedViews"], views);
+    }
+
+    #[test]
+    fn preserves_named_drawing_groups() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("groups.lcad");
+        let mut envelope = valid_envelope("Groups");
+        let groups = json!([{"id": "group-1", "name": "Roof", "entityIds": ["a", "b"], "selectable": true}]);
+        envelope["document"]["content"]["groups"] = groups.clone();
+        atomic_write(&path, &envelope).unwrap();
+        assert_eq!(read_envelope(&path).unwrap()["document"]["content"]["groups"], groups);
     }
 
     #[test]
@@ -899,7 +1154,7 @@ mod tests {
         let entities = json!([
             {"id": "image", "type": "image", "layerId": "geometry", "x": 1, "y": 2, "width": 4, "height": 3,
                 "affineFrame": {"a": 2, "b": 0.5, "c": 0.75, "d": 1, "e": 10, "f": -3}},
-            {"id": "text", "type": "text", "layerId": "geometry", "text": "Affine", "x": 1, "y": 2, "width": 4, "height": 3,
+            {"id": "text", "type": "text", "layerId": "geometry", "text": "Affine", "textMode": "singleLine", "fitWidth": true, "x": 1, "y": 2, "width": 4, "height": 3,
                 "affineFrame": {"a": 2, "b": 0.5, "c": 0.75, "d": 1, "e": 10, "f": -3}}
         ]);
         envelope["document"]["content"]["entities"] = entities.clone();
@@ -944,6 +1199,7 @@ mod tests {
             "id": "image", "type": "image", "layerId": "references", "x": 0, "y": 0, "width": 4, "height": 3,
             "imageSource": {"mode": "linked", "path": "/missing/reference.png"},
             "imageAdjustments": {"brightness": 130, "contrast": 80, "monochrome": true, "transparentColor": "#ffffff", "colorTolerance": 3},
+            "imageRendering": "pixelated",
             "imageClip": {"enabled": true, "points": [{"x": 0.1, "y": 0.2}, {"x": 0.9, "y": 0.2}, {"x": 0.1, "y": 0.8}]}
         }]);
         envelope["document"]["content"]["entities"] = entities.clone();
@@ -976,6 +1232,7 @@ mod tests {
         let entities = json!([
             {"id": "circle", "type": "circle", "layerId": "geometry", "cx": 3, "cy": 4, "r": 2},
             {"id": "hatch", "type": "hatch", "layerId": "geometry", "sourceIds": ["circle"],
+                "fillRule": "nonzero", "boundaryStroke": false,
                 "boundaries": [{"type": "polyline", "closed": true, "parts": [{"type": "circle", "cx": 3, "cy": 4, "r": 2}]}],
                 "pattern": {"name": "gradient", "endColor": "#112233", "angle": 30, "spacing": 0.25, "origin": {"x": 1, "y": 2}}}
         ]);

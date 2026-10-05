@@ -21,7 +21,7 @@ export function createDimensionSourceMap(entities, blocks = [], { layers = [], t
         const localMap = new Map(children.map(child => [child.id, child]));
         const curves = [];
         for (const child of children) {
-            if (layerMap.get(child.layerId)?.visible === false) continue;
+            if ((layerMap.get(child.layerId)?.visible === false || layerMap.get(child.layerId)?.frozen)) continue;
             const parts = child.type === 'blockReference'
                 ? resolveBlock(child, nextVisited, depth + 1, budget)
                 : getDimensionBreakSourceCurves(child, localMap);

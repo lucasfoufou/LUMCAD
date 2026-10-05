@@ -1,3 +1,7 @@
+import { normalizeDrawingBlockClip, clippedDrawingBlockBounds, drawingBlockClipShape } from './drawingBlockClip.js';
+import { normalizeDrawingPdfUnderlay } from './drawingPdfMetadata.js';
+import { normalizeDrawingReference, isDrawingReferenceUnloaded, remapDrawingReferenceResources } from './drawingReferenceMetadata.js';
+import { DRAWING_LEADER_PRESENTATION, normalizeDrawingLeader } from './drawingLeaders.js';
 import { drawingDimensionPresentationPoints } from './drawingDimensionPresentation.js';
 import { drawingAttributeValues, resolveDrawingAttributeText, normalizeDrawingAttributeValues } from './drawingBlockAttributes.js';
 import { drawingAffineFrame, transformDrawingAffineFrame, framedDrawingPoint } from './drawingAffineFrame.js';
@@ -32,10 +36,20 @@ const MAX_BLOCK_ENTITIES = 100_000;
 export const DRAWING_BLOCK_REFERENCE_TYPE = 'blockReference';
 export function normalizeDrawingBlockReference(entity) {
     if (!entity || entity.type !== DRAWING_BLOCK_REFERENCE_TYPE) return entity;
+    const { leader: rawLeader, blockClip: rawClip, externalReference: rawReference, pdfUnderlay: rawPdf, spaceTransfer, ...source } = entity;
+    const pdfUnderlay = normalizeDrawingPdfUnderlay(rawPdf);
+    const externalReference = normalizeDrawingReference(rawReference);
+    const blockClip = normalizeDrawingBlockClip(rawClip);
+    const leader = normalizeDrawingLeader(rawLeader, Boolean(entity[DRAWING_LEADER_PRESENTATION]));
     const legacyTransform = legacyBlockReferenceMatrix(entity);
     const definitionBounds = normalizeBounds(entity.definitionBounds);
     return {
-        ...entity,
+        ...source,
+        ...(externalReference ? { externalReference } : {}),
+        ...(pdfUnderlay ? { pdfUnderlay } : {}),
+        ...(leader ? { leader } : {}),
+        ...(blockClip ? { blockClip } : {}),
+        ...(spaceTransfer === true ? { spaceTransfer: true } : {}),
         type: DRAWING_BLOCK_REFERENCE_TYPE,
         blockId: typeof entity.blockId === 'string' ? entity.blockId : '',
         transform: normalizeAffineMatrix(entity.transform, legacyTransform),
@@ -150,10 +164,11 @@ export function getDrawingBlockDefinitionBounds(definition, blocks = [], referen
 }
 
 export function getDrawingBlockReferenceBounds(reference, blocks = []) {
+    if (isDrawingReferenceUnloaded(reference)) return null;
     if (reference?.type !== DRAWING_BLOCK_REFERENCE_TYPE) return null;
     const definition = getDrawingBlockDefinition(blocks, reference.blockId);
-    const localBounds = getDrawingBlockDefinitionBounds(definition, blocks, reference)
-        || normalizeBounds(reference.definitionBounds);
+    const localBounds = clippedDrawingBlockBounds(getDrawingBlockDefinitionBounds(definition, blocks, reference)
+        || normalizeBounds(reference.definitionBounds), reference);
     if (!localBounds) return null;
     const corners = boundsCorners(localBounds).map(point => transformAffinePoint(point, reference.transform));
     return boundsFromPoints(corners);
@@ -165,7 +180,7 @@ export function materializeDrawingBlockReference(reference, blocks, {
     textStyles = [],
 } = {}) {
     const definition = getDrawingBlockDefinition(blocks, reference?.blockId);
-    if (!definition) return [];
+    if (!definition || drawingBlockClipShape(reference) || reference.externalReference || reference.pdfUnderlay) return [];
     return definition.entities.flatMap(entity => {
         const child = resolveDrawingBlockChild(entity, reference, 'all');
         const transformed = transformDrawingEntityAffine(cloneJson(child), reference.transform, { textStyles });
@@ -234,7 +249,11 @@ export function remapDrawingBlockEntity(entity, {
     Object.assign(next, remapDrawingEntityDependencies(next, entityIdMap, { preserveAppearance: true }));
     if (next.layerId && layerIdMap.has(next.layerId)) next.layerId = layerIdMap.get(next.layerId);
     if (next.assetId && assetIdMap.has(next.assetId)) next.assetId = assetIdMap.get(next.assetId);
+    if (next.pdfUnderlay && assetIdMap.has(next.pdfUnderlay.assetId)) next.pdfUnderlay.assetId = assetIdMap.get(next.pdfUnderlay.assetId);
     if (next.blockId && blockIdMap.has(next.blockId)) next.blockId = blockIdMap.get(next.blockId);
+    if (next.externalReference) next.externalReference = remapDrawingReferenceResources(next.externalReference, {
+        blocks: blockIdMap, layers: layerIdMap, assets: assetIdMap,
+    });
     return next;
 }
 
@@ -358,7 +377,7 @@ function translateDrawingBlockEntity(entity, dx, dy) {
 }
 
 function getDrawingBlockEntityBounds(entity, blockMap, entityMap, visiting) {
-    if (!entity) return null;
+    if (!entity || isDrawingReferenceUnloaded(entity)) return null;
     if (entity.type === DRAWING_BLOCK_REFERENCE_TYPE) {
         if (visiting.has(entity.blockId)) return normalizeBounds(entity.definitionBounds);
         const definition = blockMap.get(entity.blockId);
@@ -366,9 +385,9 @@ function getDrawingBlockEntityBounds(entity, blockMap, entityMap, visiting) {
         const nextVisiting = new Set(visiting);
         nextVisiting.add(entity.blockId);
         const localMap = new Map(definition.entities.map(child => [child.id, child]));
-        const localBounds = definition.entities.reduce((combined, child) => (
+        const localBounds = clippedDrawingBlockBounds(definition.entities.reduce((combined, child) => (
             combineBounds(combined, getDrawingBlockEntityBounds(resolveDrawingAttributeText(child, entity, 'all'), blockMap, localMap, nextVisiting))
-        ), null);
+        ), null), entity);
         if (!localBounds) return null;
         return boundsFromPoints(boundsCorners(localBounds).map(point => transformAffinePoint(point, entity.transform)));
     }
@@ -604,6 +623,7 @@ export function refreshDrawingBlockBounds(content) {
 // independent. Applying this at each nesting level also resolves nested inserts.
 export function resolveDrawingBlockChild(entity, reference, attributeDisplay = 'normal') {
     entity = resolveDrawingAttributeText(entity, reference, attributeDisplay);
+    if (entity && !entity.plotStyleName && reference.plotStyleName) entity = { ...entity, plotStyleName: reference.plotStyleName };
     if (!entity) return null;
     return entity.layerId === 'geometry' && reference.layerId && reference.layerId !== 'geometry'
         ? { ...entity, layerId: reference.layerId } : entity;

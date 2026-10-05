@@ -1,3 +1,6 @@
+import { drawingClipShapeIntersectsBounds } from './drawingClipPaths.js';
+import { drawingBlockClipShape } from './drawingBlockClip.js';
+import { drawingLeaderGrips } from './drawingLeaders.js';
 import { presentDrawingDimension, drawingDimensionTextPoints } from './drawingDimensionPresentation.js';
 import { drawingAffineFrame, unframeDrawingPoint, framedDrawingPoint } from './drawingAffineFrame.js';
 import { getClosedBoundarySegments } from './drawingPrimitives.js';
@@ -81,6 +84,7 @@ export function getEntityGrips(entity, source = null) {
         return bounds ? [{ id: 'array-origin', x: bounds.minX, y: bounds.minY }] : [];
     }
     if (entity.type === 'blockReference') {
+        if (entity.leader) return drawingLeaderGrips(entity);
         const insertion = getDrawingBlockReferenceInsertionPoint(entity);
         return insertion ? [{ id: 'insertion', ...insertion }] : [];
     }
@@ -452,7 +456,9 @@ function entityCrossesBounds(entity, bounds, entityMap) {
     }
     if (isConstructionLine(entity)) return Boolean(clipConstructionLine(entity, bounds));
     if (entity.type === 'blockReference') {
-        return boundsOverlap(getDrawingBlockReferenceBounds(entity), bounds);
+        if (!boundsOverlap(getDrawingBlockReferenceBounds(entity), bounds)) return false;
+        const clip = drawingBlockClipShape(entity, { world: true });
+        return !clip || drawingClipShapeIntersectsBounds(clip, bounds);
     }
     if (entity.type === 'line') {
         return segmentIntersectsBounds(
@@ -470,7 +476,7 @@ function entityCrossesBounds(entity, bounds, entityMap) {
         if (segments.some(loop => loop.some(segment => segmentIntersectsBounds(segment[0], segment[1], bounds)))) return true;
         if (!['solid', 'gradient', 'radial'].includes(entity.pattern?.name || 'solid')) return false;
         const corners = boundsCorners(bounds);
-        return corners.some(point => pointIsInsideHatch(point, segments));
+        return corners.some(point => pointIsInsideHatch(point, segments, entity.fillRule));
     }
     if (entity.type === 'polyline') {
         if (Array.isArray(entity.parts)) return entity.parts.some(part => entityCrossesBounds(part, bounds, entityMap));
@@ -612,17 +618,18 @@ function boundsCorners(bounds) {
     ];
 }
 
-function pointIsInsideHatch(point, boundarySegments) {
+function pointIsInsideHatch(point, boundarySegments, fillRule = 'evenodd') {
     let inside = false;
+    let winding = 0;
     for (const segments of boundarySegments) {
         for (const [first, second] of segments) {
             if (pointIsOnSegment(point, first, second)) return true;
             const crossesRay = (first.y > point.y) !== (second.y > point.y)
                 && point.x < (second.x - first.x) * (point.y - first.y) / (second.y - first.y) + first.x;
-            if (crossesRay) inside = !inside;
+            if (crossesRay) { inside = !inside; winding += second.y > first.y ? 1 : -1; }
         }
     }
-    return inside;
+    return fillRule === 'nonzero' ? winding !== 0 : inside;
 }
 
 function normalizeBounds(x1, y1, x2, y2) {

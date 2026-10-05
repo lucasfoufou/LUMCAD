@@ -1,3 +1,5 @@
+import { normalizeDrawingUcs, drawingWorldToUcs, drawingUcsToWorld } from './drawingCoordinates.js';
+import { isDrawingLayerVisible } from './drawingLayers.js';
 import { isConstructionLine, intersectConstructionLine } from './drawingConstructionLines.js';
 import { getEntitySegments, pointDistance } from './drawingPrimitives.js';
 import { snapDrawingPoint } from './drawingGeometry.js';
@@ -18,13 +20,11 @@ export const MAX_GUIDE_ENTITY_INTERSECTIONS = 64;
 export const MAX_GUIDE_ENTITY_SEGMENT_CHECKS = 128;
 export const MAX_TRACKING_INTERSECTION_CANDIDATES = 512;
 
-export function constrainOrthogonalPoint(origin, point) {
+export function constrainOrthogonalPoint(origin, point, rotation = 0) {
     if (!origin || !point) return point;
-    const dx = point.x - origin.x;
-    const dy = point.y - origin.y;
-    return Math.abs(dx) >= Math.abs(dy)
-        ? { x: origin.x + dx, y: origin.y, type: 'orthogonal' }
-        : { x: origin.x, y: origin.y + dy, type: 'orthogonal' };
+    const frame = { ...origin, rotation };
+    const local = drawingWorldToUcs(point, frame);
+    return { ...drawingUcsToWorld(Math.abs(local.x) >= Math.abs(local.y) ? { x: local.x, y: 0 } : { x: 0, y: local.y }, frame), type: 'orthogonal' };
 }
 
 export function createTrackingAnchor(snap, settings = {}, { allowNearest = false } = {}) {
@@ -66,22 +66,24 @@ export function resolveDrawingSnap(point, content, threshold, {
     const orthoEnabled = Boolean(orthogonalOrigin) && (
         forceOrthogonal || isOrthoTrackingEnabled(settings, temporaryOrtho)
     );
+    const rotation = normalizeDrawingUcs(content.settings?.ucs).rotation;
+    const axisAngle = rotation * Math.PI / 180;
     const polarAngles = !orthoEnabled && orthogonalOrigin && settings.polarTracking
-        ? getPolarTrackingAngles(settings)
+        ? getPolarTrackingAngles(settings).map(angle => angle + axisAngle)
         : [];
     const tracked = anchors.length || orthoEnabled || polarAngles.length
         ? resolveTrackingPoint(point, content, threshold, anchors, excludeIds, orthoEnabled ? orthogonalOrigin : null, {
             polarOrigin: polarAngles.length ? orthogonalOrigin : null,
-            polarAngles,
+            polarAngles, axisAngle,
             intersectionGuideKind: orthoEnabled ? 'orthogonal' : null,
         })
         : null;
     if (orthoEnabled && orthogonalOrigin) {
-        const directOnAxis = distanceToOrthogonalAxes(orthogonalOrigin, direct) <= threshold;
+        const directOnAxis = distanceToOrthogonalAxes(orthogonalOrigin, direct, rotation) <= threshold;
         if (tracked?.type === 'trackingIntersection' && tracked.guides?.some(guide => guide.kind === 'orthogonal')) return tracked;
         if (tracked?.type === 'orthogonal') return tracked;
         if (direct.type && directOnAxis && !['grid', 'nearest'].includes(direct.type)) return direct;
-        return constrainOrthogonalPoint(orthogonalOrigin, point);
+        return constrainOrthogonalPoint(orthogonalOrigin, point, rotation);
     }
     if (tracked?.type === 'trackingIntersection') return tracked;
     if (direct.type && !['grid', 'nearest'].includes(direct.type)) return direct;
@@ -95,7 +97,7 @@ export function resolveTrackingPoint(
     anchors,
     excludeIds = [],
     orthogonalOrigin = null,
-    { polarOrigin = null, polarAngles = [], intersectionGuideKind = null } = {},
+    { polarOrigin = null, polarAngles = [], intersectionGuideKind = null, axisAngle = 0 } = {},
 ) {
     if (!point) return null;
     const normalizedAnchors = normalizeAnchors(anchors);
@@ -114,8 +116,8 @@ export function resolveTrackingPoint(
     const referenceGuides = [];
     if (orthogonalOrigin) {
         referenceGuides.push(
-            { anchor: orthogonalOrigin, angle: 0, anchorIndex: -1, kind: 'orthogonal' },
-            { anchor: orthogonalOrigin, angle: Math.PI / 2, anchorIndex: -1, kind: 'orthogonal' },
+            { anchor: orthogonalOrigin, angle: axisAngle, anchorIndex: -1, kind: 'orthogonal' },
+            { anchor: orthogonalOrigin, angle: axisAngle + Math.PI / 2, anchorIndex: -1, kind: 'orthogonal' },
         );
     } else if (polarOrigin) {
         referenceGuides.push(...uniqueAngles(polarAngles).map(angle => ({
@@ -133,7 +135,7 @@ export function resolveTrackingPoint(
     );
     if (!guides.length) return null;
     const excluded = new Set(excludeIds);
-    const visibleLayers = new Set(content.layers.filter(layer => layer.visible).map(layer => layer.id));
+    const visibleLayers = new Set(content.layers.filter(layer => isDrawingLayerVisible(layer)).map(layer => layer.id));
     const entities = content.entities.filter(entity => visibleLayers.has(entity.layerId) && !excluded.has(entity.id));
     const guideIntersections = [];
     guides.forEach((first, index) => guides.slice(index + 1).forEach(second => {
@@ -215,9 +217,10 @@ function buildTrackingAnchor(snap, settings) {
             .filter(Number.isFinite)
             .map(angle => ({ angle, relation: 'parallel' }))
             .filter(direction => relationIsEnabled(drafting, direction.relation));
+    const axisAngle = normalizeDrawingUcs(settings.ucs).rotation * Math.PI / 180;
     const polarDirections = drafting.polarTracking
-        ? getPolarTrackingAngles(drafting).map(angle => ({ angle, relation: null }))
-        : [{ angle: 0, relation: null }, { angle: Math.PI / 2, relation: null }];
+        ? getPolarTrackingAngles(drafting).map(angle => ({ angle: angle + axisAngle, relation: null }))
+        : [{ angle: axisAngle, relation: null }, { angle: axisAngle + Math.PI / 2, relation: null }];
     const directions = uniqueDirections([...sourceDirections, ...polarDirections]);
     return {
         x: Number(snap.x),
@@ -361,9 +364,10 @@ function normalizeAnchors(anchors, legacyAnchor = null) {
     return legacyAnchor && !values.includes(legacyAnchor) ? [...values, legacyAnchor] : values;
 }
 
-function distanceToOrthogonalAxes(origin, point) {
+function distanceToOrthogonalAxes(origin, point, rotation = 0) {
     if (!origin || !point) return Infinity;
-    return Math.min(Math.abs(point.x - origin.x), Math.abs(point.y - origin.y));
+    const local = drawingWorldToUcs(point, { ...origin, rotation });
+    return Math.min(Math.abs(local.x), Math.abs(local.y));
 }
 
 function distanceToGuide(point, guide) {

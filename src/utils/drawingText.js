@@ -150,6 +150,8 @@ export function normalizeDrawingTextEntity(entity, {
     assignOrDelete(normalized, 'fontWeight', normalizeFontWeight(source.fontWeight));
     assignOrDelete(normalized, 'fontStyle', normalizeFontStyle(source.fontStyle));
     assignOrDelete(normalized, 'lineHeight', normalizeLineHeight(source.lineHeight));
+    if (source.fitWidth === true && textMode === 'singleLine') normalized.fitWidth = true;
+    else delete normalized.fitWidth;
     if (typeof source.underline === 'boolean') normalized.underline = source.underline;
     else delete normalized.underline;
     if (typeof source.strikethrough === 'boolean') normalized.strikethrough = source.strikethrough;
@@ -383,6 +385,7 @@ export function getDrawingTextLayout(entity, options = {}) {
         blockHeight,
         firstBaseline,
         availableWidth,
+        fitWidth: normalized.fitWidth === true,
         textMode: normalized.textMode,
         wrapMode: normalized.wrapMode,
         autoHeight: normalized.autoHeight,

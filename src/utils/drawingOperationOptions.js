@@ -151,6 +151,7 @@ export function getDrawingOperationOptionSuggestions(operation, value, limit = N
 }
 
 export function getOperationOrthogonalOrigin(operation, arrayHandle = null) {
+    if (['leaderCreation', 'inquiry', 'countArea', 'wipeout'].includes(operation?.type)) return operation.points?.at(-1) || null;
     if (operation?.stage === 'reference') return referenceOrthogonalOrigin(operation);
     if (operation?.type === 'align' && operation.stage?.startsWith('align-destination-')) {
         return operation.pendingSource || null;

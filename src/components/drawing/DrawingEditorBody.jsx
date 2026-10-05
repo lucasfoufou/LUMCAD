@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 import DrawingCanvas from '~components/drawing/DrawingCanvas';
 import DrawingCommandBar from '~components/drawing/DrawingCommandBar';
@@ -16,15 +16,16 @@ export default function DrawingEditorBody({
     command,
     sidebar,
 }) {
+    const [creationControlsTarget, setCreationControlsTarget] = useState(null);
     return (
         <div className="drawing-editor-body">
             <DrawingToolbar {...toolbar} onToolChange={onToolChange} />
             <main className="drawing-editor-stage">
-                <DrawingCanvas ref={canvasRef} {...canvas} />
+                <DrawingCanvas ref={canvasRef} {...canvas} creationControlsTarget={creationControlsTarget} />
                 <DrawingSnapControls {...snap} />
                 <DrawingCommandBar ref={commandBarRef} {...command} />
             </main>
-            <DrawingSidebar {...sidebar} />
+            <DrawingSidebar {...sidebar} selectedIds={canvas.activeTool === 'select' && !canvas.interactiveOperation ? sidebar.selectedIds : []} onCreationControlsMount={setCreationControlsTarget} />
         </div>
     );
 }

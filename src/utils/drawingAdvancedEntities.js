@@ -73,10 +73,12 @@ export function normalizeDrawingHatch(entity) {
         parts: path.parts.map(part => ({ ...part })),
         closed: true,
     }));
-    const { loops: _loops, boundaries: _boundaries, boundaryPick, ...properties } = entity;
+    const { loops: _loops, boundaries: _boundaries, boundaryPick, fillRule, boundaryStroke, ...properties } = entity;
     return {
         ...properties,
         type: 'hatch',
+        ...(fillRule === 'nonzero' ? { fillRule } : {}),
+        ...(boundaryStroke === false ? { boundaryStroke: false } : {}),
         ...(Number.isFinite(boundaryPick?.x) && Number.isFinite(boundaryPick?.y)
             ? { boundaryPick: { x: boundaryPick.x, y: boundaryPick.y } } : {}),
         boundaries,
@@ -105,7 +107,7 @@ export function getHatchBoundaryEntities(entity) {
 }
 
 export function normalizeDrawingRegion(entity) {
-    const { pattern, sourceIds, boundaryPick, ...normalized } = normalizeDrawingHatch(entity);
+    const { pattern, sourceIds, boundaryPick, fillRule, boundaryStroke, ...normalized } = normalizeDrawingHatch(entity);
     return { ...normalized, type: 'region' };
 }
 

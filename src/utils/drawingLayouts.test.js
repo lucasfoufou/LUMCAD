@@ -394,7 +394,7 @@ test('paper annotation CRUD preserves identity, normalizes edits, and leaves no 
     assert.equal(removeDrawingPaperAnnotation(removed, 'missing'), removed);
 });
 
-test('paper annotations accept only text, line, and rectangle and support bounded visual edits', () => {
+test('direct paper primitives accept text, line, and rectangle and support bounded visual edits', () => {
     let layout = createDrawingLayout({
         format: 'CUSTOM',
         customPaperSize: { width: 100, height: 80 },

@@ -7,7 +7,7 @@ import { runMcpFrontendRequest } from '../mcp/frontendBridge.js';
 import { drawingCommandDefinitions, getDrawingCommandDefinition } from './drawingCommands.js';
 
 test('the MCP command manifest covers every drawing command exactly once', () => {
-    assert.equal(commandManifest.length, 138);
+    assert.equal(commandManifest.length, 206);
     const editorCommands = drawingCommandDefinitions.map(definition => definition.command).sort();
     const mcpCommands = commandManifest.map(definition => definition.command).sort();
     assert.deepEqual(mcpCommands, editorCommands);

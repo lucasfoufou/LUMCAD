@@ -1,3 +1,7 @@
+import { getDrawingOperationOptionSuggestions } from '~utils/drawingOperationOptions';
+import { getDrawingCreationOptionSuggestions } from '~utils/drawingCreation';
+import { getEntityBounds } from '~utils/drawingGeometry';
+import { translateEntity } from '~utils/drawingPrimitives';
 import { normalizeImageAdjustments } from '~utils/drawingImageAdjustments';
 import { normalizeImageClip, parseImageClipInput } from '~utils/drawingImageClip';
 import { isDrawingWipeout } from '~utils/drawingWipeout';
@@ -21,6 +25,8 @@ import {
 
 export default function DrawingCreationControls({
     activeTool,
+    embedded = false,
+    lengthUnit = 'm',
     mode,
     options = {},
     onChange = () => {},
@@ -29,13 +35,19 @@ export default function DrawingCreationControls({
     onImageSource = null,
     imageSourceBusy = false,
     textStyles = [],
+    content = null,
+    operation = null,
+    commandInput = null,
+    onCancel = null,
 }) {
-    const { t } = useI18n();
+    const { t: translate } = useI18n();
+    const t = (key, values) => translate(key, { unit: lengthUnit, ...values });
     const editMode = isEditableEntity(editEntity);
     const panelTool = editMode ? (isDrawingWipeout(editEntity) ? 'wipeout' : isEditableSpline(editEntity) ? 'spline' : editEntity.type) : activeTool;
-    if (!supportsDrawingCreationPanel(panelTool)) return null;
+    const contextual = !editMode && (operation || activeTool !== 'select');
+    if (!supportsDrawingCreationPanel(panelTool) && !contextual) return null;
 
-    const toolLabel = t(`commands.${panelTool}`);
+    const toolLabel = operation ? t('creation.context') : t(`${editMode ? 'entity' : 'commands'}.${panelTool}`);
     const updateOptions = patch => onChange({
         mode,
         options: patchCreationOptions(options, patch),
@@ -50,7 +62,7 @@ export default function DrawingCreationControls({
 
     return (
         <section
-            className={`drawing-creation-controls${editMode ? ' is-editing' : ''}`}
+            className={`drawing-creation-controls${editMode ? ' is-editing' : ''}${embedded ? ' is-embedded' : ''}`}
             aria-label={editMode
                 ? t('creation.editSelected', { tool: toolLabel })
                 : t('creation.controls', { tool: toolLabel })}
@@ -65,6 +77,7 @@ export default function DrawingCreationControls({
             </header>
             {editMode ? (
                 <EntityEditFields
+                    content={content}
                     entity={editEntity}
                     onImageSource={onImageSource}
                     imageSourceBusy={imageSourceBusy}
@@ -84,11 +97,34 @@ export default function DrawingCreationControls({
                     onChange={updateOptions}
                 />
             )}
+            {contextual && commandInput && <ContextFields operation={operation} activeTool={activeTool}
+                input={commandInput} onCancel={onCancel} t={t} />}
         </section>
     );
 }
 
+function ContextFields({ operation, activeTool, input, onCancel, t }) {
+    const suggestions = operation ? getDrawingOperationOptionSuggestions(operation, '')
+        : getDrawingCreationOptionSuggestions(activeTool, '');
+    return <form className="drawing-creation-context" onSubmit={event => { event.preventDefault(); input.onSubmit?.(input.value); }}>
+        {suggestions.length > 0 && <label className="drawing-creation-field">
+            <span>{t('creation.contextOption')}</span>
+            <select value="" onChange={event => input.onChange(`${event.target.value} `)}>
+                <option value="">{t('creation.contextOption')}</option>
+                {suggestions.map(option => <option key={option.command || option.name} value={option.completion}>{t(option.labelKey)}</option>)}
+            </select>
+        </label>}
+        <label className="drawing-creation-field"><span>{t('creation.contextInput')}</span>
+            <input value={input.value || ''} onChange={event => input.onChange(event.target.value)} /></label>
+        <div className="drawing-layout-sidebar-actions">
+            <button type="submit">{t('commandBar.enter')}</button>
+            {onCancel && <button type="button" onClick={onCancel}>{t('settings.cancel')}</button>}
+        </div>
+    </form>;
+}
+
 function CreationFields({ activeTool, mode, options, textStyles, t, onModeChange, onChange }) {
+    if (['line', 'xline', 'ray', 'polyline', 'region', 'blockReference'].includes(activeTool)) return <p>{t('creation.pickGeometry')}</p>;
     if (activeTool === 'rectangle') return <RectangleCreationFields options={options} t={t} onChange={onChange} />;
     if (activeTool === 'circle') return <CircleCreationFields mode={mode} options={options} t={t} onModeChange={onModeChange} onChange={onChange} />;
     if (activeTool === 'polygon') return <PolygonCreationFields options={options} t={t} onChange={onChange} />;
@@ -101,10 +137,13 @@ function CreationFields({ activeTool, mode, options, textStyles, t, onModeChange
     return null;
 }
 
-function EntityEditFields({ entity, disabled, textStyles, t, onChange, onImageSource, imageSourceBusy }) {
+function EntityEditFields({ content, entity, disabled, textStyles, t, onChange, onImageSource, imageSourceBusy }) {
+    if (['line', 'xline', 'ray'].includes(entity.type)) return <LineFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (isDrawingWipeout(entity)) return <div className="drawing-creation-fields"><SelectField label={t('wipeout.frame')} disabled={disabled}
         value={entity.wipeout.frame === false ? 'off' : 'on'} options={[['on', t('image.cropOn')], ['off', t('image.cropOff')]]}
         onChange={value => onChange({ wipeout: { frame: value === 'on' } })} /></div>;
+    if (entity.leader && content) return <LeaderFields content={content} entity={entity} disabled={disabled} t={t} onChange={onChange} />;
+    if (['blockReference', 'region'].includes(entity.type) || (entity.type === 'polyline' && !isEditableSpline(entity))) return <PositionFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (entity.type === 'image') return <ImageFields entity={entity} disabled={disabled} t={t} onChange={onChange} onImageSource={onImageSource} busy={imageSourceBusy} />;
     if (entity.type === 'hatch') return <HatchFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (entity.type === 'rectangle') return <RectangleEditFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
@@ -116,6 +155,50 @@ function EntityEditFields({ entity, disabled, textStyles, t, onChange, onImageSo
     if (entity.type === 'arc') return <ArcEditFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (entity.type === 'text') return <TextFields values={entity} textStyles={textStyles} disabled={disabled} includeGeometry t={t} onChange={onChange} />;
     return null;
+}
+
+function LeaderFields({ content, entity, disabled, t, onChange }) {
+    const annotation = content.blocks?.find(block => block.id === entity.blockId)?.entities.at(-1);
+    return <>
+        <PositionFields entity={entity} disabled={disabled} t={t} onChange={onChange} />
+        <div className="drawing-creation-fields">
+            {annotation?.type === 'text' && <TextAreaField label={t('creation.textContent')} value={annotation.text}
+                disabled={disabled} onChange={text => onChange({ leaderEdit: { text } })} />}
+            {['textSize', 'arrowSize', 'landingLength'].map(key => <NumberField key={key} label={t(`creation.leader.${key}`)}
+                value={entity.leader.style[key]} disabled={disabled} min={0}
+                onChange={value => { if (Number.isFinite(value) && value > 0 && value <= 1e6) onChange({ leaderEdit: { style: { [key]: value } } }); }} />)}
+            <SelectField label={t('creation.leader.arrowType')} value={entity.leader.style.arrowType} disabled={disabled}
+                options={['open', 'closed', 'none'].map(value => [value, t(`creation.leader.${value}`)])}
+                onChange={arrowType => onChange({ leaderEdit: { style: { arrowType } } })} />
+        </div>
+    </>;
+}
+
+function LineFields({ entity, disabled, t, onChange }) {
+    return <div className="drawing-creation-fields">
+        {['x1', 'y1', 'x2', 'y2'].map(key => <NumberField key={key}
+            label={t('creation.endpoint', { coordinate: key.toUpperCase() })} value={entity[key]} disabled={disabled}
+            onChange={value => {
+                if (!Number.isFinite(value) || Math.abs(value) > 1e9) return;
+                const next = { ...entity, [key]: value };
+                if (Math.hypot(next.x2 - next.x1, next.y2 - next.y1) > 1e-9) onChange({ [key]: value });
+            }} />)}
+    </div>;
+}
+
+function PositionFields({ entity, disabled, t, onChange }) {
+    const bounds = getEntityBounds(entity);
+    if (!bounds) return null;
+    return <div className="drawing-creation-fields">
+        {['x', 'y'].map(axis => <NumberField key={axis} label={t(`creation.${axis}`)}
+            value={bounds[axis === 'x' ? 'minX' : 'minY']} disabled={disabled}
+            onChange={value => {
+                if (!Number.isFinite(value) || Math.abs(value) > 1e9) return;
+                const delta = value - bounds[axis === 'x' ? 'minX' : 'minY'];
+                onChange(translateEntity(entity, axis === 'x' ? delta : 0, axis === 'y' ? delta : 0));
+            }} />)}
+        <p className="drawing-creation-field is-wide">{t('creation.geometryGrips')}</p>
+    </div>;
 }
 
 function ImageFields({ entity, disabled, t, onChange, onImageSource, busy }) {

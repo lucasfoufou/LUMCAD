@@ -1,3 +1,4 @@
+import { resolveDrawingAnnotationContent } from './drawingAnnotations.js';
 import {
     createDrawingId,
     normalizeDrawingColor,
@@ -10,6 +11,7 @@ import { fitViewBox } from './drawingGeometry.js';
 import { normalizeDrawingPlotSettings } from './drawingPlot.js';
 import { normalizeDrawingTextEntity } from './drawingText.js';
 import { editEntityGrip } from './drawingSelection.js';
+import { normalizeDrawingBlockReference, transformDrawingBlockReference, translationAffineMatrix } from './drawingBlocks.js';
 
 export const DRAWING_PAPER_FORMATS = Object.freeze({
     A4: Object.freeze({ width: 297, height: 210 }),
@@ -39,7 +41,7 @@ export const DRAWING_LAYOUT_TEMPLATE_OPTIONS = Object.freeze([
     'blank',
     ...DRAWING_VIEWPORT_ARRANGEMENT_OPTIONS,
 ]);
-export const DRAWING_PAPER_ANNOTATION_TYPE_OPTIONS = Object.freeze(['text', 'line', 'rectangle']);
+export const DRAWING_PAPER_ANNOTATION_TYPE_OPTIONS = Object.freeze(['text', 'line', 'rectangle', 'blockReference']);
 export const DRAWING_PAGE_SETUP_EXPORT_FORMAT = 'lumcad-page-setups';
 export const DRAWING_PAGE_SETUP_EXPORT_VERSION = 1;
 export const MIN_VIEWPORT_SIZE_MM = 8;
@@ -288,16 +290,17 @@ export function getUniqueDrawingLayoutName(name, layouts = []) {
 
 export function createDrawingLayoutFromTemplate({
     template = 'blank',
+    layers = [],
     modelViewBox = DEFAULT_MODEL_VIEW_BOX,
     ...layoutOptions
 } = {}) {
     const layout = createDrawingLayout(layoutOptions);
     return template === 'blank'
         ? layout
-        : createStandardViewportArrangement(layout, template, modelViewBox);
+        : createStandardViewportArrangement(layout, template, modelViewBox, layers);
 }
 
-export function createStandardViewportArrangement(layout, arrangement = 'single', modelViewBox = DEFAULT_MODEL_VIEW_BOX) {
+export function createStandardViewportArrangement(layout, arrangement = 'single', modelViewBox = DEFAULT_MODEL_VIEW_BOX, layers = []) {
     const normalizedArrangement = DRAWING_VIEWPORT_ARRANGEMENT_OPTIONS.includes(arrangement) ? arrangement : 'single';
     const printable = getDrawingPrintableArea(layout);
     const gap = Math.min(STANDARD_ARRANGEMENT_GAP_MM, printable.width / 10, printable.height / 10);
@@ -323,6 +326,7 @@ export function createStandardViewportArrangement(layout, arrangement = 'single'
     return {
         ...layout,
         viewports: rects.map(rect => createDrawingViewport({
+            hiddenLayerIds: layers.filter(layer => layer.newViewportFrozen).map(layer => layer.id),
             rect,
             modelViewBox: fitViewBoxToAspect(modelViewBox, rect.width / rect.height),
         })),
@@ -408,6 +412,8 @@ export function updateDrawingPaperAnnotation(layout, annotationId, updater) {
 export function translateDrawingPaperAnnotation(layout, annotationId, dx, dy) {
     const paper = getDrawingPaperSize(layout);
     return updateDrawingPaperAnnotation(layout, annotationId, annotation => {
+        if (annotation.type === 'blockReference') return transformDrawingBlockReference(annotation,
+            translationAffineMatrix(finiteOr(dx, 0), finiteOr(dy, 0)));
         const delta = constrainPaperAnnotationTranslation(
             annotation,
             finiteOr(dx, 0),
@@ -465,6 +471,12 @@ export function normalizeDrawingPaperEntity(entity, layoutOrPaper) {
     const id = typeof source.id === 'string' && source.id
         ? source.id
         : createDrawingId(`paper-${source.type || 'entity'}`);
+    if (source.type === 'blockReference') {
+        if (!source.blockId || !source.transform || !['a', 'b', 'c', 'd', 'e', 'f'].every(key => (
+            Number.isFinite(source.transform[key]) && Math.abs(source.transform[key]) <= 1e9
+        ))) return null;
+        return normalizeDrawingPaperAppearance(normalizeDrawingBlockReference({ ...cloneSerializable(source), id }));
+    }
     if (source.type === 'text') {
         const x = clamp(finiteOr(source.x, 0), 0, Math.max(0, paper.width - 1));
         const y = clamp(finiteOr(source.y, 0), 0, Math.max(0, paper.height - 1));
@@ -548,6 +560,7 @@ export function createFittedDrawingViewport(content, rect) {
     return createDrawingViewport({
         rect: normalizedRect,
         modelViewBox: fitViewBox(content, normalizedRect.width / normalizedRect.height),
+        hiddenLayerIds: content.layers.filter(layer => layer.newViewportFrozen).map(layer => layer.id),
     });
 }
 
@@ -893,6 +906,7 @@ export function clearDrawingViewportLayerOverride(viewport, layerId) {
 }
 
 export function applyDrawingViewportDisplaySettings(content, viewport) {
+    content = resolveDrawingAnnotationContent(content, getDrawingViewportScale(viewport), { showAll: false });
     const overrides = new Map(normalizeViewportLayerOverrides(viewport?.layerOverrides)
         .map(override => [override.layerId, override]));
     const annotationSettings = normalizeViewportAnnotationSettings(viewport?.annotationSettings);

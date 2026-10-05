@@ -41,6 +41,20 @@ export async function readLcadDocumentAtPath(path) {
     return normalizeLoadedDocument(await invoke('read_lcad_document', { path }));
 }
 
+export async function readLcadReferenceAtPath(path) {
+    if (!isTauriRuntime()) throw createI18nError('errors.pathOpenTauriOnly');
+    const result = await invoke('read_lcad_reference', { path });
+    return { ...normalizeLoadedDocument(result.loaded), revision: result.revision };
+}
+
+export async function writeLcadReference(path, envelope, expectedRevision) {
+    if (!isTauriRuntime()) throw createI18nError('errors.pathOpenTauriOnly');
+    const result = await invoke('write_lcad_reference', {
+        path, envelope: normalizeLcadEnvelope(envelope), expectedRevision,
+    });
+    return { ...normalizeLoadedDocument(result.loaded), revision: result.revision };
+}
+
 export async function listenForLcadOpen(callback) {
     if (!isTauriRuntime()) return () => {};
     return listen('lumcad://open-file', event => callback(String(event.payload || '')));
@@ -58,11 +72,11 @@ export async function writeLcadDocument(path, envelope) {
 
 export async function saveLcadDocumentAs(envelope, suggestedName, { filterName = 'LUMCAD drawing' } = {}) {
     const result = await exportLcadDocumentAs(envelope, suggestedName, { filterName });
-    if (result && !isTauriRuntime()) window.localStorage.removeItem(RECOVERY_STORAGE_KEY);
+    if (result) await clearLcadRecovery();
     return result;
 }
 
-export async function exportLcadDocumentAs(envelope, suggestedName, { filterName = 'LUMCAD drawing' } = {}) {
+export async function exportLcadDocumentAs(envelope, suggestedName, { filterName = 'LUMCAD drawing', protectedPath = null } = {}) {
     const normalized = normalizeLcadEnvelope(envelope);
     if (isTauriRuntime()) {
         const path = await save({
@@ -70,7 +84,7 @@ export async function exportLcadDocumentAs(envelope, suggestedName, { filterName
             filters: lcadFilters(filterName),
         });
         if (!path) return null;
-        return invoke('write_lcad_document', { path, envelope: normalized });
+        return invoke('export_lcad_document', { path, envelope: normalized, protectedPath });
     }
     downloadBrowserDocument(normalized);
     return { path: null, savedAt: Date.now(), recovery: false };
@@ -108,13 +122,16 @@ function normalizeLoadedDocument(loaded) {
     };
 }
 
-function chooseBrowserFile() {
+export function chooseBrowserFile({ accept = '.lcad,application/x-lumcad,application/zip' } = {}) {
     return new Promise(resolve => {
         const input = document.createElement('input');
         input.type = 'file';
-        input.accept = '.lcad,application/x-lumcad,application/zip';
-        input.addEventListener('change', () => resolve(input.files?.[0] || null), { once: true });
-        input.addEventListener('cancel', () => resolve(null), { once: true });
+        input.accept = accept;
+        input.hidden = true;
+        const finish = file => { input.remove(); resolve(file); };
+        input.addEventListener('change', () => finish(input.files?.[0] || null), { once: true });
+        input.addEventListener('cancel', () => finish(null), { once: true });
+        document.body.appendChild(input);
         input.click();
     });
 }

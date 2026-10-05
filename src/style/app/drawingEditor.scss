@@ -1570,3 +1570,55 @@
     font: inherit;
   }
 }
+
+.drawing-inquiry-panel pre {
+    max-width: 100%;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 12px;
+}
+
+.drawing-inquiry-panel dl {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 6px 10px;
+    font-size: 12px;
+    dd { margin: 0; overflow-wrap: anywhere; }
+}
+
+.drawing-inquiry-panel table {
+    width: 100%;
+    table-layout: auto;
+    font-size: 11px;
+    th, td { padding: 4px; overflow-wrap: anywhere; text-align: left; }
+}
+
+.drawing-layer-flags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    font-size: 0.7rem;
+    label { display: inline-flex; align-items: center; gap: 0.2rem; }
+    input { width: auto; }
+}
+
+.drawing-creation-controls.is-embedded {
+  position: static;
+  width: 100%;
+  max-height: none;
+  margin-bottom: 0.6rem;
+  box-sizing: border-box;
+  .drawing-creation-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  input, select, textarea { min-width: 0; max-width: 100%; }
+}
+.drawing-properties-mount:empty { display: none; }
+
+.drawing-annotation-fields {
+  margin-bottom: 0.6rem;
+  padding: 0.4rem;
+  border: 1px solid rgba(#172033, 0.15);
+  border-radius: 5px;
+  font-size: 0.75rem;
+  summary { cursor: pointer; font-weight: 600; }
+}

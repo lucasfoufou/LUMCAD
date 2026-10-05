@@ -7,6 +7,7 @@ import { createDrawingClipboardPayload, pasteDrawingClipboardPayload, DRAWING_CL
 import { createAnonymousDrawingBlock, createAnonymousDrawingBlockReference } from './drawingBlocks.js';
 import { findNamedDrawingBlock, normalizeDrawingBlockName } from './drawingNamedBlocks.js';
 import { normalizeDrawingBasePoint } from './drawingBasePoint.js';
+import { remapDrawingReferenceResources } from './drawingReferenceMetadata.js';
 
 // The library uses archive image limits rather than the smaller OS clipboard budget.
 const LIBRARY_LIMITS = Object.freeze({ ...DRAWING_CLIPBOARD_LIMITS,
@@ -39,7 +40,7 @@ export function createDrawingBlockLibrary(document, { selector = null, selectedI
     return exportEntries(source, entryIds);
 }
 
-export function importDrawingBlockLibrary(target, document) {
+export function importDrawingBlockLibrary(target, document, { preserveBlockEntityIds = false } = {}) {
     assertLibraryGraph(document);
     let source = normalizeLcadDocument(document);
     const marker = source.content.metadata?.blockLibrary;
@@ -62,12 +63,18 @@ export function importDrawingBlockLibrary(target, document) {
         entities: block.entities.map(entity => remapTextStyle(entity, styles.idMap)),
     })) };
     const payload = entriesPayload(source, entryIds);
-    const pasted = pasteDrawingClipboardPayload(target, payload, { mode: 'original', limits: LIBRARY_LIMITS });
+    const pasted = pasteDrawingClipboardPayload(target, payload, { mode: 'original', limits: LIBRARY_LIMITS, preserveBlockEntityIds });
     if (pasted.content.blocks.length > 1024 || pasted.content.blocks.reduce((total, block) => total + block.entities.length, 0) > 100000) {
         throw createI18nError('block.error.limit');
     }
     const content = normalizeDrawingContent({ ...pasted.content, entities: target.content.entities, textStyles: styles.styles });
-    const result = { content, assets: pasted.assets, entryBlockIds: entryIds.map(id => pasted.blockIdMap.get(id)) };
+    const result = { content, assets: pasted.assets, entryBlockIds: entryIds.map(id => pasted.blockIdMap.get(id)),
+        sourceMaps: {
+            layers: Object.fromEntries(pasted.layerIdMap), assets: Object.fromEntries(pasted.assetIdMap),
+            blocks: Object.fromEntries(pasted.blockIdMap), textStyles: Object.fromEntries(styles.idMap),
+            dimensionStyles: Object.fromEntries(pasted.dimensionStyleIdMap),
+        },
+    };
     // Validate combined manifest/assets before the caller commits any resources.
     createLcadArchive(createLcadEnvelope({ ...target, content, assets: result.assets }));
     return result;
@@ -127,6 +134,7 @@ function mergeLibraryTextStyles(existing = [], incoming = []) {
 
 function remapTextStyle(entity, idMap) {
     return { ...entity,
+        ...(entity.externalReference ? { externalReference: remapDrawingReferenceResources(entity.externalReference, { textStyles: idMap }) } : {}),
         ...(entity.textStyleId && idMap.has(entity.textStyleId) ? { textStyleId: idMap.get(entity.textStyleId) } : {}),
         ...(Array.isArray(entity.parts) ? { parts: entity.parts.map(part => remapTextStyle(part, idMap)) } : {}),
     };

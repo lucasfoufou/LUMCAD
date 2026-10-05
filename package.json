@@ -15,7 +15,7 @@
     "url": "https://github.com/lucasfoufou/LUMCAD/issues"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13.0"
   },
   "scripts": {
     "dev": "vite --port 1420",
@@ -33,6 +33,7 @@
     "@tauri-apps/plugin-updater": "^2.10.1",
     "fflate": "^0.8.3",
     "jspdf": "^4.2.1",
+    "pdfjs-dist": "^6.4.299",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "svg2pdf.js": "^2.7.0"

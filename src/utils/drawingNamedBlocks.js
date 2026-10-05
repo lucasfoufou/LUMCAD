@@ -1,3 +1,4 @@
+import { isDrawingLayerVisible } from './drawingLayers.js';
 import { drawingAttributeValues, validateDrawingAttributeTags } from './drawingBlockAttributes.js';
 import { canEditEntity, createDrawingId, getLayer } from './drawingDocument.js';
 import { getDrawingEntityDependencyIds } from './drawingDimensions.js';
@@ -50,7 +51,7 @@ export function defineNamedDrawingBlock(content, ids, { name, basePoint, redefin
     definition.bounds = getDrawingBlockDefinitionBounds(definition, updatedBlocks);
     const layerId = content.activeLayerId;
     const layer = getLayer(content, layerId);
-    if (!keepSources && (!layer?.visible || layer.locked)) return { error: 'layer' };
+    if (!keepSources && (!isDrawingLayerVisible(layer) || layer.locked)) return { error: 'layer' };
     const reference = keepSources ? null : createAnonymousDrawingBlockReference(definition, { insertionPoint: basePoint, layerId });
     // Place the replacement at the first selected object's painter position.
     let inserted = false;
@@ -69,7 +70,7 @@ export function insertNamedDrawingBlock(content, name, point, { scale = 1, angle
     if (!definition) return { error: 'missing' };
     if (!validPoint(point) || !Number.isFinite(scale) || scale <= 1e-9 || scale > 1e9 || !Number.isFinite(angle)) return { error: 'transform' };
     const layer = getLayer(content, content.activeLayerId);
-    if (!layer?.visible || layer.locked) return { error: 'layer' };
+    if (!isDrawingLayerVisible(layer) || layer.locked) return { error: 'layer' };
     const reference = createAnonymousDrawingBlockReference(definition, { id, insertionPoint: point, layerId: layer.id });
     if (attributeValues) reference.attributeValues = drawingAttributeValues(definition, { attributeValues });
     reference.definitionBounds = getDrawingBlockDefinitionBounds(definition, content.blocks, reference);

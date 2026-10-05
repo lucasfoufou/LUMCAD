@@ -1,3 +1,5 @@
+import { isDrawingLayerVisible } from './drawingLayers.js';
+import { isDrawingObjectHidden } from './drawingObjectVisibility.js';
 import { materializeDrawingBlockReference } from './drawingBlocks.js';
 import { canEditEntity, createDrawingId } from './drawingDocument.js';
 import {
@@ -725,11 +727,11 @@ function drawingBoundaryExtractionOptions(content, options) {
 }
 
 function visibleBoundaryEntities(content, boundaryIds, excludeIds) {
-    const visibleLayers = new Set((content?.layers || []).filter(layer => layer.visible !== false).map(layer => layer.id));
+    const visibleLayers = new Set((content?.layers || []).filter(layer => isDrawingLayerVisible(layer)).map(layer => layer.id));
     const explicit = boundaryIds !== null && boundaryIds !== undefined;
     const allowed = explicit ? new Set(Array.isArray(boundaryIds) ? boundaryIds : []) : null;
     return (content?.entities || []).filter(entity => (
-        !excludeIds.has(entity.id)
+        !excludeIds.has(entity.id) && !isDrawingObjectHidden(content, entity.id)
         && (!allowed || allowed.has(entity.id))
         && (!visibleLayers.size || visibleLayers.has(entity.layerId))
     )).slice(0, MAX_BOUNDARIES + 1);
