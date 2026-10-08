@@ -1,3 +1,4 @@
+import DrawingTransmittalReport from './DrawingTransmittalReport';
 import DrawingComparisonPreview from './DrawingComparisonPreview';
 import { formatDrawingDistance, formatDrawingAngle } from '~utils/drawingCoordinates';
 import React from 'react';
@@ -8,7 +9,7 @@ const UNITS = { distance: 'm', dx: 'm', dy: 'm', x: 'm', y: 'm', radius: 'm', pe
     centroidX: 'm', centroidY: 'm', area: 'm²', totalArea: 'm²', cumulativeArea: 'm²', inertiaX: 'm⁴', inertiaY: 'm⁴', angle: '°' };
 const FIELDS = [...Object.keys(UNITS), 'layers', 'blocks', 'selected', 'objects', 'total', 'added', 'removed', 'changed'];
 
-export default function DrawingInquiryPanel({ result, onCopy, onSelectDuplicateGroup, onSelectCountOccurrence, settings, t, comparisonPreview, onOpenRecovery, canOpenRecovery = false,
+export default function DrawingInquiryPanel({ result, onCopy, onInspectTransmittal, onSelectDuplicateGroup, onSelectCountOccurrence, settings, t, comparisonPreview, onOpenRecovery, canOpenRecovery = false,
     onSelectRecovery, onShowRecoveryManager, hasRecoveryGraph = false, onShowRecoveryHistory, onRetryRecovery, onForgetRecovery, onRelinkRecovery, canRelinkRecovery = false }) {
     const { formatNumber, formatDate, formatTime, locale } = useI18n();
     const renderValues = (values, key) => <dl key={key}>
@@ -32,6 +33,8 @@ export default function DrawingInquiryPanel({ result, onCopy, onSelectDuplicateG
             {result.mode === 'sheetSet' && <>
                 <p>{t(result.dirty ? 'sheetSet.modified' : 'sheetSet.recorded')}</p>
                 {result.checked && <p>{t('sheetSet.checked')}</p>}
+                <button type="button" onClick={onInspectTransmittal}>{t('sheetSet.inspectTransmittal')}</button>
+                {result.transmittal && <DrawingTransmittalReport report={result.transmittal} t={t} />}
                 <ol>{result.sheets.map(sheet => <li key={sheet.id}><strong>{sheet.number}</strong> — {sheet.title}</li>)}</ol>
             </>}
             {result.mode === 'standards' && <>

@@ -536,7 +536,7 @@ function arrayGuide(id, layerId, first, second) {
 }
 
 function explodeDrawingSource(source, content, options) {
-    if (source.table || source.tolerance) return source.parts || [];
+    if (source.arcText || source.table || source.tolerance) return source.parts || [];
     if (source.revisionSymbol) return source.parts || [];
     if (source.linework) {
         const { linework, ...geometry } = source;

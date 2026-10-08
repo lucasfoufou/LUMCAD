@@ -1,3 +1,4 @@
+import { refreshDrawingArcTexts } from './drawingArcText.js';
 import { refreshDrawingQuantityTables } from './drawingQuantityTables.js';
 import { applyCurrentStyleToNewDimensions } from './drawingDimensionStyles.js';
 import { refreshDrawingHatches } from './drawingHatches.js';
@@ -31,6 +32,7 @@ export function commitDrawingHistoryState(current, next, { coalesceKey = null, a
         content = refreshDrawingHatches(refreshPathArrays(
             applyCreationStyles ? applyCurrentStyleToNewDimensions(prepared.content, previousContent) : prepared.content,
             previousContent), previousContent);
+        content = refreshDrawingArcTexts(content, previousContent);
         content = refreshDrawingQuantityTables(content);
     }
     return {

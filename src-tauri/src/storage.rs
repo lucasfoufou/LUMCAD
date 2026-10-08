@@ -1376,6 +1376,22 @@ mod tests {
     }
 
     #[test]
+    fn preserves_arc_text_definition_and_affine_glyphs() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("arc-text.lcad");
+        let mut envelope = valid_envelope("Arc text");
+        let entity = json!({"id":"label", "type":"polyline", "layerId":"geometry", "sourceId":"arc",
+            "arcText":{"version":1, "text":"Roof", "arc":{"cx":0,"cy":0,"r":5,"startAngle":0,"endAngle":3.14},
+                "offset":0.2,"spacing":0.1,"align":"center","reverse":false,
+                "transform":{"a":1,"b":0,"c":0,"d":1,"e":0,"f":0},"style":{"fontSize":0.5},"status":"current"},
+            "parts":[{"id":"glyph", "type":"text", "layerId":"geometry", "text":"R", "x":0,"y":0,"width":1,"height":1,
+                "affineFrame":{"a":0,"b":1,"c":-1,"d":0,"e":5,"f":0}}]});
+        envelope["document"]["content"]["entities"] = json!([entity]);
+        atomic_write(&path, &envelope).unwrap();
+        assert_eq!(read_envelope(&path).unwrap()["document"]["content"]["entities"][0], entity);
+    }
+
+    #[test]
     fn preserves_object_web_link_metadata() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("links.lcad");

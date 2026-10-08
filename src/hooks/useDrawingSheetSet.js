@@ -7,7 +7,7 @@ import { readLcadDocumentAtPath, isTauriRuntime } from '~utils/lcadStorage';
 import { tokenizeDrawingAttributeInput } from '~utils/drawingBlockAttributes';
 import { createDrawingId } from '~utils/drawingDocument';
 import useDrawingSheetSetPublication from './useDrawingSheetSetPublication';
-import { exportNativeDrawingTransmittal } from '~utils/drawingTransmittalNative';
+import { exportNativeDrawingTransmittal, inspectNativeDrawingTransmittal } from '~utils/drawingTransmittalNative';
 
 export default function useDrawingSheetSet({ sessionRef, document, filePath, present, setMessage, t }) {
     const fallback = useRef(null);
@@ -17,6 +17,7 @@ export default function useDrawingSheetSet({ sessionRef, document, filePath, pre
     const report = () => state.current ? { mode: 'sheetSet', name: state.current.sheetSet.name, path: state.current.path,
         dirty: Boolean(dirty()), sheets: state.current.sheetSet.sheets, sources: state.current.sheetSet.sources,
         properties: state.current.sheetSet.properties, checked: Boolean(state.current.checked),
+        transmittal: state.current.transmittal || null,
         publicationError: state.current.publicationError || null } : null;
     const show = () => { present(report()); setMessage(t('sheetSet.ready')); };
     const replace = (sheetSet, path, saved) => {
@@ -25,7 +26,7 @@ export default function useDrawingSheetSet({ sessionRef, document, filePath, pre
     const commit = sheetSet => {
         const current = state.current;
         current.past = [...current.past.slice(-49), current.sheetSet];
-        current.sheetSet = sheetSet; current.future = []; current.checked = false;
+        current.sheetSet = sheetSet; current.future = []; current.checked = false; current.transmittal = null;
     };
     const run = async (command, input) => {
         if (state.busy) { setMessage(t('block.libraryBusy')); return; }
@@ -55,9 +56,16 @@ export default function useDrawingSheetSet({ sessionRef, document, filePath, pre
                 state.current = null; present(null); setMessage(t('sheetSet.closed')); return;
             }
             if (action === 'REPORT' && !args.length) { show(); return; }
+            if (action === 'INVENTORY' && !args.length) {
+                current.transmittal = null;
+                const result = await inspectNativeDrawingTransmittal(current.sheetSet, current.path, t);
+                current.transmittal = result.inventory;
+                show(); return;
+            }
             if (['ARCHIVE', 'ETRANSMIT'].includes(action) && args.length <= 1) {
-                const result = await exportNativeDrawingTransmittal(current.sheetSet, current.path, args[0], t('sheetSet.archiveTitle'));
-                if (result) { show(); setMessage(t('sheetSet.archived', { count: result.files.length })); }
+                current.transmittal = null;
+                const result = await exportNativeDrawingTransmittal(current.sheetSet, current.path, args[0], t('sheetSet.archiveTitle'), t);
+                if (result) { current.transmittal = { ...result.inventory, destination: result.path }; show(); setMessage(t('sheetSet.archived', { count: result.files.length })); }
                 return;
             }
             if (action === 'SAVE' && args.length <= 1) {
@@ -65,6 +73,7 @@ export default function useDrawingSheetSet({ sessionRef, document, filePath, pre
                 if (!result) return;
                 // Rebased paths and their undo history must share the new index location.
                 current.sheetSet = result.sheetSet; current.path = result.path;
+                current.transmittal = null;
                 current.savedKey = JSON.stringify(result.sheetSet); current.past = []; current.future = []; current.checked = false;
                 show(); setMessage(t(isTauriRuntime() ? 'sheetSet.saved' : 'sheetSet.downloadRequested')); return;
             }
@@ -87,7 +96,7 @@ export default function useDrawingSheetSet({ sessionRef, document, filePath, pre
             if (['UNDO', 'REDO'].includes(action) && !args.length) {
                 const from = action === 'UNDO' ? 'past' : 'future'; const to = action === 'UNDO' ? 'future' : 'past';
                 if (!current[from].length) throw new Error('sheetSetHistory');
-                current[to].push(current.sheetSet); current.sheetSet = current[from].pop(); current.checked = false;
+                current[to].push(current.sheetSet); current.sheetSet = current[from].pop(); current.checked = false; current.transmittal = null;
                 show(); return;
             }
             if (action === 'ADD' && args.length === 4) {
@@ -105,6 +114,11 @@ export default function useDrawingSheetSet({ sessionRef, document, filePath, pre
             } else commit(editDrawingSheetSetCommand(current.sheetSet, [action, ...args]));
             show();
         } catch (error) {
+            if (['INVENTORY', 'ARCHIVE', 'ETRANSMIT'].includes(action) && current) {
+                current.transmittal = error.transmittalInventory || { complete: false, files: [],
+                    issue: { path: null, code: /^sheetSet[A-Z]/.test(error?.message) ? error.message : 'failed' } };
+                present(report());
+            }
             if (action === 'PUBLISH' && current) {
                 current.publicationError = String(error?.message || error).slice(0, 1024);
                 present(report());

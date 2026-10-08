@@ -1,3 +1,4 @@
+import { rebuildDrawingArcTextEntity } from './drawingArcText.js';
 import { normalizeDrawingHyperlink } from './drawingHyperlinks.js';
 import { normalizeDrawingDataDefinitions } from './drawingDataDefinitions.js';
 import { normalizeDrawingStandardsBinding } from './drawingStandardsBinding.js';
@@ -813,6 +814,11 @@ function normalizeDrawingPolylinePartTransparency(part) {
 }
 
 function normalizeDrawingEntityGeometry(entity, textOptions = {}) {
+    if (entity.arcText) {
+        const rebuilt = rebuildDrawingArcTextEntity(entity);
+        if (rebuilt) entity = rebuilt;
+        else { const { arcText, sourceId, ...geometry } = entity; entity = geometry; }
+    }
     if (entity.tolerance) {
         const rebuilt = rebuildDrawingToleranceEntity(entity);
         if (rebuilt) entity = rebuilt;

@@ -1,3 +1,4 @@
+import { transformDrawingArcTextEntity } from './drawingArcText.js';
 import { rebuildDrawingToleranceEntity } from './drawingTolerances.js';
 import { rebuildDrawingTableEntity } from './drawingTableGeometry.js';
 import { rebuildDrawingRevisionSymbol, drawingRevisionGripSource } from './drawingRevisionSymbols.js';
@@ -84,6 +85,10 @@ export function getEntityGrips(entity, source = null) {
         return bounds ? [{ id: 'region-origin', x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 }] : [];
     }
     if (!entity) return [];
+    if (entity.arcText) {
+        const bounds = getEntityBounds(entity);
+        return bounds ? [{ id: 'arc-text-origin', x: bounds.minX, y: bounds.minY }] : [];
+    }
     if (entity.tolerance) return [{ id: 'tolerance-origin', x: entity.tolerance.transform.e, y: entity.tolerance.transform.f }];
     if (entity.table) return [{ id: 'table-origin', x: entity.table.transform.e, y: entity.table.transform.f }];
     if (entity.revisionSymbol) {
@@ -203,6 +208,11 @@ export function editEntityGrip(entity, gripId, point, source = null) {
     if (frame && point) {
         const { affineFrame, ...local } = entity;
         return { ...editEntityGrip(local, gripId, unframeDrawingPoint(point, frame), source), affineFrame };
+    }
+    if (entity?.arcText) {
+        const bounds = getEntityBounds(entity);
+        return gripId === 'arc-text-origin' && bounds && point
+            ? transformDrawingArcTextEntity(entity, { a: 1, b: 0, c: 0, d: 1, e: point.x - bounds.minX, f: point.y - bounds.minY }) || entity : entity;
     }
     if (entity?.tolerance) {
         if (gripId !== 'tolerance-origin' || !point) return entity;

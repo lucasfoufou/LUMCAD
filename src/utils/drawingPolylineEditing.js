@@ -22,7 +22,7 @@ export function parseDrawingPolylineEdit(input) {
 /** Ordinary point paths only; generated geometry keeps its dedicated source editor. */
 export function isEditablePointPolyline(entity) {
     return entity?.type === 'polyline' && Array.isArray(entity.points) && !entity.parts?.length
-        && !entity.array && !entity.linework && !entity.revisionSymbol && !entity.table && !entity.tolerance
+        && !entity.array && !entity.linework && !entity.revisionSymbol && !entity.table && !entity.tolerance && !entity.arcText
         && !entity.leader && !entity.wipeout && !entity.splineDefinition;
 }
 
@@ -55,7 +55,7 @@ export function editDrawingPointPolyline(entity, edit) {
 /** Native connected paths keep their curve representation throughout topology edits. */
 export function isEditableCurvePolyline(entity) {
     return entity?.type === 'polyline' && entity.parts?.length > 0
-        && !entity.array && !entity.linework && !entity.revisionSymbol && !entity.table && !entity.tolerance
+        && !entity.array && !entity.linework && !entity.revisionSymbol && !entity.table && !entity.tolerance && !entity.arcText
         && !entity.leader && !entity.wipeout && !entity.splineDefinition
         && Boolean(normalizeCurvePath(entity));
 }

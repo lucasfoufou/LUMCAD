@@ -1,3 +1,4 @@
+import useDrawingArcText from '~hooks/useDrawingArcText';
 import { parseDrawingHyperlinkInput } from '~utils/drawingHyperlinks';
 import { setDrawingHyperlink } from '~utils/drawingHyperlinkOperations';
 import { openDrawingHyperlink } from '~utils/openDrawingHyperlink';
@@ -378,6 +379,8 @@ export default function DrawingEditorWorkspace({
     const constraints = useDrawingConstraints({ history, selectedIds, enabled: workspaceMode === 'model', dimensionalEnabled: workspaceMode === 'model' && !blockEditor.session?.referenceSource, setMessage, t });
     const smartBlocks = useDrawingSmartBlocks({ history, selectedIds, setSelectedIds, enabled: workspaceMode === 'model' && !blockEditor.session, setMessage, t });
     const dynamicBlocks = useDrawingDynamicBlocks({ history, selectedIds, blockEditor, enabled: workspaceMode === 'model', setMessage, t });
+    const arcText = useDrawingArcText({ history, selectedIds, setSelectedIds, operation: interactiveOperation,
+        setOperation: setInteractiveOperation, setActiveTool, setMessage, enabled: workspaceMode === 'model', t });
     const tolerances = useDrawingTolerances({ history, selectedIds, setSelectedIds, operation: interactiveOperation,
         setOperation: setInteractiveOperation, setActiveTool, setMessage, enabled: workspaceMode === 'model' && !blockEditor.session, t });
     const tables = useDrawingTables({ history, selectedIds, setSelectedIds, operation: interactiveOperation,
@@ -1007,7 +1010,7 @@ export default function DrawingEditorWorkspace({
     };
 
     const handleInteractiveOperation = ({ point, targetId, fence, arrayHandle, sketch, shift = false }) => {
-        if (tolerances.point({ point }) || fields.point({ point }) || tables.point({ point }) || revision.point({ point, targetId }) || sketchTool.point({ point, sketch }) || linework.point({ point, targetId }) || pointPlacement.point({ point, targetId }) || inquiry.point({ point, targetId }) || selectionQueries.point(point) || leaders.point(point)) return;
+        if (arcText.point({ point, targetId }) || tolerances.point({ point }) || fields.point({ point }) || tables.point({ point }) || revision.point({ point, targetId }) || sketchTool.point({ point, sketch }) || linework.point({ point, targetId }) || pointPlacement.point({ point, targetId }) || inquiry.point({ point, targetId }) || selectionQueries.point(point) || leaders.point(point)) return;
         if (interactiveOperation?.type === 'matchProperties') {
             if (interactiveOperation.sourceId) {
                 applyPropertyCommand(interactiveOperation.command, interactiveOperation.sourceId, [targetId]);
@@ -1333,7 +1336,7 @@ export default function DrawingEditorWorkspace({
 
     const submitOperationValue = rawValue => {
         if (revision.input(rawValue) || sketchTool.input(rawValue) || linework.input(rawValue) || pointPlacement.input(rawValue) || inquiry.input(rawValue) || leaders.input(rawValue)) return true;
-        if (['linework', 'sketch', 'revision', 'table', 'field', 'tolerance'].includes(interactiveOperation?.type)) {
+        if (['arcText', 'linework', 'sketch', 'revision', 'table', 'field', 'tolerance'].includes(interactiveOperation?.type)) {
             if (!submitPrecisionPoint(rawValue, { allowDirectDistance: false })) setMessage(t('linework.centerPrompt'));
             return true;
         }
@@ -2272,7 +2275,7 @@ export default function DrawingEditorWorkspace({
         if (parsed.command === 'dgnClip') { dgn.clip(getDrawingCommandInput(rawValue)); return; }
         if (parsed.command === 'wmfImport') { await wmf.run(getDrawingCommandInput(rawValue)); return; }
         if (tableFiles.handles(parsed.command, getDrawingCommandInput(rawValue))) { await tableFiles.run(parsed.command, getDrawingCommandInput(rawValue)); return; }
-        if (constraints.run(parsed.command, getDrawingCommandInput(rawValue)) || smartBlocks.run(parsed.command, getDrawingCommandInput(rawValue)) || dynamicBlocks.run(parsed.command, getDrawingCommandInput(rawValue)) || tolerances.run(parsed.command, getDrawingCommandInput(rawValue)) || fields.run(parsed.command, getDrawingCommandInput(rawValue)) || tables.run(parsed.command, getDrawingCommandInput(rawValue)) || revision.run(parsed.command, getDrawingCommandInput(rawValue)) || sketchTool.run(parsed.command, getDrawingCommandInput(rawValue)) || linework.run(parsed.command, getDrawingCommandInput(rawValue)) || pointPlacement.run(parsed.command, getDrawingCommandInput(rawValue)) || annotations.run(parsed.command, getDrawingCommandInput(rawValue)) || coordinates.run(parsed.command, getDrawingCommandInput(rawValue)) || plotStyles.run(parsed.command, getDrawingCommandInput(rawValue)) || layerManager.run(parsed.command, getDrawingCommandInput(rawValue)) || inquiry.run(parsed.command, getDrawingCommandInput(rawValue)) || selectionQueries.run(parsed.command, getDrawingCommandInput(rawValue)) || leaders.run(parsed.command, getDrawingCommandInput(rawValue))) return;
+        if (arcText.run(parsed.command, getDrawingCommandInput(rawValue)) || constraints.run(parsed.command, getDrawingCommandInput(rawValue)) || smartBlocks.run(parsed.command, getDrawingCommandInput(rawValue)) || dynamicBlocks.run(parsed.command, getDrawingCommandInput(rawValue)) || tolerances.run(parsed.command, getDrawingCommandInput(rawValue)) || fields.run(parsed.command, getDrawingCommandInput(rawValue)) || tables.run(parsed.command, getDrawingCommandInput(rawValue)) || revision.run(parsed.command, getDrawingCommandInput(rawValue)) || sketchTool.run(parsed.command, getDrawingCommandInput(rawValue)) || linework.run(parsed.command, getDrawingCommandInput(rawValue)) || pointPlacement.run(parsed.command, getDrawingCommandInput(rawValue)) || annotations.run(parsed.command, getDrawingCommandInput(rawValue)) || coordinates.run(parsed.command, getDrawingCommandInput(rawValue)) || plotStyles.run(parsed.command, getDrawingCommandInput(rawValue)) || layerManager.run(parsed.command, getDrawingCommandInput(rawValue)) || inquiry.run(parsed.command, getDrawingCommandInput(rawValue)) || selectionQueries.run(parsed.command, getDrawingCommandInput(rawValue)) || leaders.run(parsed.command, getDrawingCommandInput(rawValue))) return;
         if (['hideObjects', 'isolateObjects', 'unisolateObjects'].includes(parsed.command)) {
             if (workspaceMode !== 'model') { setMessage(t('namedView.modelRequired')); return; }
             if (parsed.command !== 'unisolateObjects' && !selectedIds.length) { setMessage(t('propertyCommand.selection')); return; }
@@ -2987,7 +2990,7 @@ export default function DrawingEditorWorkspace({
                             onSubmit: value => submitCommand(value).catch(() => {}), message,
                             operation: interactiveOperation, activeTool }}
                         sidebar={{ content: history.content, selectedIds, parametersEnabled: !blockEditor.session?.referenceSource, onSelectConstraintObjects: setSelectedIds, onSmartBlockCommand: smartBlocks.run, smartBlockDetection: smartBlocks.detection, dynamicBlockEditing: Boolean(blockEditor.session && !blockEditor.session.referenceSource), onCommit: history.commit, onAnnotationCommand: annotations.run,
-                            inquiryResult: inquiry.result, comparisonPreview: comparison.preview, onCopyInquiry: inquiry.copy, onSelectDuplicateGroup: selectionQueries.selectDuplicateGroup, onSelectCountOccurrence: selectionQueries.selectCountOccurrence,
+                            inquiryResult: inquiry.result, comparisonPreview: comparison.preview, onCopyInquiry: inquiry.copy, onInspectTransmittal: () => sheetSet.run('sheetSet', 'INVENTORY'), onSelectDuplicateGroup: selectionQueries.selectDuplicateGroup, onSelectCountOccurrence: selectionQueries.selectCountOccurrence,
                             onOpenRecovery: recovery.open, canOpenRecovery: recovery.canOpen,
                             onSelectRecovery: recovery.select, onShowRecoveryManager: recovery.showManager, hasRecoveryGraph: recovery.hasGraph,
                             onShowRecoveryHistory: recovery.showHistory, onRetryRecovery: recovery.retry, onForgetRecovery: recovery.forget, onRelinkRecovery: recovery.relink, canRelinkRecovery: recovery.canRelink,

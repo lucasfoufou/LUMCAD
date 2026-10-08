@@ -1,3 +1,4 @@
+import { transformDrawingArcTextEntity } from './drawingArcText.js';
 import { normalizeDrawingDwfUnderlay } from './drawingDwfMetadata.js';
 import { normalizeDrawingDgnUnderlay } from './drawingDgnMetadata.js';
 import { transformDrawingToleranceEntity } from './drawingTolerances.js';
@@ -323,6 +324,10 @@ export function transformDrawingEntityAffine(entity, matrix, { textStyles = [], 
         return { ...transformDrawingEntityAffine(entity.type === 'radialDimension' ? { ...rest, angle: Number.isFinite(rest.angle) ? rest.angle : -Math.PI / 4 } : rest, matrix, { textStyles }), detachedSource: transformedSource };
     }
     if (drawingAffineFrame(entity)) return transformDrawingAffineFrame(entity, matrix);
+    if (entity?.arcText) {
+        const defined = transformDrawingArcTextEntity(entity, matrix);
+        if (defined) return defined;
+    }
     if (entity.tolerance) {
         const defined = transformDrawingToleranceEntity(entity, matrix);
         if (defined) return defined;
@@ -425,7 +430,7 @@ export function transformDrawingEntityAffine(entity, matrix, { textStyles = [], 
 
 function translateDrawingBlockEntity(entity, dx, dy) {
     if (drawingAffineFrame(entity)) return transformDrawingAffineFrame(entity, translationAffineMatrix(dx, dy));
-    if (entity.tolerance || entity.table || entity.revisionSymbol || entity.linework || entity.splineDefinition || ['path', 'polar'].includes(entity.array?.kind) || entity.type === 'hatch') {
+    if (entity.arcText || entity.tolerance || entity.table || entity.revisionSymbol || entity.linework || entity.splineDefinition || ['path', 'polar'].includes(entity.array?.kind) || entity.type === 'hatch') {
         return transformDrawingEntityAffine(entity, translationAffineMatrix(dx, dy));
     }
     if (entity.type === DRAWING_BLOCK_REFERENCE_TYPE) {

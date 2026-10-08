@@ -1,3 +1,4 @@
+import { transformDrawingArcTextEntity } from './drawingArcText.js';
 import { transformDrawingToleranceEntity } from './drawingTolerances.js';
 import { transformDrawingTableEntity } from './drawingTableGeometry.js';
 import { transformDrawingRevisionSymbol } from './drawingRevisionSymbols.js';
@@ -226,6 +227,10 @@ export function transformEntity(entity, transform = {}, options = {}) {
     if (!resolved) return entity;
     const { origin, scaleX, scaleY } = resolved;
     if (drawingAffineFrame(entity)) return transformDrawingAffineFrame(entity, scaleAffineMatrix(scaleX, scaleY, origin));
+    if (entity?.arcText) {
+        const defined = transformDrawingArcTextEntity(entity, scaleAffineMatrix(scaleX, scaleY, origin));
+        if (defined) return defined;
+    }
     if (entity?.tolerance) {
         const defined = transformDrawingToleranceEntity(entity, scaleAffineMatrix(scaleX, scaleY, origin));
         if (defined) return defined;
@@ -332,6 +337,10 @@ export function translateEntity(entity, dx, dy) {
         return { ...translateEntity(rest, dx, dy), detachedSource: translateEntity(detachedSource, dx, dy) };
     }
     if (drawingAffineFrame(entity)) return transformDrawingAffineFrame(entity, translationAffineMatrix(dx, dy));
+    if (entity?.arcText) {
+        const defined = transformDrawingArcTextEntity(entity, translationAffineMatrix(dx, dy));
+        if (defined) return defined;
+    }
     if (entity?.tolerance) {
         const defined = transformDrawingToleranceEntity(entity, translationAffineMatrix(dx, dy));
         if (defined) return defined;
@@ -389,6 +398,10 @@ export function rotateEntity(entity, angleInput, origin) {
     if (entity?.type === 'point' && origin && Number.isFinite(angleDegrees)) return transformDrawingPoint(entity, rotationAffineMatrix(angleDegrees, origin));
     if (drawingAffineFrame(entity)) return transformDrawingAffineFrame(entity, rotationAffineMatrix(angleDegrees, origin));
     if (!entity || !origin || !Number.isFinite(angleDegrees)) return entity;
+    if (entity?.arcText) {
+        const defined = transformDrawingArcTextEntity(entity, rotationAffineMatrix(angleDegrees, origin));
+        if (defined) return defined;
+    }
     if (entity?.tolerance) {
         const defined = transformDrawingToleranceEntity(entity, rotationAffineMatrix(angleDegrees, origin));
         if (defined) return defined;
@@ -476,6 +489,10 @@ export function mirrorEntity(entity, axisFirst, axisSecond, options = {}) {
     if (drawingAffineFrame(entity)) return transformDrawingAffineFrame(entity, mirrorAffineMatrix(axisFirst, axisSecond));
     if (!entity || !axisFirst || !axisSecond || pointDistance(axisFirst, axisSecond) <= EPSILON) return entity;
     if (entity.type === 'point') return transformDrawingPoint(entity, mirrorAffineMatrix(axisFirst, axisSecond));
+    if (entity?.arcText) {
+        const defined = transformDrawingArcTextEntity(entity, mirrorAffineMatrix(axisFirst, axisSecond));
+        if (defined) return defined;
+    }
     if (entity?.tolerance) {
         const defined = transformDrawingToleranceEntity(entity, mirrorAffineMatrix(axisFirst, axisSecond));
         if (defined) return defined;

@@ -1,3 +1,4 @@
+import { rebuildDrawingArcTextEntity } from '~utils/drawingArcText';
 import { editDrawingLinework } from '~utils/drawingLineworkCommands';
 import { editDrawingTableDefinition, tableCellAddress, normalizeDrawingTableStyles } from '~utils/drawingTables';
 import { isEditablePointPolyline, editDrawingPointPolyline, isEditableCurvePolyline, editDrawingPolyline } from '~utils/drawingPolylineEditing';
@@ -55,7 +56,7 @@ export default function DrawingCreationControls({
     const contextual = !editMode && (operation || activeTool !== 'select');
     if (!supportsDrawingCreationPanel(panelTool) && !contextual) return null;
 
-    const toolLabel = operation ? t('creation.context') : editEntity?.tolerance ? t('commands.tolerance') : editEntity?.table ? t('commands.table') : t(`${editMode ? 'entity' : 'commands'}.${panelTool}`);
+    const toolLabel = operation ? t('creation.context') : editEntity?.arcText ? t('commands.arcText') : editEntity?.tolerance ? t('commands.tolerance') : editEntity?.table ? t('commands.table') : t(`${editMode ? 'entity' : 'commands'}.${panelTool}`);
     const updateOptions = patch => onChange({
         mode,
         options: patchCreationOptions(options, patch),
@@ -147,6 +148,7 @@ function CreationFields({ activeTool, mode, options, textStyles, t, onModeChange
 }
 
 function EntityEditFields({ content, entity, disabled, textStyles, t, onChange, onImageSource, imageSourceBusy }) {
+    if (entity.arcText) return <ArcTextFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (entity.tolerance) return <ToleranceFields content={content} entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (entity.table) return <TableFields content={content} entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (entity.revisionSymbol) return <RevisionFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
@@ -1132,4 +1134,36 @@ export function TextField({ label, value, onChange, maxLength = 512, disabled = 
         <input type="text" value={value} maxLength={maxLength} disabled={disabled} placeholder={placeholder}
             onChange={event => onChange(event.target.value)} />
     </label>;
+}
+
+
+function ArcTextFields({ entity, disabled, t, onChange }) {
+    const [draft, setDraft] = useState(entity.arcText);
+    const [error, setError] = useState(false);
+    useEffect(() => { setDraft(entity.arcText); setError(false); }, [entity.id, entity.arcText]);
+    const patch = values => setDraft(current => ({ ...current, ...values }));
+    const style = values => setDraft(current => ({ ...current, style: { ...current.style, ...values } }));
+    const apply = () => {
+        const next = rebuildDrawingArcTextEntity({ ...entity, arcText: draft });
+        setError(!next);
+        if (next) onChange(next);
+    };
+    return <div className="drawing-creation-fields">
+        <TextAreaField label={t('creation.textContent')} value={draft.text} disabled={disabled} onChange={text => patch({ text })} />
+        <NumberField label={t('creation.textSize')} value={draft.style.fontSize} min={0.01} max={1e6} disabled={disabled} onChange={fontSize => style({ fontSize })} />
+        <SelectField label={t('creation.textFont')} value={draft.style.fontFamily} disabled={disabled}
+            options={DRAWING_TEXT_FONTS.map(font => [font.id, t(`creation.textFont.${font.id}`)])} onChange={fontFamily => style({ fontFamily })} />
+        <CheckboxField label={t('creation.textBold')} checked={draft.style.fontWeight === 700} disabled={disabled} onChange={bold => style({ fontWeight: bold ? 700 : 400 })} />
+        <CheckboxField label={t('creation.textItalic')} checked={draft.style.fontStyle === 'italic'} disabled={disabled} onChange={italic => style({ fontStyle: italic ? 'italic' : 'normal' })} />
+        <NumberField label={t('arcText.offset')} value={draft.offset} disabled={disabled} onChange={offset => patch({ offset })} />
+        <NumberField label={t('arcText.spacing')} value={draft.spacing} min={0} disabled={disabled} onChange={spacing => patch({ spacing })} />
+        <SelectField label={t('arcText.align')} value={draft.align} disabled={disabled}
+            options={['start', 'center', 'end'].map(value => [value, t(`arcText.${value}`)])} onChange={align => patch({ align })} />
+        <CheckboxField label={t('arcText.reverse')} checked={draft.reverse} disabled={disabled} onChange={reverse => patch({ reverse })} />
+        <p role="status" className="drawing-creation-field is-wide">{t(entity.sourceId ? `arcText.status.${entity.arcText.status}` : 'arcText.detached')}</p>
+        {error && <p role="alert" className="drawing-creation-field is-wide">{t('arcText.invalid')}</p>}
+        <button type="button" className="drawing-creation-action" disabled={disabled} onClick={apply}>{t('arcText.apply')}</button>
+        {entity.sourceId && <button type="button" className="drawing-creation-action" disabled={disabled}
+            onClick={() => onChange({ ...entity, sourceId: undefined, arcText: { ...entity.arcText, status: 'current' } })}>{t('arcText.detach')}</button>}
+    </div>;
 }

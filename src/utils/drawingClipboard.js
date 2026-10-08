@@ -1116,7 +1116,7 @@ function entityToSvg(entity, context) {
     }
     if (entity.type === 'text' && entity.fitWidth) {
         const layout = getDrawingTextLayout(entity);
-        return `<text transform="${drawingRectTransform(entity) || ''}" font-family="${escapeXml(layout.baseStyle.cssFontFamily)}" font-size="${layout.fontSize}" font-weight="${layout.baseStyle.fontWeight}" font-style="${layout.baseStyle.fontStyle}" x="${layout.textX}" y="${layout.firstBaseline}" textLength="${layout.availableWidth}" lengthAdjust="spacingAndGlyphs" fill="${escapeXml(appearance.color)}" opacity="${appearance.opacity}">${escapeXml(entity.text || '')}</text>`;
+        return `<text transform="${drawingRectTransform(entity) || ''}" font-family="${escapeXml(layout.baseStyle.cssFontFamily)}" font-size="${layout.fontSize}" font-weight="${layout.baseStyle.fontWeight}" font-style="${layout.baseStyle.fontStyle}" x="${layout.textX}" y="${layout.firstBaseline}" text-anchor="${layout.textAnchor}" textLength="${layout.availableWidth}" lengthAdjust="spacingAndGlyphs" fill="${escapeXml(appearance.color)}" opacity="${appearance.opacity}">${escapeXml(entity.text || '')}</text>`;
     }
     if (entity.type === 'text') return drawingTextToSvg(entity, appearance, context);
     if (entity.type === 'region') {

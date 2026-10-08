@@ -7,6 +7,7 @@ import { createLcadArchive, readLcadArchive } from './lcadArchive.js';
 import { attachDrawingReference } from './drawingReferences.js';
 import { rebuildDrawingTableEntity } from './drawingTableGeometry.js';
 import { createDrawingSheetSet } from './drawingSheetSets.js';
+import { createTranslator } from '../i18n/translator.js';
 import { createDrawingTransmittal } from './drawingTransmittal.js';
 
 function fixture() {
@@ -57,7 +58,7 @@ test('transmittal relocates recursive drawings and CSV links, deduplicates cycle
 test('missing dependencies and mismatched source identities refuse the complete transmittal', async () => {
     const { set, files, adapters } = fixture();
     files.delete('/project/values.csv');
-    await assert.rejects(createDrawingTransmittal(set, '/project/index.json', adapters), /missing source/);
+    await assert.rejects(createDrawingTransmittal(set, '/project/index.json', adapters), /sheetSetDependencyUnreadable/);
     files.set('/project/values.csv', new Uint8Array());
     const replaced = createLcadDocument();
     files.set('/project/refs/main.lcad', createLcadArchive(createLcadEnvelope(replaced)));
@@ -69,4 +70,63 @@ test('transmittal file, edge, compressed and decoded budgets reject before outpu
     for (const limit of [{ maxFiles: 1 }, { maxEdges: 1 }, { maxBytes: 1 }, { maxDecodedCharacters: 1 }]) {
         await assert.rejects(createDrawingTransmittal(set, '/project/index.json', { ...adapters, ...limit }), /sheetSetLimit/);
     }
+});
+
+
+test('inventory reports deduplicated source paths and sizes without leaking absolute paths into the archive', async () => {
+    const { set, adapters, files } = fixture();
+    const result = await createDrawingTransmittal(set, '/project/index.json', adapters);
+    assert.equal(result.inventory.complete, true);
+    assert.equal(result.inventory.files.length, 3);
+    for (const file of result.inventory.files) {
+        assert.equal(file.collected, true);
+        assert.equal(file.bytes, files.get(file.sourcePath).byteLength);
+    }
+    const report = strFromU8(unzipSync(result.bytes)['transmittal.json']);
+    assert.ok(!report.includes('/project/'));
+    assert.ok(result.report.files.some(file => file.name === 'values.csv' && file.kind === 'csv'));
+});
+
+test('failed inventory identifies unreadable, invalid and replaced files and never returns an archive', async () => {
+    for (const mode of ['missing', 'invalid', 'replaced']) {
+        const { set, adapters, files } = fixture();
+        const path = '/project/refs/main.lcad';
+        if (mode === 'missing') files.delete(path);
+        if (mode === 'invalid') files.set(path, strToU8('not a drawing'));
+        if (mode === 'replaced') files.set(path, createLcadArchive(createLcadEnvelope(createLcadDocument())));
+        await assert.rejects(createDrawingTransmittal(set, '/project/index.json', adapters), error => {
+            const inventory = error.transmittalInventory;
+            assert.equal(inventory.complete, false);
+            assert.equal(inventory.issue.code, { missing: 'sheetSetDependencyUnreadable', invalid: 'sheetSetDependencyInvalid', replaced: 'sheetSetSourceChanged' }[mode]);
+            assert.equal(inventory.issue.path, path);
+            assert.equal(inventory.files.find(file => file.sourcePath === path).collected, mode === 'replaced');
+            assert.ok(!Object.hasOwn(error, 'bytes'));
+            return true;
+        });
+    }
+});
+
+
+test('portable text report is localized, lists every source and explains extraction without local paths', async () => {
+    const { set, adapters } = fixture();
+    for (const locale of ['en', 'fr']) {
+        const t = createTranslator(locale);
+        const result = await createDrawingTransmittal(set, '/project/index.json', { ...adapters, translate: t });
+        const text = strFromU8(unzipSync(result.bytes)['transmittal.txt']);
+        assert.ok(text.startsWith(t('sheetSet.inventoryTitle')));
+        assert.ok(text.includes(t('sheetSet.transmittalInstructions')));
+        assert.ok(!text.includes('/project/'));
+        for (const file of result.report.files) {
+            assert.ok(text.includes(file.path));
+            assert.ok(text.includes(file.name));
+        }
+    }
+});
+
+
+test('report size preflight enforces the native root-file limit before returning a package', async () => {
+    const { set, adapters } = fixture();
+    await assert.rejects(createDrawingTransmittal(set, '/project/index.json', {
+        ...adapters, translate: key => key === 'sheetSet.inventoryTitle' ? 'x'.repeat(4 * 1024 * 1024) : key,
+    }), error => error.message === 'sheetSetLimit' && error.transmittalInventory.complete === false);
 });

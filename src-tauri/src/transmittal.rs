@@ -6,7 +6,7 @@ const MAX_BYTES: usize = 300 * 1024 * 1024;
 fn validate(bytes: &[u8]) -> Result<(), String> {
     if bytes.is_empty() || bytes.len() > MAX_BYTES { return Err("Invalid transmittal size".into()); }
     let mut archive = ZipArchive::new(Cursor::new(bytes)).map_err(|e| e.to_string())?;
-    if archive.len() < 3 || archive.len() > 514 { return Err("Invalid transmittal file count".into()); }
+    if archive.len() < 3 || archive.len() > 515 { return Err("Invalid transmittal file count".into()); }
     let mut paths = HashSet::new();
     let mut total = 0_u64;
     for index in 0..archive.len() {
@@ -17,10 +17,11 @@ fn validate(bytes: &[u8]) -> Result<(), String> {
             tail.rsplit_once('.').is_some_and(|(number, extension)| !number.is_empty()
                 && number.bytes().all(|c| c.is_ascii_digit()) && ["lcad", "csv"].contains(&extension))
         });
-        if (!root && !drawing) || entry.encrypted() || entry.is_symlink() || entry.is_dir() || !paths.insert(name.clone()) {
+        if (!root && !drawing && name != "transmittal.txt") || entry.encrypted() || entry.is_symlink() || entry.is_dir() || !paths.insert(name.clone()) {
             return Err("Unsafe transmittal entry".into());
         }
         total = total.checked_add(entry.size()).filter(|size| *size <= MAX_BYTES as u64).ok_or("Transmittal exceeds size limit")?;
+        if name == "transmittal.txt" && entry.size() > 4 * 1024 * 1024 { return Err("Transmittal report exceeds size limit".into()); }
         if root {
             if entry.size() > 4 * 1024 * 1024 { return Err("Transmittal index exceeds size limit".into()); }
             let mut text = String::new();
@@ -61,6 +62,7 @@ mod tests {
     fn writes_only_bounded_safe_zip_packages_and_preserves_existing_output_on_failure() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("project.zip").to_string_lossy().into_owned();
+        assert!(validate(&package("transmittal.txt")).is_ok());
         let bytes = package("drawings/file-1.csv");
         write_drawing_transmittal(path.clone(), bytes.clone()).unwrap();
         for bad in [package("../escape.csv"), package("drawings/file-1.exe"), b"bad zip".to_vec()] {
