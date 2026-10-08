@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import useLatestRef from '~hooks/useLatestRef';
 import { useI18n } from '~i18n/I18nProvider';
 import { localizeError } from '~i18n/translator';
 import { createLcadDocument, createLcadEnvelope } from '~utils/lcadDocument';
+import { createLcadRecoveredSession, readSavedRecoveredCandidate } from '~utils/lcadRecovery';
+import { createLcadTemplateSession, parseNewDrawingInput, parseTemplateSaveInput, prepareLcadTemplate } from '~utils/lcadTemplates';
 import { printRenderedLayouts, waitForPrintRendering } from '~utils/drawingPrint';
 import {
     createDrawingDwfx,
@@ -14,6 +16,7 @@ import {
 import {
     clearLcadRecovery,
     exportLcadDocumentAs,
+    isTauriRuntime,
     listenForLcadOpen,
     openLcadDocument,
     readLcadDocumentAtPath,
@@ -29,17 +32,24 @@ export default function useLcadFileCommands({
     publishRendererRef = null,
     setMessage,
     blockEditing = false,
+    protectedPaths = [],
 }) {
     const { t } = useI18n();
     const [isExporting, setIsExporting] = useState(false);
     const [printJob, setPrintJob] = useState(null);
     const [publishRequest, setPublishRequest] = useState(null);
+    const newDrawingPending = useRef(false);
 
     const saveDrawingAs = useCallback(async () => {
         if (blockEditing) { setMessage(t('block.error.closeFirst')); return null; }
-        const result = await autosave.saveAs();
-        setMessage(t(result ? 'file.savedAs' : 'file.saveAsCancelled'));
-        return result;
+        try {
+            const result = await autosave.saveAs();
+            setMessage(t(result ? 'file.savedAs' : 'file.saveAsCancelled'));
+            return result;
+        } catch (error) {
+            setMessage(localizeError(error, t, 'file.currentSaveFailed'));
+            return null;
+        }
     }, [autosave, blockEditing, setMessage, t]);
 
     const prepareSessionReplacement = useCallback(async () => {
@@ -70,20 +80,66 @@ export default function useLcadFileCommands({
         });
     }, [onReplaceSession]);
 
-    const createNewDrawing = useCallback(async () => {
-        if (!await prepareSessionReplacement()) return;
-        await clearLcadRecovery();
-        onReplaceSession({
-            document: createLcadDocument({
-                name: t('document.untitled'),
-                layoutName: t('layout.defaultName', { number: 1 }),
-                gridSpacing: drawingDefaults?.gridSpacing,
-                tracking: drawingDefaults?.tracking,
-            }),
-            path: null,
-            recovered: false,
-        });
-    }, [drawingDefaults, onReplaceSession, prepareSessionReplacement, t]);
+    const createNewDrawing = useCallback(async (input = '') => {
+        const request = parseNewDrawingInput(input);
+        if (!request) { setMessage(t('template.newSyntax')); return false; }
+        if (blockEditing) { setMessage(t('block.error.closeFirst')); return false; }
+        if (newDrawingPending.current) return false;
+        newDrawingPending.current = true;
+        try {
+            let loaded = request.template
+                ? await (request.path ? readLcadDocumentAtPath(request.path) : openLcadDocument({ filterName: t('fileDialog.lcadDrawing') }))
+                : null;
+            if ((request.template && !loaded) || !await prepareSessionReplacement()) return false;
+            // Saving the active drawing in the prompt may have updated the selected template.
+            if (loaded?.path) loaded = await readLcadDocumentAtPath(loaded.path);
+            const next = loaded
+                ? createLcadTemplateSession(loaded.envelope.document, { name: t('document.untitled'), sourcePath: loaded.path })
+                : { document: createLcadDocument({
+                    name: t('document.untitled'),
+                    layoutName: t('layout.defaultName', { number: 1 }),
+                    gridSpacing: drawingDefaults?.gridSpacing,
+                    tracking: drawingDefaults?.tracking,
+                }), path: null, recovered: false };
+            if (loaded) next.initialMessage = t(next.unresolvedReferences.length ? 'template.createdUnresolved' : 'template.created', {
+                count: next.unresolvedReferences.length,
+            });
+            await clearLcadRecovery();
+            onReplaceSession(next);
+            return true;
+        } catch (error) {
+            setMessage(localizeError(error, t, 'file.openFailed'));
+            return false;
+        } finally { newDrawingPending.current = false; }
+    }, [blockEditing, drawingDefaults, onReplaceSession, prepareSessionReplacement, setMessage, t]);
+
+    const createQuickDrawing = useCallback(async (input = '') => {
+        if (String(input).trim()) { setMessage(t('template.quickSyntax')); return false; }
+        const path = drawingDefaults?.templatePath;
+        return createNewDrawing(path ? isTauriRuntime() ? `FROM ${JSON.stringify(path)}` : 'TEMPLATE' : '');
+    }, [createNewDrawing, drawingDefaults?.templatePath, setMessage, t]);
+
+    const saveDrawingTemplate = useCallback(async (input = '') => {
+        if (blockEditing) { setMessage(t('block.error.closeFirst')); return false; }
+        const request = parseTemplateSaveInput(input);
+        if (!request) { setMessage(t('template.saveSyntax')); return false; }
+        try {
+            const prepared = prepareLcadTemplate(document, filePath);
+            const result = await exportLcadDocumentAs(createLcadEnvelope(prepared.document), document.name, {
+                filterName: t('fileDialog.lcadDrawing'),
+                destinationPath: request.path,
+                protectedPath: filePath,
+                protectedPaths,
+            });
+            setMessage(t(result ? prepared.unresolved.length ? 'template.savedUnresolved' : 'template.saved' : 'file.saveAsCancelled', {
+                count: prepared.unresolved.length,
+            }));
+            return Boolean(result);
+        } catch (error) {
+            setMessage(localizeError(error, t, 'file.currentSaveFailed'));
+            return false;
+        }
+    }, [blockEditing, document, filePath, protectedPaths, setMessage, t]);
 
     const openDrawing = useCallback(async () => {
         if (!await prepareSessionReplacement()) return;
@@ -103,6 +159,17 @@ export default function useLcadFileCommands({
             setMessage(localizeError(error, t, 'file.systemOpenFailed'));
         }
     }, [prepareSessionReplacement, replaceWithLoaded, setMessage, t]);
+
+    const openRecoveredDrawing = useCallback(async (result, recoveryGraph = null) => {
+        if (!result?.ready || !result.report?.valid || !result.envelope?.document || !await prepareSessionReplacement()) return false;
+        const graph = typeof recoveryGraph === 'function' ? recoveryGraph() : recoveryGraph;
+        const candidate = await readSavedRecoveredCandidate(result, graph, readLcadDocumentAtPath);
+        const session = createLcadRecoveredSession(candidate, t('recovery.copyName', { name: candidate.envelope.document.name || t('document.untitled') }), graph);
+        if (!session) return false;
+        await clearLcadRecovery();
+        onReplaceSession(session);
+        return true;
+    }, [onReplaceSession, prepareSessionReplacement, t]);
 
     const externalOpenRef = useLatestRef(openDrawingAtPath);
     useEffect(() => {
@@ -263,12 +330,15 @@ export default function useLcadFileCommands({
 
     return {
         createNewDrawing,
+        createQuickDrawing,
+        saveDrawingTemplate,
         autoPublish,
         closePublishDialog,
         exportPageSetups,
         exportPdf,
         isExporting,
         openDrawing,
+        openRecoveredDrawing,
         printPublishedLayouts,
         printJob,
         publishRenderedLayouts,

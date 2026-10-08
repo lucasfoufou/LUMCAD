@@ -1,4 +1,6 @@
-import { resolveDrawingBlockChild } from './drawingBlocks.js';
+import { getEntityBounds } from './drawingGeometry.js';
+import { IDENTITY_AFFINE_MATRIX, multiplyAffineMatrices, transformDrawingEntityAffine, resolveDrawingBlockChild } from './drawingBlocks.js';
+import { drawingBlockInstanceEntities } from './drawingDynamicBlocks.js';
 import { tokenizeDrawingAttributeInput } from './drawingBlockAttributes.js';
 import { canSelectEntity, getEntityAppearance } from './drawingDocument.js';
 
@@ -76,27 +78,31 @@ export function selectSimilarDrawingEntities(content, selectedIds, fields = ['TY
 
 export function countDrawingEntities(content, ids, { nestedBlocks = false } = {}) {
     const selected = new Set(ids);
-    const rows = new Map(); const rootIds = new Set();
+    const rows = new Map(); const rootIds = new Set(); const occurrences = [];
     const blocks = new Map((content.blocks || []).map(block => [block.id, block]));
     let remaining = 10000;
-    const visit = (entity, rootId, visiting) => {
+    const visit = (entity, rootId, visiting, matrix, path) => {
         if (--remaining < 0) return false;
-        if (!canSelectEntity(content, entity)) return true;
+        if (!entity || !canSelectEntity(content, entity)) return true;
         const block = entity.type === 'blockReference' ? blocks.get(entity.blockId) : null;
         if (!nestedBlocks || block) {
             const layer = content.layers.find(item => item.id === entity.layerId)?.name || entity.layerId;
             const key = JSON.stringify([entity.type, layer, block?.name || '']);
             if (!rows.has(key)) rows.set(key, { type: entity.type, layer, block: block?.name || '', count: 0 });
             rows.get(key).count += 1; rootIds.add(rootId);
+            const world = path.length ? transformDrawingEntityAffine(entity, matrix, { textStyles: content.textStyles }) : entity;
+            const bounds = getEntityBounds(world);
+            occurrences.push({ rootId, path: [...path, entity.id], type: entity.type, layer, block: block?.name || '',
+                bounds: bounds && Object.values(bounds).every(Number.isFinite) ? bounds : null });
         }
         if (!nestedBlocks || !block) return true;
         if (visiting.has(block.id) || visiting.size >= 32) return false;
         const next = new Set(visiting); next.add(block.id);
-        return block.entities.every(child => visit(resolveDrawingBlockChild(child, entity, content.settings?.attributeDisplay), rootId, next));
+        return drawingBlockInstanceEntities(block, entity).every(child => visit(resolveDrawingBlockChild(child, entity, content.settings?.attributeDisplay), rootId, next, multiplyAffineMatrices(matrix, entity.transform), [...path, entity.id]));
     };
     for (const entity of content.entities) {
-        if (selected.has(entity.id) && canSelectEntity(content, entity) && !visit(entity, entity.id, new Set())) return null;
+        if (selected.has(entity.id) && canSelectEntity(content, entity) && !visit(entity, entity.id, new Set(), IDENTITY_AFFINE_MATRIX, [])) return null;
     }
     const values = [...rows.values()].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-    return { rows: values, total: values.reduce((sum, row) => sum + row.count, 0), selectedIds: [...rootIds] };
+    return { mode: 'countObjects', occurrences, rows: values, total: values.reduce((sum, row) => sum + row.count, 0), selectedIds: [...rootIds] };
 }

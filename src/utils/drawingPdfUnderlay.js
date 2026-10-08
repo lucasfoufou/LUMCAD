@@ -1,6 +1,5 @@
 import { closeDrawingPdfPath } from './drawingPdfGeometry.js';
-import { canEditEntity, createDrawingId } from './drawingDocument.js';
-import { createAnonymousDrawingBlock, createAnonymousDrawingBlockReference, refreshDrawingBlockBounds } from './drawingBlocks.js';
+import { attachDrawingRasterUnderlay } from './drawingRasterUnderlay.js';
 import { curvePointAt, curveSubcurve, intersectCurves } from './drawingCurveKernel.js';
 import { sampleDrawingBoundaryPath } from './drawingBoundaryDetection.js';
 import { normalizeDrawingPdfUnderlay } from './drawingPdfMetadata.js';
@@ -64,22 +63,11 @@ export function drawingPdfSnapEntities(records, { maxChecks = 1000000, budget = 
     return result;
 }
 
-export function attachDrawingPdfUnderlay(document, page, sourceAsset, { x = 0, y = 0, scale = 1, layerId = document.content.activeLayerId } = {}) {
-    if (![x, y, scale].every(Number.isFinite) || scale <= 0 || scale > 1e9
-        || ![x, y, x + page.width * scale, y + page.height * scale].every(value => Number.isFinite(value) && Math.abs(value) <= 1e9)) throw createI18nError('pdf.placement');
-    if (!canEditEntity(document.content, { layerId })) throw createI18nError('block.error.layer');
-    const preview = { id: createDrawingId('asset'), name: `${sourceAsset.name} — ${page.pageNumber}`, mimeType: 'image/png', ...page.preview };
-    const image = { id: createDrawingId('image'), type: 'image', layerId: 'geometry', assetId: preview.id,
-        x: 0, y: 0, width: page.width, height: page.height, opacity: 1, includeInPdf: true };
-    const definition = createAnonymousDrawingBlock([image]);
+export function attachDrawingPdfUnderlay(document, page, sourceAsset, placement = {}) {
     const metadata = normalizeDrawingPdfUnderlay({ version: 1, assetId: sourceAsset.id, name: sourceAsset.name,
         pageNumber: page.pageNumber, pageCount: page.pageCount, width: page.width, height: page.height, layers: page.layers,
         snapEntities: drawingPdfSnapEntities(page.paths.records) });
     if (!metadata) throw createI18nError('pdf.invalid');
-    const reference = { ...createAnonymousDrawingBlockReference(definition, { layerId }),
-        transform: { a: scale, b: 0, c: 0, d: scale, e: x, f: y }, pdfUnderlay: metadata };
-    if (document.content.blocks.length >= 1024 || document.content.blocks.reduce((sum, block) => sum + block.entities.length, 0) >= 100000) throw createI18nError('pdf.limit');
-    return { ...document, assets: [...document.assets.filter(asset => asset.id !== sourceAsset.id), sourceAsset, preview],
-        content: refreshDrawingBlockBounds({ ...document.content, blocks: [...document.content.blocks, definition], entities: [...document.content.entities, reference] }),
-        selectedIds: [reference.id] };
+    return attachDrawingRasterUnderlay(document, page, sourceAsset, 'pdfUnderlay', metadata, placement,
+        key => createI18nError(`pdf.${key}`));
 }

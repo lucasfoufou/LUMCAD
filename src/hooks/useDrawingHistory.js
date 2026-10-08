@@ -1,30 +1,16 @@
-import { applyCurrentStyleToNewDimensions } from '~utils/drawingDimensionStyles';
-import { refreshDrawingHatches } from '~utils/drawingHatches';
-import { refreshPathArrays } from '~utils/drawingPathArray';
+import { commitDrawingHistoryState, undoDrawingHistoryState, redoDrawingHistoryState, updateDrawingHistoryMetadata } from '~utils/drawingHistory';
 import { useCallback, useState } from 'react';
-
-const HISTORY_LIMIT = 100;
 
 export default function useDrawingHistory(initialContent) {
     const documentMode = isDocumentHistoryState(initialContent);
     const [history, setHistory] = useState({ past: [], present: initialContent, future: [], coalesceKey: null });
 
-    const commitPresent = useCallback((nextOrUpdater, { coalesceKey = null, applyCreationStyles = true } = {}) => {
+    const commitPresent = useCallback((nextOrUpdater, { coalesceKey = null, applyCreationStyles = true, preserveConstraintSnapshot = false } = {}) => {
         setHistory(current => {
             const next = typeof nextOrUpdater === 'function'
                 ? nextOrUpdater(current.present)
                 : nextOrUpdater;
-            if (!next || next === current.present) return current;
-            return {
-                past: coalesceKey && current.coalesceKey === coalesceKey
-                    ? current.past
-                    : [...current.past, current.present].slice(-HISTORY_LIMIT),
-                present: next.content
-                    ? { ...next, content: refreshDrawingHatches(refreshPathArrays((applyCreationStyles ? applyCurrentStyleToNewDimensions(next.content, current.present.content) : next.content), current.present.content), current.present.content) }
-                    : refreshDrawingHatches(refreshPathArrays((applyCreationStyles ? applyCurrentStyleToNewDimensions(next, current.present) : next), current.present), current.present),
-                future: [],
-                coalesceKey,
-            };
+            return commitDrawingHistoryState(current, next, { coalesceKey, applyCreationStyles, preserveConstraintSnapshot });
         });
     }, []);
 
@@ -71,33 +57,20 @@ export default function useDrawingHistory(initialContent) {
     }, []);
 
     const undo = useCallback(() => {
-        setHistory(current => {
-            if (current.past.length === 0) return current;
-            return {
-                past: current.past.slice(0, -1),
-                present: current.past[current.past.length - 1],
-                future: [current.present, ...current.future],
-                coalesceKey: null,
-            };
-        });
+        setHistory(undoDrawingHistoryState);
     }, []);
 
     const redo = useCallback(() => {
-        setHistory(current => {
-            if (current.future.length === 0) return current;
-            return {
-                past: [...current.past, current.present].slice(-HISTORY_LIMIT),
-                present: current.future[0],
-                future: current.future.slice(1),
-                coalesceKey: null,
-            };
-        });
+        setHistory(redoDrawingHistoryState);
     }, []);
+
+    const updateMetadata = useCallback((field, updater) => setHistory(current => updateDrawingHistoryMetadata(current, field, updater)), []);
 
     const reset = useCallback(present => setHistory({ past: [], present, future: [], coalesceKey: null }), []);
 
     return {
         reset,
+        updateMetadata,
         content: documentMode ? history.present.content : history.present,
         layouts: documentMode ? history.present.layouts : null,
         pageSetups: documentMode ? history.present.pageSetups || [] : null,
@@ -111,6 +84,7 @@ export default function useDrawingHistory(initialContent) {
         redo,
         canUndo: history.past.length > 0,
         canRedo: history.future.length > 0,
+        rejection: history.rejection,
     };
 }
 

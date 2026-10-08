@@ -4,7 +4,7 @@ import { createDrawingId, normalizeDrawingContent } from './drawingDocument.js';
 import { createLcadDocument, createLcadEnvelope, normalizeLcadDocument } from './lcadDocument.js';
 import { createLcadArchive } from './lcadArchive.js';
 import { createDrawingClipboardPayload, pasteDrawingClipboardPayload, DRAWING_CLIPBOARD_LIMITS } from './drawingClipboard.js';
-import { createAnonymousDrawingBlock, createAnonymousDrawingBlockReference } from './drawingBlocks.js';
+import { createAnonymousDrawingBlock, createAnonymousDrawingBlockReference, getDrawingBlockDefinitionBounds } from './drawingBlocks.js';
 import { findNamedDrawingBlock, normalizeDrawingBlockName } from './drawingNamedBlocks.js';
 import { normalizeDrawingBasePoint } from './drawingBasePoint.js';
 import { remapDrawingReferenceResources } from './drawingReferenceMetadata.js';
@@ -43,14 +43,10 @@ export function createDrawingBlockLibrary(document, { selector = null, selectedI
 export function importDrawingBlockLibrary(target, document, { preserveBlockEntityIds = false } = {}) {
     assertLibraryGraph(document);
     let source = normalizeLcadDocument(document);
-    const marker = source.content.metadata?.blockLibrary;
+    const libraryEntries = validatedLibraryEntries(source);
     let entryIds;
-    if (marker !== undefined) {
-        if (marker?.version !== 1 || !Array.isArray(marker.entryBlockIds) || !marker.entryBlockIds.length
-            || marker.entryBlockIds.length > 1024 || marker.entryBlockIds.some(id => !source.content.blocks.some(block => block.id === id))) {
-            throw createI18nError('block.error.invalidLibrary');
-        }
-        entryIds = [...new Set(marker.entryBlockIds)];
+    if (libraryEntries) {
+        entryIds = libraryEntries;
     } else if (source.content.entities.length) {
         source = createDrawingBlockLibrary(source);
         entryIds = source.content.metadata.blockLibrary.entryBlockIds;
@@ -78,6 +74,47 @@ export function importDrawingBlockLibrary(target, document, { preserveBlockEntit
     // Validate combined manifest/assets before the caller commits any resources.
     createLcadArchive(createLcadEnvelope({ ...target, content, assets: result.assets }));
     return result;
+}
+
+/** Inspect a source without importing resources or changing the host drawing. */
+export function inspectDrawingBlockLibrary(document) {
+    assertLibraryGraph(document);
+    const source = normalizeLcadDocument(structuredClone(document));
+    const roots = validatedLibraryEntries(source);
+    const blocks = roots ? roots.map(id => source.content.blocks.find(block => block.id === id))
+        : source.content.blocks.filter(block => !block.name.startsWith('*'));
+    const entries = blocks.map(block => ({ key: `block:${block.id}`, blockId: block.id, name: block.name, objects: block.entities.length }));
+    if (!roots && source.content.entities.length) entries.unshift({ key: 'drawing', blockId: null, name: source.name, objects: source.content.entities.length });
+    if (!entries.length) throw createI18nError('block.error.emptyLibrary');
+    return { document: source, entries };
+}
+
+export function selectDrawingLibraryEntry(library, key) {
+    const entry = library?.entries.find(item => item.key === key);
+    if (!entry) throw createI18nError('block.error.missing');
+    return entry.blockId ? exportEntries(library.document, [entry.blockId]) : createDrawingBlockLibrary(library.document);
+}
+
+export function previewDrawingLibraryEntry(library, key) {
+    const entry = library?.entries.find(item => item.key === key);
+    if (!entry) return null;
+    const content = library.document.content;
+    if (!entry.blockId) return content;
+    const block = content.blocks.find(block => block.id === entry.blockId);
+    const layer = content.layers.find(layer => layer.visible !== false && !layer.frozen) || content.layers[0];
+    const reference = createAnonymousDrawingBlockReference(block, { id: 'library-preview', layerId: layer.id });
+    const bounds = getDrawingBlockDefinitionBounds(block, content.blocks);
+    return { ...content, entities: [{ ...reference, ...(bounds ? { definitionBounds: bounds } : {}) }] };
+}
+
+function validatedLibraryEntries(source) {
+    const marker = source.content.metadata?.blockLibrary;
+    if (marker === undefined) return null;
+    if (marker?.version !== 1 || !Array.isArray(marker.entryBlockIds) || !marker.entryBlockIds.length
+        || marker.entryBlockIds.length > 1024 || marker.entryBlockIds.some(id => !source.content.blocks.some(block => block.id === id))) {
+        throw createI18nError('block.error.invalidLibrary');
+    }
+    return [...new Set(marker.entryBlockIds)];
 }
 
 export function parseBlockExportInput(input) {

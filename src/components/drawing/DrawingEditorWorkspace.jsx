@@ -1,5 +1,29 @@
+import { parseDrawingHyperlinkInput } from '~utils/drawingHyperlinks';
+import { setDrawingHyperlink } from '~utils/drawingHyperlinkOperations';
+import { openDrawingHyperlink } from '~utils/openDrawingHyperlink';
+import { expandDrawingAlias, validateDrawingAliases } from '~utils/drawingCommandPreferences';
+import useDrawingImageExport from '~hooks/useDrawingImageExport';
+import useDrawingSheetSet from '~hooks/useDrawingSheetSet';
+import DrawingDownloadNotice from './DrawingDownloadNotice';
+import useDrawingStandards from '~hooks/useDrawingStandards';
+import useDrawingComparison from '~hooks/useDrawingComparison';
+import { auditDrawingDocument, repairDrawingDocument } from '~utils/drawingAudit';
+import { flattenDrawingEntities, parseDrawingFlattenInput } from '~utils/drawingFlatten';
+import { purgeDrawingDefinitions, parseDrawingPurgeInput } from '~utils/drawingPurge';
+import { cleanupDrawingEntities, parseDrawingCleanupInput } from '~utils/drawingCleanup';
+import useDrawingConstraints from '~hooks/useDrawingConstraints';
+import useDrawingSmartBlocks from '~hooks/useDrawingSmartBlocks';
+import useDrawingDynamicBlocks from '~hooks/useDrawingDynamicBlocks';
+import useDrawingTolerances from '~hooks/useDrawingTolerances';
+import useDrawingFields from '~hooks/useDrawingFields';
+import useDrawingTables from '~hooks/useDrawingTables';
+import useDrawingRevision from '~hooks/useDrawingRevision';
+import useDrawingSketch from '~hooks/useDrawingSketch';
+import useDrawingLinework from '~hooks/useDrawingLinework';
+import useDrawingPointPlacement from '~hooks/useDrawingPointPlacement';
 import useDrawingAnnotations from '~hooks/useDrawingAnnotations';
 import useDrawingReferences from '~hooks/useDrawingReferences';
+import useDrawingDwf from '~hooks/useDrawingDwf';
 import useDrawingPdf from '~hooks/useDrawingPdf';
 import { drawingReferenceEditContext } from '~utils/drawingReferences';
 import { alignDrawingViewportPoints, transferDrawingSpace } from '~utils/drawingSpaceTransfer';
@@ -26,6 +50,10 @@ import { disassociateDrawingDimensions, reassociateDrawingDimensions, beginDimen
 import { maintainDrawingDimensions, beginDimensionTextPlacement, placeDimensionTextAtPoint, beginDimensionBreak, advanceDimensionBreak } from '~utils/drawingDimensionMaintenance';
 import { runDimensionStyleCommand } from '~utils/drawingDimensionStyleCommands';
 import { exportDrawingAttributes } from '~utils/drawingAttributeExport';
+import useDrawingTableFiles from '~hooks/useDrawingTableFiles';
+import useDrawingWmf from '~hooks/useDrawingWmf';
+import useDrawingDgn from '~hooks/useDrawingDgn';
+import useDrawingDataExtraction from '~hooks/useDrawingDataExtraction';
 import { manageDrawingAttributes, parseDrawingAttributeManagerInput } from '~utils/drawingAttributeManager';
 import { defineDrawingAttribute, editDrawingAttribute, syncDrawingAttributes } from '~utils/drawingAttributeOperations';
 import { tokenizeDrawingAttributeInput } from '~utils/drawingBlockAttributes';
@@ -48,6 +76,7 @@ import DrawingLayoutEditor from '~components/drawing/DrawingLayoutEditor';
 import DrawingPrintPage from '~components/drawing/DrawingPrintPage';
 import DrawingPublishDialog from '~components/drawing/DrawingPublishDialog';
 import DrawingPublishRenderer from '~components/drawing/DrawingPublishRenderer';
+import DrawingModelExportRenderer from '~components/drawing/DrawingModelExportRenderer';
 import DrawingWorkspaceTabs from '~components/drawing/DrawingWorkspaceTabs';
 import useDrawingAlignCommand from '~hooks/useDrawingAlignCommand';
 import useDrawingArrayCommand from '~hooks/useDrawingArrayCommand';
@@ -60,6 +89,7 @@ import useDrawingHistory from '~hooks/useDrawingHistory';
 import useAppUpdater from '~hooks/useAppUpdater';
 import useLcadAutosave from '~hooks/useLcadAutosave';
 import useLcadFileCommands from '~hooks/useLcadFileCommands';
+import useDrawingRecovery from '~hooks/useDrawingRecovery';
 import useLocalDrawingImageImport from '~hooks/useLocalDrawingImageImport';
 import useLumcadMcpBridge from '~hooks/useLumcadMcpBridge';
 import { useI18n } from '~i18n/I18nProvider';
@@ -126,6 +156,7 @@ import {
 import { normalizeLcadDocument } from '~utils/lcadDocument';
 import { openLcadDocument, exportLcadDocumentAs } from '~utils/lcadStorage';
 import { applySplineEditInput, isEditableSpline } from '~utils/drawingSplineEditing';
+import { isEditableDrawingPolyline, editDrawingPolyline, parseDrawingPolylineEdit } from '~utils/drawingPolylineEditing';
 import { supportsDrawingCreationPanel } from '~utils/drawingCreation';
 import { normalizePolarAngles } from '~utils/drawingDraftingSettings';
 import {
@@ -146,13 +177,18 @@ const draftingCommands = new Set([
 
 export default function DrawingEditorWorkspace({
     initialDocument,
+    sheetSetSessionRef,
     initialPath = null,
     recovered = false,
+    initialRecoveryReport = null,
+    initialRecoveryGraph = null,
+    initialTemplateSourcePath = null,
+    initialMessage = '',
     onReplaceSession,
     onOpenSettings,
 }) {
     const { formatNumber, locale, t } = useI18n();
-    const { settings } = useAppSettings();
+    const { settings, updateSettings } = useAppSettings();
     const canvasRef = useRef(null);
     const layoutCanvasRef = useRef(null);
     const commandBarRef = useRef(null);
@@ -175,8 +211,6 @@ export default function DrawingEditorWorkspace({
         chamferDistance1: 0,
         chamferDistance2: 0,
     });
-    const [name, setName] = useState(initialDocument.name);
-    const [modelAssets, setModelAssets] = useState(initialDocument.assets || []);
     const [filePath, setFilePath] = useState(initialPath);
     const [selectedIds, setSelectedIds] = useState([]);
     const [activeTool, setActiveTool] = useState('select');
@@ -184,7 +218,7 @@ export default function DrawingEditorWorkspace({
     const [commandValue, setCommandValue] = useState('');
     const [interactiveOperation, setInteractiveOperation] = useState(null);
     const [creationPanelEntityId, setCreationPanelEntityId] = useState(null);
-    const [message, setMessage] = useState('');
+    const [message, setMessage] = useState(initialMessage);
     const [viewport, setViewport] = useState({ x: 10, y: 10, width: 30, height: 20 });
     const [workspaceMode, setWorkspaceMode] = useState('model');
     const [activeLayoutId, setActiveLayoutId] = useState(initialDocument.layouts?.[0]?.id || null);
@@ -194,35 +228,54 @@ export default function DrawingEditorWorkspace({
     const [selectedViewportId, setSelectedViewportId] = useState(null);
     const [maximizedViewportId, setMaximizedViewportId] = useState(null);
     const [layoutTool, setLayoutTool] = useState('select');
-    const [sidebarPanel, setSidebarPanel] = useState('layers');
+    const [sidebarPanel, setSidebarPanel] = useState(initialRecoveryReport ? 'inquiry' : 'layers');
     const [blockSearch, setBlockSearch] = useState('');
     const [draftingSettingsOpen, setDraftingSettingsOpen] = useState(false);
     const [calculatorMode, setCalculatorMode] = useState(false);
     const modelHistory = useDrawingHistory({
+        ...initialDocument,
+        assets: initialDocument.assets || [],
         content: normalizeDrawingContent(initialDocument.content),
         layouts: initialDocument.layouts || [],
         pageSetups: initialDocument.pageSetups || [],
     });
+    const name = modelHistory.documentState.name;
+    const modelAssets = modelHistory.documentState.assets;
+    const setName = useCallback(value => modelHistory.updateMetadata('name', value), [modelHistory.updateMetadata]);
+    const setModelAssets = useCallback(value => modelHistory.updateMetadata('assets', value), [modelHistory.updateMetadata]);
     const blockEditor = useDrawingBlockEditor({ modelHistory, modelAssets, setModelAssets });
     const { assets, setAssets } = blockEditor;
     const annotations = useDrawingAnnotations({ history: blockEditor.history, enabled: workspaceMode === 'model', selectedIds, setSelectedIds, setMessage, t });
     const objectVisibility = useDrawingObjectVisibility(annotations.history, `${initialDocument.id}:${blockEditor.session?.blockId || "model"}`, workspaceMode === 'model');
     const { history } = objectVisibility;
+    useEffect(() => {
+        if (history.rejection?.kind === 'constraint') setMessage(t('constraints.editRejected'));
+    }, [history.rejection, t]);
     const layouts = modelHistory.layouts;
     const pageSetups = modelHistory.pageSetups;
     const document = useMemo(() => ({
-        ...initialDocument,
+        ...modelHistory.documentState,
         name,
         assets: modelAssets,
         layouts,
         pageSetups,
         content: modelHistory.content,
-    }), [modelAssets, modelHistory.content, initialDocument, layouts, name, pageSetups]);
-    const handlePathChange = useCallback(nextPath => setFilePath(nextPath), []);
+    }), [modelAssets, modelHistory.documentState, layouts, name, pageSetups]);
+    const recoverySaveRef = useRef(null);
+    const handlePathChange = useCallback(nextPath => {
+        setFilePath(nextPath);
+        recoverySaveRef.current?.(nextPath);
+    }, []);
+    const recoverySourcePaths = useMemo(() => [
+        ...(initialRecoveryGraph?.entries.map(entry => entry.sourcePath) || []),
+        initialRecoveryReport?.path, initialTemplateSourcePath,
+    ].filter(Boolean), [initialRecoveryGraph, initialRecoveryReport?.path, initialTemplateSourcePath]);
     const autosave = useLcadAutosave({
         document,
         filePath,
         onPathChange: handlePathChange,
+        protectedPath: initialRecoveryReport?.path || initialTemplateSourcePath || null,
+        protectedPaths: recoverySourcePaths,
         delayMs: settings.autosaveDelayMs,
     });
     const updater = useAppUpdater({ beforeInstall: autosave.flushAutosave });
@@ -235,9 +288,12 @@ export default function DrawingEditorWorkspace({
         autoPublish,
         closePublishDialog,
         createNewDrawing,
+        createQuickDrawing,
+        saveDrawingTemplate,
         exportPageSetups,
         exportPdf,
         openDrawing,
+        openRecoveredDrawing,
         printPublishedLayouts,
         printJob,
         publishRenderedLayouts,
@@ -247,6 +303,7 @@ export default function DrawingEditorWorkspace({
         autosave,
         document,
         drawingDefaults: settings.drawingDefaults,
+        protectedPaths: recoverySourcePaths,
         filePath,
         recovered,
         onReplaceSession,
@@ -272,23 +329,65 @@ export default function DrawingEditorWorkspace({
         });
     }, [activeLayout?.id, layouts]);
     const inquiry = useDrawingInquiry({ content: history.content, selectedIds, operation: interactiveOperation,
-        setOperation: setInteractiveOperation, setActiveTool, setMessage, setSidebarPanel, enabled: workspaceMode === 'model', t });
+        setOperation: setInteractiveOperation, setActiveTool, setMessage, setSidebarPanel, enabled: workspaceMode === 'model', t, initialResult: initialRecoveryReport });
+    const recovery = useDrawingRecovery({ filePath, document, commitDocument: modelHistory.commitDocument, blockEditing: Boolean(blockEditor.session), present: inquiry.present,
+        openRecoveredDrawing, setMessage, t, initialReport: initialRecoveryReport, initialGraph: initialRecoveryGraph });
+    recoverySaveRef.current = recovery.recordSavedCopy;
     const coordinates = useDrawingCoordinates({ history, setMessage, enabled: workspaceMode === 'model' && !blockEditor.session, t });
     const plotStyles = useDrawingPlotStyles({ history, selectedIds, setMessage, setSidebarPanel, enabled: !blockEditor.session, t });
     const layerManager = useDrawingLayers({ history: modelHistory, selectedIds, setMessage, setSidebarPanel, enabled: !blockEditor.session, t });
+    const sheetSet = useDrawingSheetSet({ sessionRef: sheetSetSessionRef, document, filePath, present: inquiry.present, setMessage, t });
+    const standards = useDrawingStandards({ document, enabled: workspaceMode === 'model' && !blockEditor.session, present: inquiry.present,
+        commitDocument: modelHistory.commitDocument, setMessage, t });
+    const comparison = useDrawingComparison({ document, enabled: workspaceMode === 'model' && !blockEditor.session, present: inquiry.present,
+        commitDocument: modelHistory.commitDocument, setSelectedIds, cancel: () => { canvasRef.current?.cancel?.(); setInteractiveOperation(null); setActiveTool('select'); }, setMessage, t });
     const references = useDrawingReferences({ document, history: modelHistory, setAssets: setModelAssets, selectedIds, setSelectedIds,
         enabled: workspaceMode === 'model' && !blockEditor.session, setMessage, present: inquiry.present,
         setActiveTool, cancel: () => { canvasRef.current?.cancel(); setInteractiveOperation(null); }, blockEditor,
         onBeginReference: result => activateBlockEditing(result), t });
     const pdf = useDrawingPdf({ document, history: modelHistory, selectedIds, setAssets: setModelAssets, setSelectedIds,
         enabled: workspaceMode === 'model' && !blockEditor.session, setMessage, present: inquiry.present, t });
+    const dwf = useDrawingDwf({ document, history: modelHistory, selectedIds, setAssets: setModelAssets, setSelectedIds,
+        enabled: workspaceMode === 'model' && !blockEditor.session, setMessage, t });
     const referenceContext = useMemo(() => blockEditor.session?.referenceSource
         ? drawingReferenceEditContext(document, blockEditor.session.referenceSource.reference, blockEditor.session.referenceSource.document) : null,
     [document, blockEditor.session?.referenceSource]);
     const leaders = useDrawingLeaders({ history, selectedIds, setSelectedIds, operation: interactiveOperation,
         setOperation: setInteractiveOperation, setActiveTool, setMessage, enabled: workspaceMode === 'model', blockEditing: Boolean(blockEditor.session), t });
     const selectionQueries = useDrawingSelectionQueries({ history, selectedIds, setSelectedIds, operation: interactiveOperation,
-        setOperation: setInteractiveOperation, setActiveTool, present: inquiry.present, setMessage, enabled: workspaceMode === 'model', blockEditing: Boolean(blockEditor.session), t });
+        setOperation: setInteractiveOperation, setActiveTool, present: inquiry.present, focusObjects: (ids, bounds) => canvasRef.current?.fitObjects(ids, bounds), setMessage, enabled: workspaceMode === 'model', blockEditing: Boolean(blockEditor.session), t });
+    const pointPlacement = useDrawingPointPlacement({ history, selectedIds, setSelectedIds, operation: interactiveOperation,
+        setOperation: setInteractiveOperation, setActiveTool, setMessage, enabled: workspaceMode === 'model', t });
+    const dataExtraction = useDrawingDataExtraction({ documentId: document.id, history, selectedIds, setSelectedIds,
+        enabled: workspaceMode === 'model' && !blockEditor.session, setMessage, t,
+        cancel: () => { canvasRef.current?.cancel?.(); setInteractiveOperation(null); setActiveTool('select'); } });
+    const dgn = useDrawingDgn({ documentId: document.id, assets, setAssets, history, selectedIds, setSelectedIds, setMessage, t,
+        enabled: workspaceMode === 'model' && !blockEditor.session,
+        cancel: () => { canvasRef.current?.cancel?.(); setInteractiveOperation(null); setActiveTool('select'); } });
+    const wmf = useDrawingWmf({ documentId: document.id, name, locale, assets, setAssets, history, setSelectedIds, setMessage, t,
+        enabled: workspaceMode === 'model' && !blockEditor.session,
+        cancel: () => { canvasRef.current?.cancel?.(); setInteractiveOperation(null); setActiveTool('select'); } });
+    const imageExport = useDrawingImageExport({ documentId: document.id, name, content: history.content, assets,
+        enabled: workspaceMode === 'model' && !blockEditor.session, setMessage, t });
+    const tableFiles = useDrawingTableFiles({ documentId: document.id, filePath, history, selectedIds, setSelectedIds,
+        enabled: workspaceMode === 'model' && !blockEditor.session, setOperation: setInteractiveOperation, setActiveTool, setMessage,
+        cancel: () => canvasRef.current?.cancel?.(), t });
+    const fields = useDrawingFields({ document, history: modelHistory, selectedIds, setSelectedIds, workspaceMode, activeLayoutId,
+        getPaperSelection: () => layoutCanvasRef.current?.getPaperSelection?.(), blockEditing: Boolean(blockEditor.session),
+        operation: interactiveOperation, setOperation: setInteractiveOperation, setActiveTool, setMessage, t });
+    const constraints = useDrawingConstraints({ history, selectedIds, enabled: workspaceMode === 'model', dimensionalEnabled: workspaceMode === 'model' && !blockEditor.session?.referenceSource, setMessage, t });
+    const smartBlocks = useDrawingSmartBlocks({ history, selectedIds, setSelectedIds, enabled: workspaceMode === 'model' && !blockEditor.session, setMessage, t });
+    const dynamicBlocks = useDrawingDynamicBlocks({ history, selectedIds, blockEditor, enabled: workspaceMode === 'model', setMessage, t });
+    const tolerances = useDrawingTolerances({ history, selectedIds, setSelectedIds, operation: interactiveOperation,
+        setOperation: setInteractiveOperation, setActiveTool, setMessage, enabled: workspaceMode === 'model' && !blockEditor.session, t });
+    const tables = useDrawingTables({ history, selectedIds, setSelectedIds, operation: interactiveOperation,
+        setOperation: setInteractiveOperation, setActiveTool, setMessage, enabled: workspaceMode === 'model', t });
+    const revision = useDrawingRevision({ history, selectedIds, setSelectedIds, operation: interactiveOperation,
+        setOperation: setInteractiveOperation, setActiveTool, setMessage, enabled: workspaceMode === 'model', t });
+    const sketchTool = useDrawingSketch({ history, setSelectedIds, operation: interactiveOperation,
+        setOperation: setInteractiveOperation, setActiveTool, setMessage, enabled: workspaceMode === 'model', t });
+    const linework = useDrawingLinework({ history, selectedIds, setSelectedIds, operation: interactiveOperation,
+        setOperation: setInteractiveOperation, setActiveTool, setMessage, enabled: workspaceMode === 'model', t });
     const selectedEntities = useMemo(() => history.content.entities.filter(entity => selectedIds.includes(entity.id)), [history.content.entities, selectedIds]);
     const creationPanelEntity = useMemo(() => (
         activeTool === 'select' && !interactiveOperation
@@ -501,6 +600,7 @@ export default function DrawingEditorWorkspace({
         history, viewport, setActiveTool, setAssets, setMessage, setSelectedIds,
     });
     const blockLibrary = useDrawingBlockLibrary({ document, history, assets, setAssets, selectedIds,
+        protectedPaths: recoverySourcePaths,
         blockEditing: Boolean(blockEditor.session), filePath, setMessage, setSidebarPanel, setBlockSearch,
         setInteractiveOperation, setActiveTool, canvasRef });
     const manageDimensionStyle = input => {
@@ -841,6 +941,7 @@ export default function DrawingEditorWorkspace({
                 : factor, basePoint),
             { copy: operationUsesCopy(operation) },
         );
+        if (result.error) { setMessage(t(`constraints.${result.error}`)); return false; }
         if (!result.changed) return false;
         history.commit(result.content);
         finishInteractiveOperation(result.selectedIds, t(nonUniform
@@ -862,6 +963,7 @@ export default function DrawingEditorWorkspace({
             entity => rotateEntity(entity, angle, basePoint),
             { copy: operationUsesCopy(operation) },
         );
+        if (result.error) { setMessage(t(`constraints.${result.error}`)); return false; }
         if (!result.changed) return false;
         history.commit(result.content);
         finishInteractiveOperation(result.selectedIds, t(operationUsesCopy(operation)
@@ -904,8 +1006,8 @@ export default function DrawingEditorWorkspace({
         return true;
     };
 
-    const handleInteractiveOperation = ({ point, targetId, fence, arrayHandle, shift = false }) => {
-        if (inquiry.point({ point, targetId }) || selectionQueries.point(point) || leaders.point(point)) return;
+    const handleInteractiveOperation = ({ point, targetId, fence, arrayHandle, sketch, shift = false }) => {
+        if (tolerances.point({ point }) || fields.point({ point }) || tables.point({ point }) || revision.point({ point, targetId }) || sketchTool.point({ point, sketch }) || linework.point({ point, targetId }) || pointPlacement.point({ point, targetId }) || inquiry.point({ point, targetId }) || selectionQueries.point(point) || leaders.point(point)) return;
         if (interactiveOperation?.type === 'matchProperties') {
             if (interactiveOperation.sourceId) {
                 applyPropertyCommand(interactiveOperation.command, interactiveOperation.sourceId, [targetId]);
@@ -1130,6 +1232,7 @@ export default function DrawingEditorWorkspace({
                 const delta = operationDelta(interactiveOperation.basePoint, point);
                 const originals = history.content.entities.filter(entity => interactiveOperation.entityIds.includes(entity.id));
                 const result = pasteDrawingEntities(history.content, originals, delta);
+                if (result.error) { setMessage(t(`constraints.${result.error}`)); return; }
                 history.commit(result.content);
                 lastOperationValuesRef.current.copy = Math.hypot(delta.x, delta.y);
                 setSelectedIds(result.selectedIds);
@@ -1229,7 +1332,11 @@ export default function DrawingEditorWorkspace({
     };
 
     const submitOperationValue = rawValue => {
-        if (inquiry.input(rawValue) || leaders.input(rawValue)) return true;
+        if (revision.input(rawValue) || sketchTool.input(rawValue) || linework.input(rawValue) || pointPlacement.input(rawValue) || inquiry.input(rawValue) || leaders.input(rawValue)) return true;
+        if (['linework', 'sketch', 'revision', 'table', 'field', 'tolerance'].includes(interactiveOperation?.type)) {
+            if (!submitPrecisionPoint(rawValue, { allowDirectDistance: false })) setMessage(t('linework.centerPrompt'));
+            return true;
+        }
         if (interactiveOperation?.type === 'leaderCreation') {
             if (!submitPrecisionPoint(rawValue, { allowDirectDistance: false })) setMessage(t('leader.pointPrompt'));
             return true;
@@ -1624,7 +1731,55 @@ export default function DrawingEditorWorkspace({
     };
 
     const submitCommand = async rawValue => {
+        rawValue = expandDrawingAlias(rawValue, settings.commandAliases);
         const immediateCommand = parseDrawingCommand(rawValue);
+        if (immediateCommand?.command === 'hyperlink') {
+            try {
+                if (workspaceMode !== 'model') throw new Error('selection');
+                const parsed = parseDrawingHyperlinkInput(getDrawingCommandInput(rawValue));
+                if (parsed.action === 'edit') {
+                    if (selectedIds.length !== 1) throw new Error('selection');
+                    setSidebarPanel('selection');
+                    setMessage(t('hyperlink.editHint'));
+                } else if (parsed.action === 'open') {
+                    const selected = history.content.entities.filter(entity => selectedIds.includes(entity.id));
+                    if (selected.length !== 1 || !selected[0].hyperlink) throw new Error('selection');
+                    await openDrawingHyperlink(selected[0].hyperlink);
+                    setMessage(t('hyperlink.opened'));
+                } else {
+                    const next = setDrawingHyperlink(history.content, selectedIds, parsed.action === 'remove' ? null : parsed.link);
+                    if (next !== history.content) history.commit(next);
+                    setMessage(t('hyperlink.saved'));
+                }
+            } catch { setMessage(t('hyperlink.failed')); }
+            setCommandValue('');
+            return;
+        }
+
+        if (immediateCommand?.command === 'aliasEdit') {
+            const input = getDrawingCommandInput(rawValue).trim();
+            if (!input) { onOpenSettings(); setCommandValue(''); return; }
+            const tokens = input.split(/\s+/);
+            const operation = tokens.shift().toUpperCase();
+            const alias = (tokens.shift() || '').toUpperCase();
+            try {
+                if (operation === 'SET' && tokens.length === 1) {
+                    const rows = validateDrawingAliases([{ alias, command: tokens[0] }]);
+                    await updateSettings(current => ({ ...current, commandAliases: validateDrawingAliases([
+                        ...current.commandAliases.filter(row => row.alias !== alias), ...rows,
+                    ]) }));
+                } else if (operation === 'REMOVE' && alias && !tokens.length) {
+                    await updateSettings(current => {
+                        if (!current.commandAliases.some(row => row.alias === alias)) throw new Error('invalid');
+                        return { ...current, commandAliases: current.commandAliases.filter(row => row.alias !== alias) };
+                    });
+                } else throw new Error('invalid');
+                setMessage(t('commandPreferences.saved'));
+            } catch { setMessage(t('commandPreferences.commandError')); }
+            setCommandValue('');
+            return;
+        }
+
         if (executeDraftingCommand(immediateCommand)) {
             setCommandValue('');
             return;
@@ -1952,7 +2107,7 @@ export default function DrawingEditorWorkspace({
             );
             return;
         }
-        if (['select', 'line', 'xline', 'ray', 'ellipse', 'spline', 'rectangle', 'circle', 'polygon', 'arc', 'pan'].includes(parsed.command)) {
+        if (['select', 'point', 'line', 'xline', 'ray', 'ellipse', 'spline', 'rectangle', 'circle', 'polygon', 'arc', 'pan'].includes(parsed.command)) {
             openModelWorkspace();
             if (['rectangle', 'circle', 'polygon', 'arc', 'ellipse', 'spline'].includes(parsed.command)) {
                 canvasRef.current?.submitCreationInputForTool(parsed.command, rawValue);
@@ -2029,9 +2184,95 @@ export default function DrawingEditorWorkspace({
             setMessage(t('wipeout.prompt'));
             return;
         }
+        if (parsed.command === 'recover') { await recovery.run(getDrawingCommandInput(rawValue)); return; }
+        if (parsed.command === 'recoverAll') { await recovery.run(getDrawingCommandInput(rawValue), { all: true }); return; }
+        if (parsed.command === 'recoveryManager') { await recovery.run(getDrawingCommandInput(rawValue), { manager: true }); return; }
+        if (parsed.command === 'audit') {
+            if (blockEditor.session) { setMessage(t('audit.closeEditor')); return; }
+            const input = getDrawingCommandInput(rawValue).trim().toUpperCase();
+            if (input && !['CHECK', 'REPAIR'].includes(input)) { setMessage(t('audit.syntax')); return; }
+            const result = input === 'REPAIR' ? repairDrawingDocument(document, { recoveredLayerName: t('audit.recoveredLayer') }) : auditDrawingDocument(document);
+            if (result.error) { setMessage(t(`audit.${result.error}`)); return; }
+            if (input === 'REPAIR' && result.changed) modelHistory.commitDocument(current => ({ ...current, content: result.document.content, layouts: result.document.layouts }), { applyCreationStyles: false });
+            const { document: repairedDocument, before, ...report } = result;
+            inquiry.present({ mode: 'audit', ...report, ...(before ? { beforeIssues: before.issues } : {}) });
+            setMessage(t(result.valid ? 'audit.clean' : 'audit.found', { count: result.issues.length }));
+            return;
+        }
+        if (parsed.command === 'flatten') {
+            if (workspaceMode !== 'model') { setMessage(t('namedView.modelRequired')); return; }
+            const options = parseDrawingFlattenInput(getDrawingCommandInput(rawValue));
+            if (!options) { setMessage(t('flatten.syntax')); return; }
+            const ids = options.all ? history.content.entities.map(entity => entity.id) : selectedIds;
+            if (!ids.length) { setMessage(t('cleanup.selection')); return; }
+            const result = flattenDrawingEntities(history.content, ids);
+            if (result.error) { setMessage(t(`flatten.${result.error}`)); return; }
+            if (!options.preview && result.changed) history.commit(result.content);
+            setMessage(t(options.preview ? 'flatten.preview' : 'flatten.completed', result.report));
+            return;
+        }
+        if (parsed.command === 'purge') {
+            if (blockEditor.session) { setMessage(t('purge.closeEditor')); return; }
+            const options = parseDrawingPurgeInput(getDrawingCommandInput(rawValue));
+            if (!options) { setMessage(t('purge.syntax')); return; }
+            const result = purgeDrawingDefinitions(document, options);
+            if (result.error) { setMessage(t(`purge.${result.error}`)); return; }
+            if (!options.preview && result.changed) modelHistory.commit(result.content);
+            setMessage(t(options.preview ? 'purge.preview' : 'purge.completed', result.report));
+            return;
+        }
+        if (parsed.command === 'overkill') {
+            if (workspaceMode !== 'model') { setMessage(t('namedView.modelRequired')); return; }
+            const options = parseDrawingCleanupInput(getDrawingCommandInput(rawValue));
+            if (!options) { setMessage(t('cleanup.syntax')); return; }
+            const ids = options.all ? history.content.entities.map(entity => entity.id) : selectedIds;
+            if (!ids.length) { setMessage(t('cleanup.selection')); return; }
+            const result = cleanupDrawingEntities(history.content, ids, options);
+            if (result.error) { setMessage(t(`cleanup.${result.error}`)); return; }
+            if (!options.preview && result.changed) {
+                history.commit(result.content);
+                setSelectedIds(result.selectedIds);
+            }
+            setMessage(t(options.preview ? 'cleanup.preview' : 'cleanup.completed', result.report));
+            return;
+        }
+        if (['tableEdit', 'multilineEdit'].includes(parsed.command) && !getDrawingCommandInput(rawValue).trim()) {
+            if (workspaceMode !== 'model') { setMessage(t('namedView.modelRequired')); return; }
+            const entity = selectedEntities[0];
+            const kind = parsed.command === 'tableEdit' ? 'table' : 'linework';
+            if (selectedEntities.length !== 1 || !entity?.[kind] || !canEditEntity(history.content, entity)) {
+                setMessage(t(`${kind}.selection`)); return;
+            }
+            canvasRef.current?.cancel();
+            setInteractiveOperation(null);
+            setActiveTool('select');
+            setCreationPanelEntityId(entity.id);
+            setMessage(t('messages.creationPanelOpened', { type: t(`commands.${parsed.command}`) }));
+            return;
+        }
+        if (['dwfAttach', 'dwfClip'].includes(parsed.command)) { await dwf.run(parsed.command, getDrawingCommandInput(rawValue)); return; }
         if (pdf.handles(parsed.command)) { await pdf.run(parsed.command, getDrawingCommandInput(rawValue)); return; }
         if (references.handles(parsed.command)) { await references.run(parsed.command, getDrawingCommandInput(rawValue)); return; }
-        if (annotations.run(parsed.command, getDrawingCommandInput(rawValue)) || coordinates.run(parsed.command, getDrawingCommandInput(rawValue)) || plotStyles.run(parsed.command, getDrawingCommandInput(rawValue)) || layerManager.run(parsed.command, getDrawingCommandInput(rawValue)) || inquiry.run(parsed.command, getDrawingCommandInput(rawValue)) || selectionQueries.run(parsed.command, getDrawingCommandInput(rawValue)) || leaders.run(parsed.command, getDrawingCommandInput(rawValue))) return;
+        if (['sheetSet', 'newSheetSet', 'openSheetSet'].includes(parsed.command)) { await sheetSet.run(parsed.command, getDrawingCommandInput(rawValue)); return; }
+        if (parsed.command === 'sheetSetArchive') { await sheetSet.run('sheetSet', `ARCHIVE ${getDrawingCommandInput(rawValue)}`); return; }
+        if (['drawingStandards', 'drawingCheckStandards'].includes(parsed.command)) { await standards.run(getDrawingCommandInput(rawValue), parsed.command === 'drawingCheckStandards'); return; }
+        if (parsed.command === 'drawingCompareImport') { comparison.importChanges(getDrawingCommandInput(rawValue)); return; }
+        if (parsed.command === 'drawingCompare') { await comparison.run(getDrawingCommandInput(rawValue)); return; }
+        if (dataExtraction.handles(parsed.command)) { await dataExtraction.run(parsed.command, getDrawingCommandInput(rawValue)); return; }
+        const imageFormat = { pngOut: 'png', jpegOut: 'jpg', svgOut: 'svg' }[parsed.command];
+        const exportFormat = parsed.command === 'pdf' && /^(PNG|JPG|JPEG|SVG)(?:\s|$)/i.exec(getDrawingCommandInput(rawValue));
+        if (imageFormat || exportFormat) {
+            const format = imageFormat || exportFormat[1].toLowerCase().replace('jpeg', 'jpg');
+            const input = getDrawingCommandInput(rawValue);
+            await imageExport.run(format, imageFormat ? input : input.slice(exportFormat[1].length).trim()); return;
+        }
+        if (parsed.command === 'wmfExport') { await wmf.exportFile(getDrawingCommandInput(rawValue)); return; }
+        if (parsed.command === 'dgnImport') { await dgn.run(getDrawingCommandInput(rawValue)); return; }
+        if (parsed.command === 'dgnAttach') { await dgn.attach(getDrawingCommandInput(rawValue)); return; }
+        if (parsed.command === 'dgnClip') { dgn.clip(getDrawingCommandInput(rawValue)); return; }
+        if (parsed.command === 'wmfImport') { await wmf.run(getDrawingCommandInput(rawValue)); return; }
+        if (tableFiles.handles(parsed.command, getDrawingCommandInput(rawValue))) { await tableFiles.run(parsed.command, getDrawingCommandInput(rawValue)); return; }
+        if (constraints.run(parsed.command, getDrawingCommandInput(rawValue)) || smartBlocks.run(parsed.command, getDrawingCommandInput(rawValue)) || dynamicBlocks.run(parsed.command, getDrawingCommandInput(rawValue)) || tolerances.run(parsed.command, getDrawingCommandInput(rawValue)) || fields.run(parsed.command, getDrawingCommandInput(rawValue)) || tables.run(parsed.command, getDrawingCommandInput(rawValue)) || revision.run(parsed.command, getDrawingCommandInput(rawValue)) || sketchTool.run(parsed.command, getDrawingCommandInput(rawValue)) || linework.run(parsed.command, getDrawingCommandInput(rawValue)) || pointPlacement.run(parsed.command, getDrawingCommandInput(rawValue)) || annotations.run(parsed.command, getDrawingCommandInput(rawValue)) || coordinates.run(parsed.command, getDrawingCommandInput(rawValue)) || plotStyles.run(parsed.command, getDrawingCommandInput(rawValue)) || layerManager.run(parsed.command, getDrawingCommandInput(rawValue)) || inquiry.run(parsed.command, getDrawingCommandInput(rawValue)) || selectionQueries.run(parsed.command, getDrawingCommandInput(rawValue)) || leaders.run(parsed.command, getDrawingCommandInput(rawValue))) return;
         if (['hideObjects', 'isolateObjects', 'unisolateObjects'].includes(parsed.command)) {
             if (workspaceMode !== 'model') { setMessage(t('namedView.modelRequired')); return; }
             if (parsed.command !== 'unisolateObjects' && !selectedIds.length) { setMessage(t('propertyCommand.selection')); return; }
@@ -2275,6 +2516,7 @@ export default function DrawingEditorWorkspace({
         }
         if (parsed.command === 'blockDefine') { openModelWorkspace(); blockCommands.define(getDrawingCommandInput(rawValue)); return; }
         if (parsed.command === 'blockExport') { await blockLibrary.run('export', getDrawingCommandInput(rawValue)); return; }
+        if (parsed.command === 'contentBrowser') { await blockLibrary.browse(getDrawingCommandInput(rawValue)); return; }
         if (parsed.command === 'blockImport') { await blockLibrary.run('import', getDrawingCommandInput(rawValue)); return; }
         if (parsed.command === 'blockInsert') {
             openModelWorkspace();
@@ -2325,6 +2567,20 @@ export default function DrawingEditorWorkspace({
             setActiveTool('select');
             setCreationPanelEntityId(null);
             return;
+        }
+        if (parsed.command === 'polylineEdit') {
+            const entity = selectedEntities[0];
+            if (selectedEntities.length !== 1 || !isEditableDrawingPolyline(entity) || !canEditEntity(history.content, entity)) {
+                setMessage(t('polylineEdit.selection')); return;
+            }
+            const input = getDrawingCommandInput(rawValue).trim();
+            if (input) {
+                const result = editDrawingPolyline(entity, parseDrawingPolylineEdit(input));
+                if (result.error) { setMessage(t('polylineEdit.invalid')); return; }
+                if (result.changed) history.commit(updateSelectedEntities(history.content, [entity.id], () => result.entity));
+            }
+            openModelWorkspace(); canvasRef.current?.cancel(); setInteractiveOperation(null); setActiveTool('select');
+            setCreationPanelEntityId(entity.id); setMessage(t('polylineEdit.opened')); return;
         }
         if (['creationPanel', 'splineEdit', 'hatchEdit'].includes(parsed.command)) {
             const valid = selectedEntities.filter(parsed.command === 'splineEdit'
@@ -2419,12 +2675,18 @@ export default function DrawingEditorWorkspace({
         else if (parsed.command === 'undo') history.undo();
         else if (parsed.command === 'redo') history.redo();
         else if (parsed.command === 'saveAs') await saveDrawingAs();
-        else if (parsed.command === 'new') await createNewDrawing();
+        else if (parsed.command === 'new') await createNewDrawing(getDrawingCommandInput(rawValue));
+        else if (parsed.command === 'quickNew') await createQuickDrawing(getDrawingCommandInput(rawValue));
+        else if (parsed.command === 'saveTemplate') await saveDrawingTemplate(getDrawingCommandInput(rawValue));
         else if (parsed.command === 'open') await openDrawing();
         else if (parsed.command === 'pdf' || parsed.command === 'plot') await exportPdf(activeLayout ? [activeLayout.id] : []);
         else if (parsed.command === 'pdfAll') await exportPdf(layouts.map(layout => layout.id));
         else if (parsed.command === 'pdfSelected') await exportPdf(selectedLayoutIds);
-        else if (parsed.command === 'publish') await exportPdf(layouts.map(layout => layout.id));
+        else if (parsed.command === 'publish') {
+            const input = getDrawingCommandInput(rawValue);
+            if (/^SHEETSET(?:\s|$)/i.test(input)) await sheetSet.run('sheetSet', `PUBLISH ${input.replace(/^SHEETSET\s*/i, '') || 'PDF'}`);
+            else await exportPdf(layouts.map(layout => layout.id));
+        }
         else if (parsed.command === 'dwfx') await exportPdf(layouts.map(layout => layout.id), { format: 'dwfx' });
         else if (parsed.command === 'autoPublish') await autoPublish(layouts.map(layout => layout.id));
         else if (parsed.command === 'fit') canvasRef.current?.fit();
@@ -2462,6 +2724,7 @@ export default function DrawingEditorWorkspace({
     };
 
     useDrawingEditorShortcuts({ commandBarRef, actions: {
+        command: submitCommand,
         undo: history.undo,
         redo: history.redo,
         copy: copyClip,
@@ -2540,7 +2803,12 @@ export default function DrawingEditorWorkspace({
                 viewport,
                 canUndo: history.canUndo,
                 canRedo: history.canRedo,
-                inquiryResult: inquiry.result,
+                inquiryResult: inquiry.getResult(),
+                contentBrowser: blockLibrary.getBrowserReport(),
+                dataExtraction: dataExtraction.getReport(),
+                comparison: comparison.getReport(),
+                standards: standards.getReport(),
+                sheetSet: sheetSet.getReport(),
                 hiddenObjectIds: objectVisibility.hiddenIds,
                 calculatorMode,
                 inputVariables: { ...inputVariablesRef.current },
@@ -2624,7 +2892,7 @@ export default function DrawingEditorWorkspace({
                 content: normalized.content,
                 layouts: normalized.layouts,
                 pageSetups: normalized.pageSetups || [],
-            }, { applyCreationStyles: false });
+            }, { applyCreationStyles: false, preserveConstraintSnapshot: true });
             setName(normalized.name);
             setAssets(normalized.assets);
             setActiveLayoutId(normalized.layouts[0]?.id || null);
@@ -2642,6 +2910,7 @@ export default function DrawingEditorWorkspace({
 
     return (
         <>
+            <DrawingDownloadNotice />
             <div className={`drawing-editor-shell ${blockEditor.session ? 'is-block-editing' : 'has-workspace-tabs'}`} onDragStart={event => { if (!isDrawingTextInput(event.target)) event.preventDefault(); }}>
                 <DrawingEditorHeader
                     name={name}
@@ -2717,10 +2986,14 @@ export default function DrawingEditorWorkspace({
                         command={{ value: commandValue, onChange: setCommandValue,
                             onSubmit: value => submitCommand(value).catch(() => {}), message,
                             operation: interactiveOperation, activeTool }}
-                        sidebar={{ content: history.content, selectedIds, onCommit: history.commit, onAnnotationCommand: annotations.run,
-                            inquiryResult: inquiry.result, onCopyInquiry: inquiry.copy,
+                        sidebar={{ content: history.content, selectedIds, parametersEnabled: !blockEditor.session?.referenceSource, onSelectConstraintObjects: setSelectedIds, onSmartBlockCommand: smartBlocks.run, smartBlockDetection: smartBlocks.detection, dynamicBlockEditing: Boolean(blockEditor.session && !blockEditor.session.referenceSource), onCommit: history.commit, onAnnotationCommand: annotations.run,
+                            inquiryResult: inquiry.result, comparisonPreview: comparison.preview, onCopyInquiry: inquiry.copy, onSelectDuplicateGroup: selectionQueries.selectDuplicateGroup, onSelectCountOccurrence: selectionQueries.selectCountOccurrence,
+                            onOpenRecovery: recovery.open, canOpenRecovery: recovery.canOpen,
+                            onSelectRecovery: recovery.select, onShowRecoveryManager: recovery.showManager, hasRecoveryGraph: recovery.hasGraph,
+                            onShowRecoveryHistory: recovery.showHistory, onRetryRecovery: recovery.retry, onForgetRecovery: recovery.forget, onRelinkRecovery: recovery.relink, canRelinkRecovery: recovery.canRelink,
                             layerFilter: layerManager.filter, onLayerFilter: layerManager.setFilter, onPlotStyleCommand: plotStyles.run,
                             panel: sidebarPanel, onPanelChange: setSidebarPanel,
+                            libraryBrowser: blockLibrary.browser, onBrowseLibrary: blockLibrary.browse,
                             blockSearch, onBlockSearch: setBlockSearch, onBlockDefine: blockCommands.define, onBlockInsert: blockCommands.insert, onBlockEdit: beginBlockEdit, onBlockImport: () => blockLibrary.run('import'),
                             onBlockExport: id => blockLibrary.run('export', id || 'LIBRARY'), onDimensionStyleCommand: manageDimensionStyle, onManageAttribute: manageAttribute, onDefineAttribute: input => submitCommand(`ATTDEF ${input}`) }}
                     />
@@ -2799,6 +3072,10 @@ export default function DrawingEditorWorkspace({
                 {isUploading && <div className="drawing-upload-indicator">{t('messages.importingImage')}</div>}
             </div>
             <DrawingPublishRenderer ref={publishRendererRef} drawing={document} layouts={layouts} />
+            <DrawingModelExportRenderer request={wmf.renderRequest} />
+            <DrawingModelExportRenderer request={imageExport.request} />
+            {sheetSet.publication.request && <DrawingPublishRenderer
+                entries={sheetSet.publication.request.entries} onReady={sheetSet.publication.onReady} />}
             {publishRequest && (
                 <DrawingPublishDialog
                     drawing={document}

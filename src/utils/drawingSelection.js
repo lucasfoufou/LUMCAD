@@ -1,3 +1,8 @@
+import { rebuildDrawingToleranceEntity } from './drawingTolerances.js';
+import { rebuildDrawingTableEntity } from './drawingTableGeometry.js';
+import { rebuildDrawingRevisionSymbol, drawingRevisionGripSource } from './drawingRevisionSymbols.js';
+import { drawingLineworkGrips, editDrawingLineworkGrip } from './drawingLinework.js';
+import { isValidDrawingPoint } from './drawingPoints.js';
 import { drawingClipShapeIntersectsBounds } from './drawingClipPaths.js';
 import { drawingBlockClipShape } from './drawingBlockClip.js';
 import { drawingLeaderGrips } from './drawingLeaders.js';
@@ -69,6 +74,7 @@ export function entityMatchesSelectionWindow(entity, selectionWindow, entityMap 
  * normalized corners so negatively drawn rectangles behave identically.
  */
 export function getEntityGrips(entity, source = null) {
+    if (entity?.type === 'point') return isValidDrawingPoint(entity) ? [{ id: 'node', x: entity.x, y: entity.y }] : [];
     if (drawingAffineFrame(entity)) {
         const { affineFrame, ...local } = entity;
         return getEntityGrips(local, source).map(grip => ({ ...grip, ...framedDrawingPoint(entity, grip) }));
@@ -78,6 +84,15 @@ export function getEntityGrips(entity, source = null) {
         return bounds ? [{ id: 'region-origin', x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 }] : [];
     }
     if (!entity) return [];
+    if (entity.tolerance) return [{ id: 'tolerance-origin', x: entity.tolerance.transform.e, y: entity.tolerance.transform.f }];
+    if (entity.table) return [{ id: 'table-origin', x: entity.table.transform.e, y: entity.table.transform.f }];
+    if (entity.revisionSymbol) {
+        const definition = entity.revisionSymbol;
+        const local = drawingRevisionGripSource(definition);
+        const m = definition.transform;
+        return getEntityGrips(local).map(grip => ({ ...grip, id: `revision:${grip.id}`, x: m.a * grip.x + m.c * grip.y + m.e, y: m.b * grip.x + m.d * grip.y + m.f }));
+    }
+    if (entity.linework) return drawingLineworkGrips(entity);
     if (entity.splineDefinition) return entity.splineDefinition.points.map((point, index) => ({ id: `spline-point-${index}`, ...point }));
     if (entity.type === 'polyline' && entity.array) {
         const bounds = getEntityBounds(entity);
@@ -183,11 +198,33 @@ export function getEntityGrips(entity, source = null) {
  * including when the dragged corner crosses it and produces negative extents.
  */
 export function editEntityGrip(entity, gripId, point, source = null) {
+    if (entity?.type === 'point') return gripId === 'node' && isValidDrawingPoint(point) ? { ...entity, x: point.x, y: point.y } : entity;
     const frame = drawingAffineFrame(entity);
     if (frame && point) {
         const { affineFrame, ...local } = entity;
         return { ...editEntityGrip(local, gripId, unframeDrawingPoint(point, frame), source), affineFrame };
     }
+    if (entity?.tolerance) {
+        if (gripId !== 'tolerance-origin' || !point) return entity;
+        return rebuildDrawingToleranceEntity({ ...entity, tolerance: { ...entity.tolerance, transform: { ...entity.tolerance.transform, e: point.x, f: point.y } } }) || entity;
+    }
+    if (entity?.table) {
+        if (gripId !== 'table-origin' || !point) return entity;
+        return rebuildDrawingTableEntity({ ...entity, table: { ...entity.table, transform: { ...entity.table.transform, e: point.x, f: point.y } } }) || entity;
+    }
+    if (entity?.revisionSymbol) {
+        if (!gripId.startsWith('revision:') || !point) return entity;
+        const definition = entity.revisionSymbol; const m = definition.transform;
+        const determinant = m.a * m.d - m.b * m.c;
+        const x = point.x - m.e; const y = point.y - m.f;
+        const localPoint = { x: (m.d * x - m.c * y) / determinant, y: (m.a * y - m.b * x) / determinant };
+        const sourceEntity = drawingRevisionGripSource(definition);
+        const changed = editEntityGrip(sourceEntity, gripId.slice(9), localPoint);
+        const revisionSymbol = definition.kind === 'cloud' ? { ...definition, source: changed }
+            : { ...definition, start: changed.points[0], end: changed.points[1] };
+        return rebuildDrawingRevisionSymbol({ ...entity, revisionSymbol }) || entity;
+    }
+    if (entity?.linework) return editDrawingLineworkGrip(entity, gripId, point);
     if (gripId.startsWith('spline-point-')) return editSplineDefinitionPoint(entity, Number(gripId.slice('spline-point-'.length)), point);
     if (!entity || !point) return entity;
     if (isDrawingWipeout(entity)) {
@@ -411,6 +448,7 @@ export function constrainLineGripPoint(entity, gripId, point) {
 }
 
 function entityIsContainedByBounds(entity, bounds, entityMap) {
+    if (entity.type === 'point') return pointIsInBounds(entity, bounds);
     if (isConstructionLine(entity)) return false;
     if (entity.type === 'blockReference') {
         return boundsContainBounds(bounds, getDrawingBlockReferenceBounds(entity));
@@ -449,6 +487,7 @@ function entityIsContainedByBounds(entity, bounds, entityMap) {
 }
 
 function entityCrossesBounds(entity, bounds, entityMap) {
+    if (entity.type === 'point') return pointIsInBounds(entity, bounds);
     if (isDrawingWipeout(entity)) {
         const segments = getEntitySegments(entity);
         return segments.some(([a, b]) => segmentIntersectsBounds(a, b, bounds))

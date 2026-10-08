@@ -60,6 +60,7 @@ export function drawingClipContainsPoint(points, point) {
 /** Exact native intervals for snapping, with the existing bounded numerical kernel for cubics. */
 export function clipDrawingSnapEntity(entity, points, budget = { checks: 100000 }) {
     const shape = Array.isArray(points) ? drawingClipShapeFromPoints(points) : points;
+    if (entity.type === 'point') return drawingClipShapeContainsPoint(shape, entity, budget) ? [entity] : [];
     if (isConstructionLine(entity)) {
         const segment = clipConstructionLine(entity, drawingClipShapeBounds(shape));
         if (!segment) return [];

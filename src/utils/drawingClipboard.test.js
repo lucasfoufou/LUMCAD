@@ -171,7 +171,7 @@ test('external SVG accepts the XML prolog and namespaced Affinity export envelop
 test('external SVG path parsing rejects malformed, unsupported and unbounded input atomically', () => {
     const cases = [
         ['<svg><line x1="0" y1="0" x2="1" y2="1"/><path d="M 0 0 C 1 2"/></svg>', 'invalid-svg-path'],
-        ['<svg><path d="M 0 0 Q 1 2 3 4"/></svg>', 'unsupported-svg-path'],
+        ['<svg><path d="M 0 0 R 1 2 3 4"/></svg>', 'unsupported-svg-path'],
         ['<svg><path d="M 0 0 L 10000000000000 1"/></svg>', 'unbounded-svg'],
         ['<svg><path d="M 0 0 A 2 1 0 2 1 4 0"/></svg>', 'invalid-svg-path'],
         ['<svg><path transform="skewX(20)" d="M 0 0 L 1 1"/></svg>', 'unsupported-svg-transform'],
@@ -339,4 +339,13 @@ test('clipboard dimension catalogs reject duplicate names, oversized names and o
         [{ id: 'a', name: 'x'.repeat(129) }],
         Array.from({ length: 129 }, (_, index) => ({ id: `s${index}`, name: `S${index}` })),
     ]) assert.throws(() => validateDrawingClipboardPayload({ ...payload, dimensionStyles }));
+});
+
+test('external SVG clipboard preserves newly supported quadratic and smooth curves', () => {
+    const imported = parseDrawingClipboardText('<svg><path d="M0 0 Q3 6 6 0 T12 0 S15 6 18 0"/></svg>');
+    const parts = imported.entities[0].parts;
+    assert.equal(parts.length, 3);
+    assert.deepEqual(parts[0].controlPoints, [{ x: 0, y: 0 }, { x: 2, y: 4 }, { x: 4, y: 4 }, { x: 6, y: 0 }]);
+    assert.deepEqual(parts[1].controlPoints, [{ x: 6, y: 0 }, { x: 8, y: -4 }, { x: 10, y: -4 }, { x: 12, y: 0 }]);
+    assert.deepEqual(parts[2].controlPoints[1], { x: 12, y: 0 });
 });

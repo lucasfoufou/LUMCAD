@@ -24,6 +24,7 @@ export default function useDrawingCompoundCommands({
                 : explodeDrawingEntities(history.content, entityIds, { ...options, locale });
         setInteractiveOperation(null);
         setActiveTool('select');
+        if (result.error) { setMessage(t(`constraints.${result.error}`)); return false; }
         if (!result.changed) {
             setMessage(t(type === 'join' ? 'compound.joinRequired' : 'compound.explodeRequired'));
             return false;
@@ -127,6 +128,7 @@ export default function useDrawingCompoundCommands({
             operation.axisSecond,
             { replace, mirrorTextGlyphs: operation.mirrorTextGlyphs },
         );
+        if (result.error) { setMessage(t(`constraints.${result.error}`)); return true; }
         if (result.changed) history.commit(result.content);
         setSelectedIds(result.selectedIds);
         setInteractiveOperation(null);

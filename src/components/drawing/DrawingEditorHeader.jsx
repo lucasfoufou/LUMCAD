@@ -1,3 +1,4 @@
+import useDrawingShortcutLabel from '~hooks/useDrawingShortcutLabel';
 import React from 'react';
 
 import { useI18n } from '~i18n/I18nProvider';
@@ -19,6 +20,7 @@ export default function DrawingEditorHeader({
     onInstallUpdate,
 }) {
     const { formatTime, t } = useI18n();
+    const shortcutLabel = useDrawingShortcutLabel();
     const pathLabel = getLcadPathLabel(filePath);
     return (
         <header className="drawing-editor-header">
@@ -36,9 +38,9 @@ export default function DrawingEditorHeader({
             </div>
             <nav className="lumcad-file-actions" aria-label={t('header.fileActions')}>
                 <div className="lumcad-file-action-group">
-                    <HeaderAction icon="new" onClick={onNew} title={t('header.newShortcut')}>{t('header.new')}</HeaderAction>
-                    <HeaderAction icon="open" onClick={onOpen} title={t('header.openShortcut')}>{t('header.open')}</HeaderAction>
-                    <HeaderAction icon="save-as" onClick={onSaveAs} title={t('header.saveAsShortcut')} primary>{t('header.saveAs')}</HeaderAction>
+                    <HeaderAction icon="new" onClick={onNew} title={shortcutLabel('newDocument', t('header.new'))}>{t('header.new')}</HeaderAction>
+                    <HeaderAction icon="open" onClick={onOpen} title={shortcutLabel('open', t('header.open'))}>{t('header.open')}</HeaderAction>
+                    <HeaderAction icon="save-as" onClick={onSaveAs} title={shortcutLabel('saveAs', t('header.saveAs'))} primary>{t('header.saveAs')}</HeaderAction>
                     <HeaderAction icon="plot" onClick={onPlot} title={t('header.plotHint')}>{t('header.plot')}</HeaderAction>
                 </div>
                 <UpdateHeaderAction state={updateState} onClick={onInstallUpdate} t={t} />

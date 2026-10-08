@@ -128,8 +128,8 @@ export function normalizeLcadImageMimeType(value) {
 }
 
 export function normalizeLcadAssetMimeType(value) {
-    return String(value || '').trim().toLowerCase() === 'application/pdf'
-        ? 'application/pdf' : normalizeLcadImageMimeType(value);
+    const mime = String(value || '').trim().toLowerCase();
+    return ['application/pdf', 'model/vnd.dwfx+xps', 'image/vnd.dgn'].includes(mime) ? mime : normalizeLcadImageMimeType(value);
 }
 
 function inferDataUrlMimeType(link) {

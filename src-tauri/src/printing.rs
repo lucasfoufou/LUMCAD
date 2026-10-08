@@ -97,6 +97,86 @@ struct ValidationSummary {
     page_count: Option<usize>,
 }
 
+/// Validate the WMF container before replacing an existing export atomically.
+#[tauri::command]
+pub fn write_drawing_wmf(path: String, bytes: Vec<u8>) -> Result<(), String> {
+    let target = validate_publish_path(&path)
+        .map_err(|error| publish_error(error.code, raw_error_path(&path), error.detail))?;
+    if !target.is_absolute() || !target.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("wmf")) {
+        return Err("wmfInvalid".into());
+    }
+    validate_wmf_export(&bytes)?;
+    atomic_write_plot_file(&target, &bytes)?;
+    Ok(())
+}
+
+fn validate_wmf_export(bytes: &[u8]) -> Result<(), String> {
+    if bytes.len() > 64 * 1024 * 1024 { return Err("wmfLimit".into()); }
+    if bytes.len() < 24 || bytes.len() % 2 != 0 { return Err("wmfInvalid".into()); }
+    let word = |i: usize| u16::from_le_bytes([bytes[i], bytes[i + 1]]);
+    let dword = |i: usize| u32::from_le_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]) as usize;
+    let mut offset = 0;
+    if dword(0) == 0x9ac6cdd7 {
+        if bytes.len() < 46 || (0..20).step_by(2).fold(0u16, |sum, i| sum ^ word(i)) != word(20)
+            || word(6) == word(10) || word(8) == word(12) || word(14) == 0 { return Err("wmfInvalid".into()); }
+        offset = 22;
+    }
+    if ![1, 2].contains(&word(offset)) || word(offset + 2) != 9 || ![0x100, 0x300].contains(&word(offset + 4))
+        || dword(offset + 6) != (bytes.len() - offset) / 2 { return Err("wmfInvalid".into()); }
+    let maximum = dword(offset + 12);
+    if maximum < 3 { return Err("wmfInvalid".into()); }
+    offset += 18;
+    let mut records = 0;
+    while bytes.len() - offset >= 6 {
+        records += 1;
+        if records > 100000 { return Err("wmfLimit".into()); }
+        let words = dword(offset);
+        if words < 3 || words > maximum || words > (bytes.len() - offset) / 2 { return Err("wmfInvalid".into()); }
+        let end = offset + words * 2;
+        if word(offset + 4) == 0 {
+            return if words == 3 && end == bytes.len() { Ok(()) } else { Err("wmfInvalid".into()) };
+        }
+        offset = end;
+    }
+    Err("wmfInvalid".into())
+}
+
+/// Bounded image output with extension/signature checks and atomic replacement.
+#[tauri::command]
+pub fn write_drawing_image(path: String, bytes: Vec<u8>, format: String) -> Result<(), String> {
+    let target = validate_publish_path(&path)
+        .map_err(|error| publish_error(error.code, raw_error_path(&path), error.detail))?;
+    let extension = target.extension().and_then(|value| value.to_str()).unwrap_or("").to_ascii_lowercase();
+    let valid_extension = extension == format || format == "jpg" && extension == "jpeg";
+    if !target.is_absolute() || !valid_extension || bytes.is_empty() || bytes.len() > 64 * 1024 * 1024 {
+        return Err("imageExportInvalid".into());
+    }
+    let valid = match format.as_str() {
+        "png" => bytes.len() >= 24 && bytes.starts_with(b"\x89PNG\r\n\x1a\n") && &bytes[12..16] == b"IHDR",
+        "jpg" => bytes.len() >= 4 && bytes.starts_with(b"\xff\xd8\xff") && bytes.ends_with(b"\xff\xd9"),
+        "svg" => std::str::from_utf8(&bytes).map(|text| text.trim_start().starts_with("<svg")
+            && text.contains("http://www.w3.org/2000/svg") && text.trim_end().ends_with("</svg>")).unwrap_or(false),
+        _ => false,
+    };
+    if !valid { return Err("imageExportInvalid".into()); }
+    atomic_write_plot_file(&target, &bytes).map(|_| ())
+}
+
+/// Validate the destination and bounded CFB payload before atomic replacement.
+#[tauri::command]
+pub fn write_spreadsheet_export(path: String, bytes: Vec<u8>) -> Result<(), String> {
+    let target = validate_publish_path(&path)
+        .map_err(|error| publish_error(error.code, raw_error_path(&path), error.detail))?;
+    if !target.is_absolute()
+        || target.extension().and_then(|value| value.to_str()).map(|value| value.to_ascii_lowercase()) != Some("xls".into())
+        || bytes.len() < 512 || bytes.len() > 64 * 1024 * 1024
+        || !bytes.starts_with(&[0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]) {
+        return Err("attributeExtractionFormat".into());
+    }
+    atomic_write_plot_file(&target, &bytes)?;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn write_attribute_export(path: String, text: String, format: String) -> Result<(), String> {
     let target = validate_publish_path(&path)
@@ -313,7 +393,11 @@ fn validate_dwfx(bytes: &[u8]) -> ValidationResult<ValidationSummary> {
             let extension = read_dwfx_xml(&mut entry, &name)?.to_ascii_lowercase();
             if extension.contains("<w2x")
                 && extension.contains("versionmajor=\"7\"")
-                && extension.contains("renditionsync")
+                && (extension.contains("<renditionsync")
+                    || (extension.contains("<units ")
+                        && extension.contains("<named_view ")
+                        && extension.contains("<png_group4_image ")
+                        && extension.contains("ref=\"page.png\"")))
             {
                 graphics_extension_count += 1;
             }
@@ -836,6 +920,37 @@ mod tests {
 </W2X>"#;
 
     #[test]
+    fn image_exports_validate_destination_and_preserve_existing_files_on_failure() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("drawing.png");
+        fs::write(&path, b"original").unwrap();
+        let png = include_bytes!("../icons/128x128.png").to_vec();
+        assert!(write_drawing_image(path.to_string_lossy().into_owned(), b"invalid".to_vec(), "png".into()).is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"original");
+        assert!(write_drawing_image("relative.png".into(), png.clone(), "png".into()).is_err());
+        assert!(write_drawing_image(directory.path().join("wrong.lcad").to_string_lossy().into_owned(), png.clone(), "png".into()).is_err());
+        write_drawing_image(path.to_string_lossy().into_owned(), png.clone(), "png".into()).unwrap();
+        assert_eq!(fs::read(path).unwrap(), png);
+        let svg = b"<svg xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M0 0L1 1\"/></svg>".to_vec();
+        let vector_path = directory.path().join("drawing.svg");
+        write_drawing_image(vector_path.to_string_lossy().into_owned(), svg.clone(), "svg".into()).unwrap();
+        assert_eq!(fs::read(vector_path).unwrap(), svg);
+    }
+
+    #[test]
+    fn accepts_raster_w2x_without_legacy_rendition_sync() {
+        let raster = r#"<W2X VersionMajor="7" VersionMinor="0"><Units Label="inches"/><Named_View Area="0 0 210000 297000"/><PNG_Group4_Image Format="12" Ref="page.png" Width="1" Height="1"/></W2X>"#;
+        let entries = valid_dwfx_entries()
+            .into_iter()
+            .map(|(name, value)| (name, if name.ends_with("graphics.w2x.xml") { raster } else { value }))
+            .collect::<Vec<_>>();
+        assert_eq!(validate_dwfx(&zip_entries(&entries)).unwrap().page_count, Some(1));
+        let malformed = raster.replace("PNG_Group4_Image", "Unknown_Image");
+        let invalid = entries.iter().map(|(name, value)| (*name, if name.ends_with("graphics.w2x.xml") { malformed.as_str() } else { *value })).collect::<Vec<_>>();
+        assert!(validate_dwfx(&zip_entries(&invalid)).is_err());
+    }
+
+    #[test]
     fn validates_bounded_pdf_envelopes() {
         assert_eq!(
             validate_plot_payload(valid_pdf(), PublishFormat::Pdf).unwrap(),
@@ -943,6 +1058,60 @@ mod tests {
         assert_eq!(serialized["bytesWritten"], second_pdf.len());
         assert!(serialized.get("publishedAt").is_some());
         assert!(serialized.get("pageCount").is_none());
+    }
+
+    #[test]
+    fn spreadsheet_exports_validate_before_atomic_replacement() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("quantities.xls");
+        std::fs::write(&path, b"original").unwrap();
+        let name = path.to_string_lossy().to_string();
+        assert!(write_spreadsheet_export(name.clone(), vec![0; 512]).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"original");
+        let mut payload = vec![0; 512];
+        payload[..8].copy_from_slice(&[0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+        assert!(write_spreadsheet_export("relative.xls".into(), payload.clone()).is_err());
+        assert!(write_spreadsheet_export(directory.path().join("wrong.lcad").to_string_lossy().to_string(), payload.clone()).is_err());
+        write_spreadsheet_export(name, payload.clone()).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), payload);
+    }
+
+    #[test]
+    fn wmf_exports_validate_before_atomic_replacement() {
+        let hex = "01000900000316000000000005000000000005000000140214000a0005000000130228001e00030000000000";
+        let valid: Vec<u8> = (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap()).collect();
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("drawing.wmf");
+        let name = path.to_string_lossy().into_owned();
+        fs::write(&path, b"original").unwrap();
+        let mut oversized_record = valid.clone(); oversized_record[18..22].copy_from_slice(&u32::MAX.to_le_bytes());
+        let mut early_end = valid.clone(); early_end[22..24].fill(0);
+        let mut wrong_length = valid.clone(); wrong_length[6] = 0;
+        for invalid in [vec![], valid[..valid.len() - 2].to_vec(), oversized_record, early_end, wrong_length] {
+            assert!(write_drawing_wmf(name.clone(), invalid).is_err());
+            assert_eq!(fs::read(&path).unwrap(), b"original");
+        }
+        assert!(write_drawing_wmf("relative.wmf".into(), valid.clone()).is_err());
+        assert!(write_drawing_wmf(directory.path().join("wrong.lcad").to_string_lossy().into_owned(), valid.clone()).is_err());
+        write_drawing_wmf(name, valid.clone()).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), valid);
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn wmf_placeable_checksum_and_short_inputs_are_validated_without_panics() {
+        let mut bytes = vec![0u8; 46];
+        bytes[..4].copy_from_slice(&0x9ac6cdd7u32.to_le_bytes());
+        bytes[10..12].copy_from_slice(&100i16.to_le_bytes());
+        bytes[12..14].copy_from_slice(&100i16.to_le_bytes());
+        bytes[14..16].copy_from_slice(&1440u16.to_le_bytes());
+        let checksum = (0..20).step_by(2).fold(0u16, |sum, i| sum ^ u16::from_le_bytes([bytes[i], bytes[i + 1]]));
+        bytes[20..22].copy_from_slice(&checksum.to_le_bytes());
+        bytes[22] = 1; bytes[24] = 9; bytes[27] = 3; bytes[28] = 12; bytes[34] = 3; bytes[40] = 3;
+        assert!(validate_wmf_export(&bytes).is_ok());
+        for end in 0..bytes.len() { assert!(validate_wmf_export(&bytes[..end]).is_err()); }
+        bytes[20] ^= 1;
+        assert!(validate_wmf_export(&bytes).is_err());
     }
 
     #[test]

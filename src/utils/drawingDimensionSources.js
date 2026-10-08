@@ -15,9 +15,10 @@ export function createDimensionSourceMap(entities, blocks = [], { layers = [], t
         if (!depth && cache.has(reference)) return cache.get(reference);
         const count = definitionMap.get(reference.blockId)?.entities?.length || 0;
         if (count > budget.remaining) return truncated();
-        budget.remaining -= count;
         const nextVisited = new Set(visited); nextVisited.add(reference.blockId);
         const children = materializeDrawingBlockReference(reference, definitions, { textStyles });
+        if (children.length > budget.remaining) return truncated();
+        budget.remaining -= children.length;
         const localMap = new Map(children.map(child => [child.id, child]));
         const curves = [];
         for (const child of children) {

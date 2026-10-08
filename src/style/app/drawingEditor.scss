@@ -1151,6 +1151,23 @@
   }
 }
 
+.drawing-constraint-list p {
+  overflow-wrap: anywhere;
+}
+
+.drawing-constraints-panel {
+  min-width: 0;
+  .drawing-creation-field,
+  .drawing-creation-toggle {
+    min-width: 0;
+  }
+  .drawing-creation-toggle span {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  ul { padding-left: 18px; }
+}
+
 .drawing-block-attribute-fields,
 .drawing-dimension-fields,
 .drawing-qdim-options {
@@ -1166,6 +1183,25 @@
     color: #334750;
     font-size: 0.78rem;
     font-weight: 700;
+  }
+}
+
+// Reusable creation fields also appear in the light selection/definition panels.
+.drawing-selection-panel,
+.drawing-constraints-panel {
+  .drawing-creation-field {
+    margin-bottom: 0.45rem;
+    > span { color: #344a57; white-space: normal; }
+  }
+
+  .drawing-creation-toggle { color: #344a57; white-space: normal; }
+
+  details.drawing-block-attribute-fields > summary {
+    cursor: pointer;
+    color: #334750;
+    font-size: 0.78rem;
+    font-weight: 700;
+    margin-bottom: 0.4rem;
   }
 }
 
@@ -1548,6 +1584,25 @@
   }
 }
 
+.drawing-library-browser {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.6rem;
+  border: 1px solid rgba($lum_backdark, 0.2);
+  border-radius: 6px;
+  .drawing-library-source { overflow-wrap: anywhere; margin: 0; }
+  ul { max-height: 180px; overflow-y: auto; }
+  button[aria-pressed="true"] { border-color: $lum_orange; background: rgba($lum_orange, 0.1); }
+}
+
+.drawing-content-preview {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1.6;
+  background: #fff;
+  border: 1px solid rgba($lum_backdark, 0.2);
+}
+
 .drawing-editor-shell.is-block-editing { grid-template-rows: 64px auto minmax(0, 1fr); }
 .drawing-block-edit-bar {
   display: flex;
@@ -1594,6 +1649,11 @@
     th, td { padding: 4px; overflow-wrap: anywhere; text-align: left; }
 }
 
+.drawing-inquiry-panel li {
+    overflow-wrap: anywhere;
+    button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; }
+}
+
 .drawing-layer-flags {
     display: flex;
     flex-wrap: wrap;
@@ -1622,3 +1682,40 @@
   font-size: 0.75rem;
   summary { cursor: pointer; font-weight: 600; }
 }
+
+
+.drawing-parameters-panel {
+  fieldset { min-width: 0; }
+  p, legend { overflow-wrap: anywhere; }
+  > [role='alert'], > [role='status'] {
+    padding: 0.55rem;
+    border: 1px solid #b9c8d1;
+    border-radius: 5px;
+    background: #fff;
+  }
+  > [role='alert'] { border-color: #b74b35; color: #8a2e21; }
+}
+
+.drawing-download-notice {
+  position: fixed;
+  z-index: 80;
+  top: 4.5rem;
+  right: 1rem;
+  width: min(22rem, calc(100vw - 2rem));
+  padding: 0.8rem;
+  border: 1px solid #b9c8d1;
+  border-radius: 6px;
+  background: #fff;
+  color: #172033;
+  box-shadow: 0 4px 16px rgba(#172033, 0.2);
+  p { margin: 0 0 0.5rem; }
+  a { display: block; margin-bottom: 0.5rem; overflow-wrap: anywhere; color: #095d92; }
+}
+
+.drawing-hyperlink-fields {
+    min-width: 0;
+    margin: 0.75rem 0;
+    padding: 0.5rem;
+    border: 1px solid var(--border-color, #cbd5e1);
+}
+.drawing-hyperlink-target { overflow-wrap: anywhere; font-size: 0.8rem; }

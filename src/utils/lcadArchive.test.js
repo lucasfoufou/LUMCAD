@@ -7,6 +7,7 @@ import {
     createLcadArchive,
     isZipArchive,
     readLcadArchive,
+    readLcadRecoveryCandidate,
 } from './lcadArchive.js';
 import { createLcadDocument, createLcadEnvelope } from './lcadDocument.js';
 import { beginRectangularArrayOperation, beginRectangularArrayEdit, commitRectangularArrayOperation } from './drawingCompoundOperations.js';
@@ -324,4 +325,36 @@ test('rectangular arrays remain editable after an archive round trip', () => {
     const edited = commitRectangularArrayOperation(loaded.document.content, { ...operation, columns: 5 });
     assert.equal(edited.entity.id, created.entity.id);
     assert.equal(edited.entity.parts.length, 10);
+});
+
+
+test('recovery staging preserves raw geometry and surviving assets while reporting missing ZIP payloads', () => {
+    const document = createLcadDocument();
+    document.assets = ['lost', 'kept'].map(id => ({ id, name: id, width: 1, height: 1, mimeType: 'image/png', link: IMAGE_DATA_URL }));
+    document.content.entities = [{ id: 'image', type: 'image', layerId: 'geometry', assetId: 'lost', x: 0, y: 0, width: 3, height: 2 }];
+    const entries = unzipSync(createLcadArchive(createLcadEnvelope(document)));
+    const manifest = JSON.parse(strFromU8(entries[LCAD_MANIFEST_PATH]));
+    const lostPath = manifest.document.assets.find(asset => asset.id === 'lost').path;
+    delete entries[lostPath];
+    // Defects must remain visible to the later salvage pass, not be silently normalized.
+    manifest.document.content.entities.push({ id: 'raw', type: 'circle', layerId: 'missing', cx: 0, cy: 0, r: -5 });
+    entries[LCAD_MANIFEST_PATH] = strToU8(JSON.stringify(manifest));
+    const damaged = zipSync(entries); const saved = damaged.slice();
+    assert.throws(() => readLcadArchive(damaged));
+    const candidate = readLcadRecoveryCandidate(damaged);
+    assert.equal(candidate.issues[0].code, 'missingAssetEntry');
+    assert.equal(candidate.issues[0].assetId, 'lost');
+    assert.equal(candidate.issues[0].path, lostPath);
+    assert.equal(candidate.envelope.document.assets.length, 1);
+    assert.equal(candidate.envelope.document.assets[0].link, IMAGE_DATA_URL);
+    assert.deepEqual(candidate.envelope.document.content.entities, manifest.document.content.entities);
+    assert.deepEqual(damaged, saved);
+});
+
+test('recovery staging retains strict version, entry-path and malformed-manifest protections', () => {
+    const entries = unzipSync(createLcadArchive(createLcadEnvelope(createLcadDocument())));
+    assert.throws(() => readLcadRecoveryCandidate(zipSync({ ...entries, '../escape': strToU8('bad') })));
+    assert.throws(() => readLcadRecoveryCandidate(zipSync({ ...entries, [LCAD_MANIFEST_PATH]: strToU8('{broken') })));
+    const manifest = JSON.parse(strFromU8(entries[LCAD_MANIFEST_PATH])); manifest.formatVersion = 999;
+    assert.throws(() => readLcadRecoveryCandidate(zipSync({ ...entries, [LCAD_MANIFEST_PATH]: strToU8(JSON.stringify(manifest)) })));
 });

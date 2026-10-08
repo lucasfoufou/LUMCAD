@@ -1,4 +1,11 @@
+import { drawingCurvePathToSvgData as curvePathToSvgData } from './drawingCurveSvg.js';
+import { drawingPointPath, drawingPointSvgTransform, normalizeDrawingPointStyle } from './drawingPoints.js';
+import { drawingBlockInstanceEntities } from './drawingDynamicBlocks.js';
 import { getDrawingTextLayout } from './drawingText.js';
+import { drawingFieldDependencyIds } from './drawingFieldDefinition.js';
+import { collectDrawingDimensionalCatalog, mergeDrawingDimensionalCatalog, includeDrawingDrivingAnnotations } from './drawingDimensionalTransfer.js';
+import { normalizeDrawingDimensionalConstraints } from './drawingDimensionalConstraints.js';
+import { normalizeDrawingGeometricConstraints, remapDrawingGeometricConstraints, translateDrawingGeometricConstraints } from './drawingConstraintDefinition.js';
 import { drawingBlockClipShape } from './drawingBlockClip.js';
 import { remapDrawingReferenceResources } from './drawingReferenceMetadata.js';
 import { ANNOTATION_HIDDEN, currentAnnotationScale, resolveDrawingAnnotationContent, restoreDrawingAnnotationContent } from './drawingAnnotations.js';
@@ -78,7 +85,10 @@ export function createDrawingClipboardPayload(source, selectedIds, {
     const requestedIds = [...new Set(selectedIds || [])].filter(id => knownIds.has(id));
     if (!requestedIds.length) throw clipboardError('empty-selection');
 
-    const entities = collectEntityDependencyClosure(content.entities, requestedIds).map(cloneJson);
+    const entities = includeDrawingDrivingAnnotations(content, collectEntityDependencyClosure(content.entities, requestedIds)).map(cloneJson);
+    const included = new Set(entities.map(entity => entity.id));
+    const dimensional = collectDrawingDimensionalCatalog(content, included);
+    if (dimensional.error) throw clipboardError('invalid-source');
     const referencedBlockIds = entities
         .filter(entity => entity.type === 'blockReference' && entity.blockId)
         .map(entity => entity.blockId);
@@ -109,6 +119,9 @@ export function createDrawingClipboardPayload(source, selectedIds, {
         assets: selectedAssets,
         dimensionStyles,
         blocks,
+        ...(dimensional.dimensionalConstraints.length ? dimensional : {}),
+        ...(content.geometricConstraints ? { geometricConstraints: content.geometricConstraints
+            .filter(constraint => constraint.refs.every(ref => copiedIds.has(ref.entityId))).map(cloneJson) } : {}),
         ...(typeof sourceDocumentId === 'string' && sourceDocumentId ? { sourceDocumentId } : {}),
     };
     return validateDrawingClipboardPayload(payload, limits);
@@ -134,12 +147,21 @@ export function validateDrawingClipboardPayload(candidate, limits = DRAWING_CLIP
     if (blockEntityCount > limits.blockEntities) throw clipboardError('too-many-block-entities');
 
     assertUniqueStringIds(entities, 'entity');
+    const geometricConstraints = normalizeDrawingGeometricConstraints(candidate.geometricConstraints, entities);
+    if (!geometricConstraints) throw clipboardError('invalid-payload');
+    const dimensional = normalizeDrawingDimensionalConstraints(candidate.dimensionalConstraints, entities, candidate.parameters);
+    if (dimensional.error || geometricConstraints.length + dimensional.constraints.length > 256
+        || dimensional.constraints.some(item => geometricConstraints.some(other => other.id === item.id))) throw clipboardError('invalid-payload');
     assertUniqueStringIds(layers, 'layer');
     assertUniqueStringIds(assets, 'asset');
     assertUniqueStringIds(blocks, 'block');
     blocks.forEach(block => {
         if (!Array.isArray(block.entities)) throw clipboardError('invalid-block');
         assertUniqueStringIds(block.entities, 'block-entity');
+        if (!normalizeDrawingGeometricConstraints(block.geometricConstraints, block.entities)) throw clipboardError('invalid-block');
+        const local = normalizeDrawingDimensionalConstraints(block.dimensionalConstraints, block.entities, block.parameters);
+        if (local.error || (block.geometricConstraints?.length || 0) + local.constraints.length > 256
+            || local.constraints.some(item => block.geometricConstraints?.some(other => other.id === item.id))) throw clipboardError('invalid-block');
     });
 
     const entityIds = new Set(entities.map(entity => entity.id));
@@ -151,7 +173,9 @@ export function validateDrawingClipboardPayload(candidate, limits = DRAWING_CLIP
         if (typeof entity.type !== 'string' || !entity.type) throw clipboardError('invalid-entity');
         if (entity.layerId && !layerIds.has(entity.layerId)) throw clipboardError('missing-layer');
         if (entity.assetId && !assetIds.has(entity.assetId)) throw clipboardError('missing-asset');
-        if (entity.pdfUnderlay?.assetId && !assetIds.has(entity.pdfUnderlay.assetId)) throw clipboardError('missing-asset');
+        for (const key of ['pdfUnderlay', 'dwfUnderlay', 'dgnUnderlay']) {
+            if (entity[key]?.assetId && !assetIds.has(entity[key].assetId)) throw clipboardError('missing-asset');
+        }
         if (entity.type === 'blockReference' && (!entity.blockId || !blockIds.has(entity.blockId))) {
             throw clipboardError('missing-block');
         }
@@ -179,6 +203,9 @@ export function validateDrawingClipboardPayload(candidate, limits = DRAWING_CLIP
         basePoint: normalizePoint(candidate.basePoint),
         originalBounds: normalizeBounds(candidate.originalBounds),
         selectionIds,
+        ...(candidate.geometricConstraints !== undefined ? { geometricConstraints } : {}),
+        ...(candidate.dimensionalConstraints !== undefined || candidate.parameters !== undefined
+            ? { dimensionalConstraints: dimensional.constraints, parameters: dimensional.parameters } : {}),
         dimensionStyles: dimensionStyles.map(style => ({ id: style.id, name: style.name.trim(), ...normalizeDimensionStyleValues(style) })),
         entities,
         layers,
@@ -289,9 +316,15 @@ export function pasteDrawingClipboardPayload(target, payload, {
     const basePoint = normalized.basePoint;
     const defaultInsertion = { x: basePoint.x + 0.5, y: basePoint.y + 0.5 };
     const insertion = normalizePoint(insertionPoint) || defaultInsertion;
+    const constraints = remapDrawingGeometricConstraints(normalized.geometricConstraints || [], entityIdMap, () => createDrawingId('constraint'));
 
     if (mode === 'block') {
-        const definition = createAnonymousDrawingBlock(remappedEntities, { basePoint });
+        const dimensional = mergeDrawingDimensionalCatalog({ entities: [], geometricConstraints: constraints }, normalized,
+            entityIdMap, remappedEntities, () => createDrawingId('constraint'));
+        if (dimensional.error) throw clipboardError('invalid-payload');
+        const definition = createAnonymousDrawingBlock(remappedEntities, { basePoint, geometricConstraints: constraints,
+            ...(dimensional.dimensionalConstraints.length || dimensional.parameters.length
+                ? { dimensionalConstraints: dimensional.dimensionalConstraints, parameters: dimensional.parameters } : {}) });
         const referenceLayerId = resolveBlockLayerId(content, layerMerge.layers, blockLayerId);
         const reference = createAnonymousDrawingBlockReference(definition, {
             insertionPoint: insertion,
@@ -321,6 +354,11 @@ export function pasteDrawingClipboardPayload(target, payload, {
         ? { x: 0, y: 0 }
         : { x: insertion.x - basePoint.x, y: insertion.y - basePoint.y };
     const pasted = remappedEntities.map(entity => translateEntity(entity, delta.x, delta.y));
+    const geometricConstraints = [...(content.geometricConstraints || []), ...translateDrawingGeometricConstraints(constraints, remappedEntities, delta)];
+    if (!normalizeDrawingGeometricConstraints(geometricConstraints, [...content.entities, ...pasted])) throw clipboardError('invalid-payload');
+    const dimensional = mergeDrawingDimensionalCatalog({ ...content, geometricConstraints }, normalized, entityIdMap,
+        [...content.entities, ...pasted], () => createDrawingId('constraint'));
+    if (dimensional.error) throw clipboardError('invalid-payload');
     return {
         content: {
             ...content,
@@ -328,6 +366,9 @@ export function pasteDrawingClipboardPayload(target, payload, {
             dimensionStyles: styleMerge.styles,
             blocks: blockMerge.blocks,
             entities: [...content.entities, ...pasted],
+            ...(content.geometricConstraints !== undefined || constraints.length ? { geometricConstraints } : {}),
+            ...(content.dimensionalConstraints !== undefined || normalized.dimensionalConstraints?.length
+                ? { dimensionalConstraints: dimensional.dimensionalConstraints, parameters: dimensional.parameters } : {}),
         },
         assets: assetMerge.assets,
         entities: pasted,
@@ -401,7 +442,7 @@ function collectEntityDependencyClosure(allEntities, selectedIds) {
     while (changed) {
         changed = false;
         [...included].forEach(id => {
-            getDrawingEntityDependencyIds(byId.get(id)).forEach(sourceId => {
+            [...getDrawingEntityDependencyIds(byId.get(id)), ...drawingFieldDependencyIds(byId.get(id)?.field)].forEach(sourceId => {
                 if (byId.has(sourceId) && !included.has(sourceId)) {
                     included.add(sourceId);
                     changed = true;
@@ -613,7 +654,7 @@ function parseSvgGeometryElement(name, attributes, matrix, layerId) {
     return [];
 }
 
-function parseSvgPath(data) {
+export function parseSvgPath(data) {
     const tokens = tokenizeSvgPath(data);
     const paths = [];
     let index = 0;
@@ -622,6 +663,8 @@ function parseSvgPath(data) {
     let start = null;
     let active = null;
     let partCount = 0;
+    let cubicControl = null;
+    let quadraticControl = null;
 
     const finishActive = () => {
         if (active?.parts.length) paths.push(active);
@@ -653,6 +696,7 @@ function parseSvgPath(data) {
                 active.closed = true;
                 current = { ...start };
                 command = null;
+                cubicControl = null; quadraticControl = null;
                 continue;
             }
             if (index >= tokens.length || typeof tokens[index] === 'string') throw clipboardError('invalid-svg-path');
@@ -661,7 +705,7 @@ function parseSvgPath(data) {
         const relative = command === command.toLowerCase();
         const upper = command.toUpperCase();
         if (active?.closed && upper !== 'M') throw clipboardError('invalid-svg-path');
-        const parameterCount = ({ M: 2, L: 2, H: 1, V: 1, C: 6, A: 7 })[upper];
+        const parameterCount = ({ M: 2, L: 2, H: 1, V: 1, C: 6, S: 4, Q: 4, T: 2, A: 7 })[upper];
         if (!parameterCount || index + parameterCount > tokens.length
             || tokens.slice(index, index + parameterCount).some(token => typeof token === 'string')) {
             throw clipboardError('invalid-svg-path');
@@ -677,6 +721,7 @@ function parseSvgPath(data) {
             start = { ...point };
             active = { type: 'polyline', parts: [], closed: false };
             command = relative ? 'l' : 'L';
+            cubicControl = null; quadraticControl = null;
             continue;
         }
         ensureActive();
@@ -692,15 +737,28 @@ function parseSvgPath(data) {
             const point = { x: current.x, y: relative ? current.y + values[0] : values[0] };
             append(lineCurve(current, point));
             current = point;
-        } else if (upper === 'C') {
-            const firstControl = svgCommandPoint(values[0], values[1], current, relative);
-            const secondControl = svgCommandPoint(values[2], values[3], current, relative);
-            const point = svgCommandPoint(values[4], values[5], current, relative);
+        } else if (upper === 'C' || upper === 'S') {
+            const firstControl = upper === 'C' ? svgCommandPoint(values[0], values[1], current, relative)
+                : cubicControl ? checkedSvgPoint({ x: 2 * current.x - cubicControl.x, y: 2 * current.y - cubicControl.y }) : { ...current };
+            const offset = upper === 'C' ? 2 : 0;
+            const secondControl = svgCommandPoint(values[offset], values[offset + 1], current, relative);
+            const point = svgCommandPoint(values[offset + 2], values[offset + 3], current, relative);
             append({
                 type: 'spline',
                 degree: 3,
                 controlPoints: [{ ...current }, firstControl, secondControl, point],
             });
+            cubicControl = secondControl;
+            current = point;
+        } else if (upper === 'Q' || upper === 'T') {
+            const control = upper === 'Q' ? svgCommandPoint(values[0], values[1], current, relative)
+                : quadraticControl ? checkedSvgPoint({ x: 2 * current.x - quadraticControl.x, y: 2 * current.y - quadraticControl.y }) : { ...current };
+            const offset = upper === 'Q' ? 2 : 0;
+            const point = svgCommandPoint(values[offset], values[offset + 1], current, relative);
+            append({ type: 'spline', degree: 3, controlPoints: [{ ...current },
+                { x: current.x + (control.x - current.x) * 2 / 3, y: current.y + (control.y - current.y) * 2 / 3 },
+                { x: point.x + (control.x - point.x) * 2 / 3, y: point.y + (control.y - point.y) * 2 / 3 }, point] });
+            quadraticControl = control;
             current = point;
         } else if (upper === 'A') {
             const point = svgCommandPoint(values[5], values[6], current, relative);
@@ -709,6 +767,8 @@ function parseSvgPath(data) {
             append(svgEndpointArc(current, point, values[0], values[1], values[2], largeArc, sweep));
             current = point;
         }
+        if (!['C', 'S'].includes(upper)) cubicControl = null;
+        if (!['Q', 'T'].includes(upper)) quadraticControl = null;
     }
     finishActive();
     if (!paths.length) throw clipboardError('invalid-svg-path');
@@ -728,7 +788,7 @@ function tokenizeSvgPath(data) {
         }
         const character = data[index];
         if (/[a-z]/i.test(character)) {
-            if (!/[AaCcHhLlMmVvZz]/.test(character)) throw clipboardError('unsupported-svg-path');
+            if (!/[AaCcHhLlMmQqSsTtVvZz]/.test(character)) throw clipboardError('unsupported-svg-path');
             tokens.push(character);
             index += 1;
             continue;
@@ -1021,6 +1081,7 @@ function entityToSvg(entity, context) {
     }
     const appearance = entityAppearance(entity, context.layerMap.get(entity.layerId));
     const common = ` fill="none" stroke="${escapeXml(appearance.color)}" stroke-width="${appearance.lineWeight}" opacity="${appearance.opacity}"`;
+    if (entity.type === 'point') return `<path d="${drawingPointPath(entity)}" transform="${drawingPointSvgTransform(entity)}"${common.replace('fill="none"', `fill="${normalizeDrawingPointStyle(entity.pointStyle).symbol === 'dot' ? escapeXml(appearance.color) : 'none'}"`)}/>`;
     if (entity.type === 'line') return `<line x1="${entity.x1}" y1="${entity.y1}" x2="${entity.x2}" y2="${entity.y2}"${common}/>`;
     if (entity.type === 'rectangle') {
         const centerX = Number(entity.x) + Number(entity.width) / 2;
@@ -1057,7 +1118,7 @@ function entityToSvg(entity, context) {
         const layout = getDrawingTextLayout(entity);
         return `<text transform="${drawingRectTransform(entity) || ''}" font-family="${escapeXml(layout.baseStyle.cssFontFamily)}" font-size="${layout.fontSize}" font-weight="${layout.baseStyle.fontWeight}" font-style="${layout.baseStyle.fontStyle}" x="${layout.textX}" y="${layout.firstBaseline}" textLength="${layout.availableWidth}" lengthAdjust="spacingAndGlyphs" fill="${escapeXml(appearance.color)}" opacity="${appearance.opacity}">${escapeXml(entity.text || '')}</text>`;
     }
-    if (entity.type === 'text') return `<text transform="${drawingRectTransform(entity) || ''}" font-size="${Number(entity.fontSize) || 0.35}" x="${entity.x}" y="${Number(entity.y) + (Number(entity.fontSize) || 0.35)}" fill="${escapeXml(appearance.color)}">${escapeXml(entity.text || '')}</text>`;
+    if (entity.type === 'text') return drawingTextToSvg(entity, appearance, context);
     if (entity.type === 'region') {
         const d = extractEntityPaths(entity).map(path => curvePathToSvgData(path)).join(' ');
         return `<path d="${d}"${common} fill-rule="evenodd"/>`;
@@ -1109,9 +1170,10 @@ function entityToSvg(entity, context) {
         if (entity.externalReference?.loaded === false || context.visited.has(entity.blockId)) return '';
         const definition = context.blockMap.get(entity.blockId);
         if (!definition) return '';
+        const children = drawingBlockInstanceEntities(definition, entity);
         const next = {
             ...context,
-            entityMap: createDimensionSourceMap(definition.entities, context.blockMap, { layers: [...context.layerMap.values()] }),
+            entityMap: createDimensionSourceMap(children, context.blockMap, { layers: [...context.layerMap.values()] }),
             visited: new Set(context.visited).add(entity.blockId),
             viewBox: inverseAffineViewBox(context.viewBox, entity.transform),
         };
@@ -1119,11 +1181,24 @@ function entityToSvg(entity, context) {
         const clip = drawingBlockClipShape(entity);
         const clipId = `block-clip-${context.paintIds.next++}`;
         const clipDefinition = clip ? `<defs><clipPath id="${clipId}" clipPathUnits="userSpaceOnUse"><path d="${escapeXml(clip.paths.map(curvePathToSvgData).join(' '))}" clip-rule="${clip.rule}"/></clipPath></defs>` : '';
-        return `<g transform="matrix(${matrix.a} ${matrix.b} ${matrix.c} ${matrix.d} ${matrix.e} ${matrix.f})">${clipDefinition}<g${clip ? ` clip-path="url(#${clipId})"` : ''}>${definition.entities.map(child => resolveDrawingBlockChild(child, entity, context.attributeDisplay))
+        return `<g transform="matrix(${matrix.a} ${matrix.b} ${matrix.c} ${matrix.d} ${matrix.e} ${matrix.f})">${clipDefinition}<g${clip ? ` clip-path="url(#${clipId})"` : ''}>${children.map(child => resolveDrawingBlockChild(child, entity, context.attributeDisplay))
             .filter(child => child && (context.layerMap.get(child.layerId)?.visible !== false && !context.layerMap.get(child.layerId)?.frozen))
             .map(child => entityToSvg(child, next)).join('')}</g></g>`;
     }
     return '';
+}
+
+/** Use the same line layout, alignment and run formatting as the canvas and print renderer. */
+function drawingTextToSvg(entity, appearance, context) {
+    const layout = getDrawingTextLayout(entity, { color: appearance.color });
+    const clipId = `clipboard-text-${context.paintIds.next++}`;
+    const clipped = layout.textMode !== 'singleLine';
+    const clip = clipped ? `<defs><clipPath id="${clipId}"><rect x="${layout.x}" y="${layout.y}" width="${layout.width}" height="${layout.height}"/></clipPath></defs>` : '';
+    const lines = layout.styledLines.map(line => {
+        const spans = line.spans.map(span => `<tspan fill="${escapeXml(span.style.color || appearance.color)}" font-family="${escapeXml(span.style.cssFontFamily)}" font-size="${span.style.fontSize}" font-weight="${span.style.fontWeight}" font-style="${span.style.fontStyle}" text-decoration="${escapeXml(span.style.textDecoration)}">${escapeXml(span.text || '\u00a0')}</tspan>`).join('');
+        return `<tspan x="${layout.textX}" y="${line.baseline}">${spans || '\u00a0'}</tspan>`;
+    }).join('');
+    return `<g transform="${drawingRectTransform(entity) || ''}" opacity="${appearance.opacity}">${clip}<text${clipped ? ` clip-path="url(#${clipId})"` : ''} x="${layout.textX}" text-anchor="${layout.textAnchor}" fill="${escapeXml(appearance.color)}" font-family="${escapeXml(layout.baseStyle.cssFontFamily)}" font-size="${layout.fontSize}" font-weight="${layout.baseStyle.fontWeight}" font-style="${layout.baseStyle.fontStyle}">${lines}</text></g>`;
 }
 
 function ellipseArcPath(entity) {
@@ -1133,58 +1208,6 @@ function ellipseArcPath(entity) {
     return `M ${start.x} ${start.y} A ${Math.abs(entity.rx)} ${Math.abs(entity.ry)} ${Number(entity.rotation) || 0} ${Math.abs(sweep) > Math.PI ? 1 : 0} ${sweep > 0 ? 1 : 0} ${end.x} ${end.y}`;
 }
 
-function curvePathToSvgData(path) {
-    const parts = Array.isArray(path?.parts) ? path.parts : [];
-    const commands = [];
-    let previous = null;
-    parts.forEach(part => {
-        const start = curveSvgStart(part);
-        if (!start) return;
-        if (!previous || pointDistance(previous, start) > SVG_EPSILON) commands.push(`M ${start.x} ${start.y}`);
-        if (part.type === 'line') {
-            commands.push(`L ${part.x2} ${part.y2}`);
-            previous = { x: part.x2, y: part.y2 };
-        } else if (part.type === 'arc') {
-            const end = ellipsePoint(part, Number(part.endAngle) || 0);
-            const sweep = arcSweep(part);
-            commands.push(`A ${Math.abs(part.r)} ${Math.abs(part.r)} 0 ${Math.abs(sweep) > Math.PI ? 1 : 0} ${sweep > 0 ? 1 : 0} ${end.x} ${end.y}`);
-            previous = end;
-        } else if (part.type === 'ellipse') {
-            if (part.fullEllipse) {
-                const opposite = ellipsePoint(part, Math.PI);
-                commands.push(`A ${Math.abs(part.rx)} ${Math.abs(part.ry)} ${Number(part.rotation) || 0} 0 1 ${opposite.x} ${opposite.y}`);
-                commands.push(`A ${Math.abs(part.rx)} ${Math.abs(part.ry)} ${Number(part.rotation) || 0} 0 1 ${start.x} ${start.y}`);
-                previous = start;
-            } else {
-                const end = ellipsePoint(part, Number(part.endAngle) || 0);
-                const sweep = curveSweepValue(part);
-                commands.push(`A ${Math.abs(part.rx)} ${Math.abs(part.ry)} ${Number(part.rotation) || 0} ${Math.abs(sweep) > Math.PI ? 1 : 0} ${sweep > 0 ? 1 : 0} ${end.x} ${end.y}`);
-                previous = end;
-            }
-        } else if (part.type === 'circle') {
-            const opposite = { x: part.cx - Math.abs(part.r), y: part.cy };
-            commands.push(`A ${Math.abs(part.r)} ${Math.abs(part.r)} 0 0 1 ${opposite.x} ${opposite.y}`);
-            commands.push(`A ${Math.abs(part.r)} ${Math.abs(part.r)} 0 0 1 ${start.x} ${start.y}`);
-            previous = start;
-        } else if (part.type === 'spline' && part.controlPoints?.length === 4) {
-            const [, firstControl, secondControl, end] = part.controlPoints;
-            commands.push(`C ${firstControl.x} ${firstControl.y} ${secondControl.x} ${secondControl.y} ${end.x} ${end.y}`);
-            previous = end;
-        }
-    });
-    if (path?.closed && commands.length) commands.push('Z');
-    return commands.join(' ');
-}
-
-function curveSvgStart(part) {
-    if (part?.type === 'line') return { x: part.x1, y: part.y1 };
-    if (part?.type === 'spline') return part.controlPoints?.[0] || null;
-    if (part?.type === 'circle') return { x: part.cx + Math.abs(part.r), y: part.cy };
-    if (part?.type === 'arc' || part?.type === 'ellipse') {
-        return ellipsePoint(part, Number(part.startAngle) || 0);
-    }
-    return null;
-}
 
 function curveSweepValue(entity) {
     if (entity.fullEllipse) return entity.counterClockwise === false ? -Math.PI * 2 : Math.PI * 2;
@@ -1296,7 +1319,9 @@ function collectPropertyValues(entities, property) {
     const values = new Set();
     const visit = entity => {
         if (entity?.[property]) values.add(entity[property]);
-        if (property === 'assetId' && entity?.pdfUnderlay?.assetId) values.add(entity.pdfUnderlay.assetId);
+        for (const key of ['pdfUnderlay', 'dwfUnderlay', 'dgnUnderlay']) {
+            if (property === 'assetId' && entity?.[key]?.assetId) values.add(entity[key].assetId);
+        }
         if (entity?.type === 'polyline' && Array.isArray(entity.parts)) entity.parts.forEach(visit);
     };
     entities.forEach(visit);

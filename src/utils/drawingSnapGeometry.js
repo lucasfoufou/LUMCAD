@@ -12,6 +12,7 @@ import {
 const EPSILON = 1e-9;
 
 export function baseSnapCandidates(entity, snaps) {
+    if (entity?.type === 'point') return snaps.node ? [{ x: entity.x, y: entity.y, type: 'node', entityId: entity.id }] : [];
     if (isConstructionLine(entity)) {
         const geometry = constructionLineGeometry(entity);
         if (!geometry || entity.type !== 'ray' || !snaps.endpoint) return [];
@@ -117,6 +118,7 @@ export function baseSnapCandidates(entity, snaps) {
 }
 
 export function nearestSnapCandidate(point, entity) {
+    if (entity?.type === 'point') return { x: entity.x, y: entity.y, type: 'nearest', entityId: entity.id };
     if (isConstructionLine(entity)) {
         const closest = closestPointOnConstructionLine(entity, point);
         if (!closest) return null;

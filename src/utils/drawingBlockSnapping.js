@@ -1,4 +1,5 @@
 import { drawingBlockClipShape, clipDrawingSnapEntity } from './drawingBlockClip.js';
+import { drawingBlockInstanceEntities } from './drawingDynamicBlocks.js';
 import { isDrawingReferenceUnloaded } from './drawingReferenceMetadata.js';
 import { transformDrawingClipShape } from './drawingClipPaths.js';
 import { ANNOTATION_HIDDEN } from './drawingAnnotations.js';
@@ -37,7 +38,7 @@ export function drawingSnapEntities(content, excluded = new Set(), limit = 10000
             }
             return;
         }
-        for (const child of block.entities) {
+        for (const child of drawingBlockInstanceEntities(block, entity)) {
             if (remaining <= 0) break;
             visit(resolveDrawingBlockChild(child, entity, content.settings?.attributeDisplay), transform, rootId, next, childClips);
         }

@@ -1,3 +1,7 @@
+import DrawingHyperlinkFields from '~components/drawing/DrawingHyperlinkFields';
+import DrawingParametersPanel from '~components/drawing/DrawingParametersPanel';
+import DrawingConstraintsPanel from '~components/drawing/DrawingConstraintsPanel';
+import DrawingBlockVariantEditor from '~components/drawing/DrawingBlockVariantEditor';
 import DrawingAnnotationFields from '~components/drawing/DrawingAnnotationFields';
 import DrawingPlotStylesPanel from '~components/drawing/DrawingPlotStylesPanel';
 import { filterDrawingLayers } from '~utils/drawingLayers';
@@ -7,6 +11,7 @@ import { presentDrawingDimension } from '~utils/drawingDimensionPresentation';
 import { retainDimensionStyleOverrides } from '~utils/drawingDimensionStyles';
 import DrawingDimensionStylesPanel from '~components/drawing/DrawingDimensionStylesPanel';
 import DrawingBlockAttributeFields from '~components/drawing/DrawingBlockAttributeFields';
+import DrawingBlockParameterFields from '~components/drawing/DrawingBlockParameterFields';
 import DrawingBlocksPanel from '~components/drawing/DrawingBlocksPanel';
 import React, { useEffect, useMemo, useState } from 'react';
 
@@ -29,8 +34,8 @@ import {
 } from '~utils/drawingDimensions';
 import { rebuildQdimSeriesResult } from '~utils/drawingDimensionCommands';
 
-export default function DrawingSidebar({ content, selectedIds, onCommit, panel, onPanelChange, blockSearch, onBlockSearch, onBlockDefine, onBlockInsert, onBlockEdit, onBlockImport, onBlockExport, onManageAttribute, onDefineAttribute, onDimensionStyleCommand, inquiryResult, onCopyInquiry, layerFilter, onLayerFilter, onPlotStyleCommand, onCreationControlsMount, onAnnotationCommand }) {
-    const { t } = useI18n();
+export default function DrawingSidebar({ content, selectedIds, onCommit, panel, onPanelChange, blockSearch, onBlockSearch, onBlockDefine, onBlockInsert, onBlockEdit, onBlockImport, onBlockExport, onManageAttribute, onDefineAttribute, onDimensionStyleCommand, inquiryResult, comparisonPreview, onCopyInquiry, onSelectDuplicateGroup, onSelectCountOccurrence, onOpenRecovery, canOpenRecovery = false, onSelectRecovery, onShowRecoveryManager, hasRecoveryGraph = false, onShowRecoveryHistory, onRetryRecovery, onForgetRecovery, onRelinkRecovery, canRelinkRecovery, layerFilter, onLayerFilter, onPlotStyleCommand, onCreationControlsMount, onAnnotationCommand, dynamicBlockEditing = false, onSmartBlockCommand, smartBlockDetection, libraryBrowser, onBrowseLibrary, onSelectConstraintObjects, parametersEnabled = false }) {
+    const { t, locale } = useI18n();
     const [internalTab, setInternalTab] = useState('layers');
     const tab = panel || internalTab;
     const setTab = nextTab => {
@@ -39,29 +44,36 @@ export default function DrawingSidebar({ content, selectedIds, onCommit, panel, 
     };
     useEffect(() => {
         const selected = content.entities.find(entity => selectedIds.includes(entity.id));
-        if (selected) setTab('selection');
+        const reportSelection = tab === 'inquiry' && inquiryResult?.selectedIds?.join('|') === selectedIds.join('|');
+        if (selected && !reportSelection && !['constraints', 'parameters'].includes(tab)) setTab('selection');
     }, [selectedIds.join('|')]);
     return (
         <aside className="drawing-sidebar">
             <div className="drawing-sidebar-tabs" role="tablist">
+                {dynamicBlockEditing && <button type="button" className={tab === 'blockVariants' ? 'is-active' : ''} onClick={() => setTab('blockVariants')}>{t('commands.blockTable')}</button>}
                 <button type="button" className={tab === 'layers' ? 'is-active' : ''} onClick={() => setTab('layers')}>{t('sidebar.layers')}</button>
                 <button type="button" className={tab === 'selection' ? 'is-active' : ''} onClick={() => setTab('selection')}>{t('sidebar.selection')}</button>
                 <button type="button" className={tab === 'textStyles' ? 'is-active' : ''} onClick={() => setTab('textStyles')}>{t('sidebar.textStyles')}</button>
                 <button type="button" className={tab === 'dimensionStyles' ? 'is-active' : ''} onClick={() => setTab('dimensionStyles')}>{t('commands.dimensionStyle')}</button>
                 <button type="button" className={tab === 'blocks' ? 'is-active' : ''} onClick={() => setTab('blocks')}>{t('block.palette')}</button>
                 <button type="button" className={tab === 'plotStyles' ? 'is-active' : ''} onClick={() => setTab('plotStyles')}>{t('commands.styleManager')}</button>
+                {parametersEnabled && <button type="button" className={tab === 'parameters' ? 'is-active' : ''} onClick={() => setTab('parameters')}>{t('commands.parameters')}</button>}
+                <button type="button" className={tab === 'constraints' ? 'is-active' : ''} onClick={() => setTab('constraints')}>{t('commands.geomConstraint')}</button>
                 <button type="button" className={tab === 'inquiry' ? 'is-active' : ''} onClick={() => setTab('inquiry')}>{t('inquiry.title')}</button>
             </div>
             <div className="drawing-sidebar-content">
+                {dynamicBlockEditing && tab === 'blockVariants' && <DrawingBlockVariantEditor content={content} selectedIds={selectedIds} onCommit={onCommit} t={t} />}
                 <DrawingAnnotationFields content={content} selectedIds={selectedIds} onCommand={onAnnotationCommand} t={t} />
                 <div className="drawing-properties-mount" ref={onCreationControlsMount} />
+                {tab === 'parameters' && <DrawingParametersPanel content={content} selectedIds={selectedIds} enabled={parametersEnabled} onCommit={onCommit} onSelect={onSelectConstraintObjects} t={t} locale={locale} />}
+                {tab === 'constraints' && <DrawingConstraintsPanel content={content} selectedIds={selectedIds} onCommit={onCommit} onSelect={onSelectConstraintObjects} t={t} />}
                 {tab === 'plotStyles' && <DrawingPlotStylesPanel content={content} onCommand={onPlotStyleCommand} t={t} />}
-                {tab === 'inquiry' && <DrawingInquiryPanel settings={content.settings} result={inquiryResult} onCopy={onCopyInquiry} t={t} />}
+                {tab === 'inquiry' && <DrawingInquiryPanel comparisonPreview={comparisonPreview} settings={content.settings} result={inquiryResult} onCopy={onCopyInquiry} onSelectDuplicateGroup={onSelectDuplicateGroup} onSelectCountOccurrence={onSelectCountOccurrence} onOpenRecovery={onOpenRecovery} canOpenRecovery={canOpenRecovery} onSelectRecovery={onSelectRecovery} onShowRecoveryManager={onShowRecoveryManager} hasRecoveryGraph={hasRecoveryGraph} onShowRecoveryHistory={onShowRecoveryHistory} onRetryRecovery={onRetryRecovery} onForgetRecovery={onForgetRecovery} onRelinkRecovery={onRelinkRecovery} canRelinkRecovery={canRelinkRecovery} t={t} />}
                 {tab === 'layers' && <LayersPanel content={content} onCommit={onCommit} filter={layerFilter} onFilter={onLayerFilter} t={t} />}
                 {tab === 'selection' && <SelectionPanel content={content} selectedIds={selectedIds} onCommit={onCommit} t={t} />}
                 {tab === 'textStyles' && <TextStylesPanel content={content} onCommit={onCommit} t={t} />}
                 {tab === 'dimensionStyles' && <DrawingDimensionStylesPanel content={content} selectedIds={selectedIds} onCommand={onDimensionStyleCommand} t={t} />}
-                {tab === 'blocks' && <DrawingBlocksPanel content={content} selectedIds={selectedIds} search={blockSearch} onSearch={onBlockSearch} onDefine={onBlockDefine} onInsert={onBlockInsert} onEdit={onBlockEdit} onImport={onBlockImport} onExport={onBlockExport} onManageAttribute={onManageAttribute} onDefineAttribute={onDefineAttribute} />}
+                {tab === 'blocks' && <DrawingBlocksPanel libraryBrowser={libraryBrowser} onBrowseLibrary={onBrowseLibrary} onSmartCommand={onSmartBlockCommand} detection={smartBlockDetection} content={content} selectedIds={selectedIds} search={blockSearch} onSearch={onBlockSearch} onDefine={onBlockDefine} onInsert={onBlockInsert} onEdit={onBlockEdit} onImport={onBlockImport} onExport={onBlockExport} onManageAttribute={onManageAttribute} onDefineAttribute={onDefineAttribute} />}
             </div>
         </aside>
     );
@@ -264,6 +276,8 @@ function SelectionPanel({ content, selectedIds, onCommit, t }) {
                 </select>
             </label>
             {single?.type === 'blockReference' && <DrawingBlockAttributeFields content={content} reference={single} disabled={selectionLocked} onCommit={onCommit} t={t} />}
+            {single?.type === 'blockReference' && <DrawingBlockParameterFields content={content} reference={single} disabled={selectionLocked} onCommit={onCommit} t={t} />}
+            {single && <DrawingHyperlinkFields content={content} entity={single} disabled={selectionLocked} onCommit={onCommit} />}
             <DrawingEntityAppearanceFields
                 content={content}
                 disabled={selectionLocked}

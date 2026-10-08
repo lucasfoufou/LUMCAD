@@ -51,6 +51,12 @@ export function useI18n() {
 }
 
 function formatDateValue(value, locale) {
+    if (value instanceof Date || typeof value === 'number') {
+        const date = new Date(value);
+        return Number.isFinite(date.getTime())
+            ? new Intl.DateTimeFormat(LOCALE_TAGS[normalizeLocale(locale)]).format(date)
+            : '-';
+    }
     if (!value) return '-';
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value));
     if (!match) return String(value);

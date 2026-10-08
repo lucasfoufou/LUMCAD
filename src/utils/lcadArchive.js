@@ -1,3 +1,4 @@
+import { recoverLcadLocalZipEntries } from './lcadZipRecovery.js';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 
 import { createI18nError } from '../i18n/translator.js';
@@ -24,6 +25,8 @@ const IMAGE_MIME_TYPES = new Map([
     ['image/webp', 'webp'],
     ['image/svg+xml', 'svg'],
     ['application/pdf', 'pdf'],
+    ['model/vnd.dwfx+xps', 'dwfx'],
+    ['image/vnd.dgn', 'dgn'],
 ]);
 
 export function createLcadArchive(envelope) {
@@ -55,6 +58,17 @@ export function createLcadArchive(envelope) {
 }
 
 export function readLcadArchive(input) {
+    return decodeLcadArchive(input);
+}
+
+/** Recovery staging only: preserve the raw manifest so audit/salvage precedes normalization. */
+export function readLcadRecoveryCandidate(input) {
+    const issues = [];
+    const envelope = decodeLcadArchive(input, issues);
+    return { envelope, issues };
+}
+
+function decodeLcadArchive(input, recoveryIssues = null) {
     const bytes = toUint8Array(input);
     if (!isZipArchive(bytes)) throw createI18nError('storage.invalidArchive');
 
@@ -63,6 +77,7 @@ export function readLcadArchive(input) {
     let declaredAssetBytes = 0;
     const seenEntryNames = new Set();
     let files;
+    let rebuildDirectory = false;
     try {
         files = unzipSync(bytes, {
             filter(entry) {
@@ -83,13 +98,25 @@ export function readLcadArchive(input) {
                         return false;
                     }
                 }
-                return true;
+                // Recovery decodes CRC-checked local records below. Avoid a
+                // second, unchecked inflation from central-directory metadata.
+                return !recoveryIssues;
             },
         });
     } catch (error) {
-        throw createI18nError('storage.invalidArchive', {}, { cause: error });
+        if (!recoveryIssues || rejectedEntry) throw createI18nError('storage.invalidArchive', {}, { cause: error });
+        rebuildDirectory = true;
     }
     if (rejectedEntry) throw createI18nError('storage.invalidArchiveEntry', { detail: rejectedEntry });
+    if (recoveryIssues) {
+        const recovered = recoverLcadLocalZipEntries(bytes, { manifestPath: LCAD_MANIFEST_PATH,
+            maxManifestBytes: MAX_MANIFEST_BYTES, maxAssetBytes: MAX_ASSET_BYTES,
+            maxTotalAssetBytes: MAX_TOTAL_ASSET_BYTES, maxAssetCount: MAX_ASSET_COUNT, isSafeAssetPath });
+        files = recovered.files;
+        if (rebuildDirectory) seenEntryNames.clear();
+        for (const name of recovered.entryNames) seenEntryNames.add(name);
+        recoveryIssues.push(...recovered.issues.filter(issue => rebuildDirectory || issue.code !== 'rebuiltZipDirectory'));
+    }
 
     const manifestBytes = files[LCAD_MANIFEST_PATH];
     if (!manifestBytes) throw createI18nError('storage.missingManifest');
@@ -105,7 +132,7 @@ export function readLcadArchive(input) {
     const seenPaths = new Set();
     let actualAssetBytes = 0;
     const hydrated = structuredClone(manifest);
-    hydrated.document.assets = hydrated.document.assets.map(asset => {
+    hydrated.document.assets = hydrated.document.assets.flatMap(asset => {
         const path = String(asset?.path || '');
         const mimeType = normalizeImageMimeType(asset?.mimeType);
         if (!isSafeAssetPath(path) || seenPaths.has(path) || !mimeType) {
@@ -113,7 +140,11 @@ export function readLcadArchive(input) {
         }
         seenPaths.add(path);
         const assetBytes = files[path];
-        if (!assetBytes) throw createI18nError('storage.missingAsset', { detail: String(asset?.id || path) });
+        if (!assetBytes) {
+            if (!recoveryIssues) throw createI18nError('storage.missingAsset', { detail: String(asset?.id || path) });
+            recoveryIssues.push({ code: 'missingAssetEntry', assetId: asset.id, path, metadata: { ...asset } });
+            return [];
+        }
         actualAssetBytes += assetBytes.length;
         if (assetBytes.length > MAX_ASSET_BYTES || actualAssetBytes > MAX_TOTAL_ASSET_BYTES) {
             throw createI18nError('storage.assetTooLarge');
@@ -122,9 +153,9 @@ export function readLcadArchive(input) {
         return { ...metadata, mimeType, link: encodeImageDataUrl(mimeType, assetBytes) };
     });
     const expectedEntries = new Set([LCAD_MANIFEST_PATH, ...seenPaths]);
-    const unknownEntry = Object.keys(files).find(path => !expectedEntries.has(path));
+    const unknownEntry = [...seenEntryNames].find(path => !expectedEntries.has(path));
     if (unknownEntry) throw createI18nError('storage.invalidArchiveEntry', { detail: unknownEntry });
-    return normalizeLcadEnvelope(hydrated);
+    return recoveryIssues ? hydrated : normalizeLcadEnvelope(hydrated);
 }
 
 export function isZipArchive(input) {

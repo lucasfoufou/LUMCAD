@@ -50,7 +50,13 @@ test('attribute visibility affects nested rendering and snapping without erasing
     assert.equal(drawingSnapEntities({ ...content, settings: { attributeDisplay: 'off' } }).length, 0);
     const payload = createDrawingClipboardPayload({ content, assets: [] }, [reference.id]);
     const rendered = drawingClipboardPayloadToSvg(payload).split('</metadata>')[1];
-    assert.match(rendered, />A-01<\/text>/); assert.doesNotMatch(rendered, />Hidden<\/text>/);
+    const visibleText = svg => [...svg.matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/g)].map(match => match[1].replace(/<[^>]+>/g, ''));
+    assert.ok(visibleText(rendered).includes('A-01'));
+    assert.ok(!visibleText(rendered).includes('Hidden'));
+    const all = drawingClipboardPayloadToSvg({ ...payload, attributeDisplay: 'all' }).split('</metadata>')[1];
+    const off = drawingClipboardPayloadToSvg({ ...payload, attributeDisplay: 'off' }).split('</metadata>')[1];
+    assert.ok(visibleText(all).includes('Hidden'));
+    assert.deepEqual(visibleText(off), []);
 });
 
 test('synchronization preserves values, adds defaults, removes stale tags and refreshes constants', () => {

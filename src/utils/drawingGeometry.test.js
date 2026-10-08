@@ -94,7 +94,9 @@ test('CAD aliases and numeric inputs are recognized', () => {
     assert.equal(isNumericDrawingInput('5 m'), true);
     assert.equal(getDrawingCommandInput('CAL span = 2,5 + 1,25'), 'span = 2,5 + 1,25');
     assert.equal(getDrawingCommandInput('CAL'), '');
-    assert.deepEqual(getDrawingCommandSuggestions('sav').map(item => item.name), ['SAVEAS']);
+    assert.deepEqual(getDrawingCommandSuggestions('sav').map(item => item.name), ['SAVEAS', 'SAVETEMPLATE']);
+    assert.equal(parseDrawingCommand('DWT').command, 'saveTemplate');
+    assert.equal(parseDrawingCommand('QNEW').command, 'quickNew');
     assert.deepEqual(getDrawingCommandSuggestions('c').slice(0, 2).map(item => [item.name, item.alias]), [
         ['CIRCLE', 'C'],
         ['CENTERDISASSOCIATE', 'CENTERDISASSOCIATE'],

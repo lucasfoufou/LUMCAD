@@ -1,4 +1,5 @@
 import { centerLineGeometry } from './drawingCenterLines.js';
+import { remapDrawingField } from './drawingFieldDefinition.js';
 import { normalizeDimensionStyleValues } from './drawingDimensionStyles.js';
 import { normalizeDimensionBreaks, normalizeAutomaticDimensionBreak, dimensionObstacleCurves } from './drawingDimensionBreaks.js';
 import { extractEntityPaths, curveLength, curveParameterAtLength, curvePointAt, curveTangentAt, normalizeCurvePrimitive } from './drawingCurveKernel.js';
@@ -221,6 +222,7 @@ export function remapDrawingEntityDependencies(entity, idMap, { preserveAppearan
     const remapped = preserveAppearance && isDrawingDimensionEntity(entity) && !entity.dimensionStyleId
         ? { ...entity, ...normalizeDimensionStyleValues(entity) }
         : { ...entity };
+    if (entity.field) remapped.field = remapDrawingField(entity.field, idMap);
     if (entity.dimensionAutoBreak) remapped.dimensionAutoBreak = { ...entity.dimensionAutoBreak, sourceIds: entity.dimensionAutoBreak.sourceIds.map(resolve) };
     if (typeof entity.sourceId === 'string') remapped.sourceId = resolve(entity.sourceId);
     if (Array.isArray(entity.sourceIds)) {

@@ -12,6 +12,7 @@ import { clearLcadRecovery, isTauriRuntime, loadStartupLcad, openLcadDocument } 
 export default function App() {
     const { t } = useI18n();
     const { settings } = useAppSettings();
+    const sheetSetSessionRef = useRef(null);
     const initialTranslatorRef = useRef(t);
     const initialDrawingDefaultsRef = useRef(settings.drawingDefaults);
     const [session, setSession] = useState(null);
@@ -94,9 +95,14 @@ export default function App() {
     } else {
         content = <DrawingEditorWorkspace
             key={session.key}
+            sheetSetSessionRef={sheetSetSessionRef}
             initialDocument={session.document}
             initialPath={session.path}
             recovered={session.recovered}
+            initialRecoveryReport={session.recoveryReport}
+            initialRecoveryGraph={session.recoveryGraph}
+            initialTemplateSourcePath={session.templateSourcePath}
+            initialMessage={session.initialMessage}
             onReplaceSession={replaceSession}
             onOpenSettings={() => setSettingsOpen(true)}
         />;

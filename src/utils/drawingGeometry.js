@@ -1,3 +1,4 @@
+import { drawingPointBounds } from './drawingPoints.js';
 import { drawingWorldToUcs, drawingUcsToWorld } from './drawingCoordinates.js';
 import { isDrawingLayerVisible } from './drawingLayers.js';
 import { getDrawingBlockReferenceBounds } from './drawingBlocks.js';
@@ -209,6 +210,7 @@ export function resizeViewBoxForCanvas(viewBox, previousSize, nextSize) {
 }
 
 export function getEntityBounds(entity, entityMap = new Map()) {
+    if (entity?.type === 'point') return drawingPointBounds(entity);
     if (!entity) return null;
     if (entity.type === 'blockReference') return getDrawingBlockReferenceBounds(entity);
     if (['line', 'xline', 'ray'].includes(entity.type)) return boundsFromPoints([{ x: entity.x1, y: entity.y1 }, { x: entity.x2, y: entity.y2 }]);
@@ -286,7 +288,10 @@ export function getDrawingBounds(content, { printableOnly = false } = {}) {
 }
 
 export function fitViewBox(content, aspectRatio = 16 / 9, marginRatio = 0.12) {
-    const bounds = getDrawingBounds(content);
+    return fitDrawingBounds(getDrawingBounds(content), aspectRatio, marginRatio);
+}
+
+export function fitDrawingBounds(bounds, aspectRatio = 16 / 9, marginRatio = 0.12) {
     let width = Math.max(1, bounds.maxX - bounds.minX) * (1 + marginRatio * 2);
     let height = Math.max(1, bounds.maxY - bounds.minY) * (1 + marginRatio * 2);
     if (width / height > aspectRatio) height = width / aspectRatio;

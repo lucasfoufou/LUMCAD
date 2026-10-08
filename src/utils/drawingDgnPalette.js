@@ -1,0 +1,48 @@
+// Default palette data from GDAL dgnhelp.cpp (MIT); see public/licenses/GDAL-DGN.txt.
+// https://github.com/OSGeo/gdal/blob/master/ogr/ogrsf_frmts/dgn/dgnhelp.cpp
+const defaultColors = `#ffffff #0000ff #00ff00 #ff0000 #ffff00 #ff00ff #ff7f00 #00ffff
+#404040 #c0c0c0 #fe0060 #a0e000 #00fea0 #8000a0 #b0b0b0 #00f0f0
+#f0f0f0 #0000f0 #00f000 #f00000 #f0f000 #f000f0 #f07a00 #00f0f0
+#f0f0f0 #0000f0 #00f000 #f00000 #f0f000 #f000f0 #f07a00 #00e1e1
+#e1e1e1 #0000e1 #00e100 #e10000 #e1e100 #e100e1 #e17500 #00e1e1
+#e1e1e1 #0000e1 #00e100 #e10000 #e1e100 #e100e1 #e17500 #00d2d2
+#d2d2d2 #0000d2 #00d200 #d20000 #d2d200 #d200d2 #d27000 #00d2d2
+#d2d2d2 #0000d2 #00d200 #d20000 #d2d200 #d200d2 #d27000 #00c3c3
+#c3c3c3 #0000c3 #00c300 #c30000 #c3c300 #c300c3 #c36b00 #00c3c3
+#c3c3c3 #0000c3 #00c300 #c30000 #c3c300 #c300c3 #c36b00 #00b4b4
+#b4b4b4 #0000b4 #00b400 #b40000 #b4b400 #b400b4 #b46600 #00b4b4
+#b4b4b4 #0000b4 #00b400 #b40000 #b4b400 #b400b4 #b46600 #00a5a5
+#a5a5a5 #0000a5 #00a500 #a50000 #a5a500 #a500a5 #a56100 #00a5a5
+#a5a5a5 #0000a5 #00a500 #a50000 #a5a500 #a500a5 #a56100 #009696
+#969696 #000096 #009600 #960000 #969600 #960096 #965c00 #009696
+#969696 #000096 #009600 #960000 #969600 #960096 #965c00 #008787
+#878787 #000087 #008700 #870000 #878700 #870087 #875700 #008787
+#878787 #000087 #008700 #870000 #878700 #870087 #875700 #007878
+#787878 #000078 #007800 #780000 #787800 #780078 #785200 #007878
+#787878 #000078 #007800 #780000 #787800 #780078 #785200 #006969
+#696969 #000069 #006900 #690000 #696900 #690069 #694d00 #006969
+#696969 #000069 #006900 #690000 #696900 #690069 #694d00 #005a5a
+#5a5a5a #00005a #005a00 #5a0000 #5a5a00 #5a005a #5a4800 #005a5a
+#5a5a5a #00005a #005a00 #5a0000 #5a5a00 #5a005a #5a4800 #004b4b
+#4b4b4b #00004b #004b00 #4b0000 #4b4b00 #4b004b #4b4300 #004b4b
+#4b4b4b #00004b #004b00 #4b0000 #4b4b00 #4b004b #4b4300 #003c3c
+#3c3c3c #00003c #003c00 #3c0000 #3c3c00 #3c003c #3c3e00 #003c3c
+#3c3c3c #00003c #003c00 #3c0000 #3c3c00 #3c003c #3c3e00 #002d2d
+#2d2d2d #00002d #002d00 #2d0000 #2d2d00 #2d002d #2d3900 #002d2d
+#2d2d2d #00002d #002d00 #2d0000 #2d2d00 #2d002d #2d3900 #001e1e
+#1e1e1e #00001e #001e00 #1e0000 #1e1e00 #1e001e #1e3400 #001e1e
+#1e1e1e #00001e #001e00 #1e0000 #1e1e00 #1e001e #c0c0c0 #1c0064`.split(/\s+/);
+
+/** Resolve the last embedded V7 palette, or an owned copy of the conventional default. */
+export function readDrawingDgnPalette(records) {
+    let colors = [...defaultColors]; let embedded = false;
+    for (const record of records) {
+        if (record.deleted || record.type !== 5 || record.level !== 1) continue;
+        const bytes = record.bytes;
+        if (!(bytes instanceof Uint8Array) || bytes.length < 806) throw new Error('dgnInvalid');
+        const color = offset => '#' + [...bytes.subarray(offset, offset + 3)].map(v => v.toString(16).padStart(2, '0')).join('');
+        colors = Array.from({ length: 256 }, (_, i) => color(i === 255 ? 38 : 41 + i * 3));
+        embedded = true;
+    }
+    return { colors, embedded };
+}

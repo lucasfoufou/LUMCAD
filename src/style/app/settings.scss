@@ -232,3 +232,18 @@
   .lumcad-settings-dialog form { max-height: calc(100vh - 76px); }
   .lumcad-settings-section { grid-template-columns: 1fr; gap: 0.9rem; }
 }
+
+.lumcad-command-aliases {
+    display: grid;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+.lumcad-command-alias-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+
+    input { width: 8rem; min-width: 0; }
+    select { flex: 1; min-width: 10rem; max-width: 100%; }
+}

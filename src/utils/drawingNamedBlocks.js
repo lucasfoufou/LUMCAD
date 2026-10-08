@@ -2,6 +2,8 @@ import { isDrawingLayerVisible } from './drawingLayers.js';
 import { drawingAttributeValues, validateDrawingAttributeTags } from './drawingBlockAttributes.js';
 import { canEditEntity, createDrawingId, getLayer } from './drawingDocument.js';
 import { getDrawingEntityDependencyIds } from './drawingDimensions.js';
+import { remapDrawingGeometricConstraints } from './drawingConstraintDefinition.js';
+import { collectDrawingDimensionalCatalog, includeDrawingDrivingAnnotations, mergeDrawingDimensionalCatalog } from './drawingDimensionalTransfer.js';
 import {
     collectDrawingBlockDependencies, createAnonymousDrawingBlock, createAnonymousDrawingBlockReference,
     getDrawingBlockDefinitionBounds, multiplyAffineMatrices, rotationAffineMatrix, scaleAffineMatrix,
@@ -37,7 +39,21 @@ export function defineNamedDrawingBlock(content, ids, { name, basePoint, redefin
             if (!requested.has(id)) { requested.add(id); pending.push(id); }
         }
     }
-    const entities = content.entities.filter(entity => requested.has(entity.id));
+    const entities = includeDrawingDrivingAnnotations(content, content.entities.filter(entity => requested.has(entity.id)));
+    for (const entity of entities) {
+        if (!canEditEntity(content, entity)) return { error: 'selection' };
+        requested.add(entity.id);
+    }
+    const constraints = content.geometricConstraints || [];
+    if (!keepSources && [...constraints, ...(content.dimensionalConstraints || [])].some(constraint => constraint.refs.some(ref => requested.has(ref.entityId))
+        && constraint.refs.some(ref => !requested.has(ref.entityId)))) return { error: 'dependent' };
+    const localConstraints = remapDrawingGeometricConstraints(constraints,
+        new Map(entities.map(entity => [entity.id, entity.id])), () => createDrawingId('constraint'));
+    const catalog = collectDrawingDimensionalCatalog(content, requested);
+    if (catalog.error) return { error: 'dependent' };
+    const dimensional = mergeDrawingDimensionalCatalog({ entities: [], geometricConstraints: localConstraints }, { ...catalog, entities },
+        new Map(entities.map(entity => [entity.id, entity.id])), entities, () => createDrawingId('constraint'));
+    if (dimensional.error) return { error: dimensional.error === 'limit' ? 'limit' : 'dependent' };
     if (!keepSources && content.entities.some(entity => !requested.has(entity.id)
         && getDrawingEntityDependencyIds(entity).some(id => requested.has(id)))) return { error: 'dependent' };
     const nested = collectDrawingBlockDependencies(content.blocks, entities.filter(entity => entity.type === 'blockReference').map(entity => entity.blockId));
@@ -46,7 +62,10 @@ export function defineNamedDrawingBlock(content, ids, { name, basePoint, redefin
     const count = blocks.filter(block => block.id !== existing?.id).reduce((sum, block) => sum + block.entities.length, 0);
     if ((!existing && blocks.length >= 1024) || count + entities.length > 100000) return { error: 'limit' };
     if (!validateDrawingAttributeTags(entities)) return { error: 'attributeTags' };
-    const definition = createAnonymousDrawingBlock(entities, { id: existing?.id || createDrawingId('block'), name: normalizedName, basePoint });
+    const definition = createAnonymousDrawingBlock(entities, { id: existing?.id || createDrawingId('block'), name: normalizedName, basePoint,
+        geometricConstraints: localConstraints,
+        ...(dimensional.dimensionalConstraints.length || dimensional.parameters.length
+            ? { dimensionalConstraints: dimensional.dimensionalConstraints, parameters: dimensional.parameters } : {}) });
     const updatedBlocks = existing ? blocks.map(block => block.id === existing.id ? definition : block) : [...blocks, definition];
     definition.bounds = getDrawingBlockDefinitionBounds(definition, updatedBlocks);
     const layerId = content.activeLayerId;
@@ -61,11 +80,19 @@ export function defineNamedDrawingBlock(content, ids, { name, basePoint, redefin
         inserted = true;
         return [reference];
     });
-    const next = refreshDrawingBlockBounds({ ...content, blocks: updatedBlocks, entities: nextEntities });
+    const remaining = !keepSources && content.dimensionalConstraints !== undefined
+        ? collectDrawingDimensionalCatalog(content, content.entities.filter(entity => !requested.has(entity.id)).map(entity => entity.id),
+            { parameterNames: (content.parameters || []).map(item => item.name) }) : null;
+    if (remaining?.error) return { error: 'dependent' };
+    const next = refreshDrawingBlockBounds({ ...content, blocks: updatedBlocks, entities: nextEntities,
+        ...(remaining ? { dimensionalConstraints: remaining.dimensionalConstraints,
+            parameters: [...(content.parameters || []), ...remaining.parameters.filter(item => !(content.parameters || []).some(existing => existing.name === item.name))] } : {}),
+        ...(content.geometricConstraints !== undefined && !keepSources ? { geometricConstraints: constraints
+            .filter(constraint => !constraint.refs.some(ref => requested.has(ref.entityId))) } : {}) });
     return { content: next, definition: next.blocks.find(block => block.id === definition.id), reference: reference && next.entities.find(entity => entity.id === reference.id) };
 }
 
-export function insertNamedDrawingBlock(content, name, point, { scale = 1, angle = 0, id = createDrawingId('blockReference'), attributeValues } = {}) {
+export function prepareNamedDrawingBlockInsertion(content, name, point, { scale = 1, angle = 0, id = createDrawingId('blockReference'), attributeValues } = {}) {
     const definition = findNamedDrawingBlock(content, name);
     if (!definition) return { error: 'missing' };
     if (!validPoint(point) || !Number.isFinite(scale) || scale <= 1e-9 || scale > 1e9 || !Number.isFinite(angle)) return { error: 'transform' };
@@ -75,7 +102,13 @@ export function insertNamedDrawingBlock(content, name, point, { scale = 1, angle
     if (attributeValues) reference.attributeValues = drawingAttributeValues(definition, { attributeValues });
     reference.definitionBounds = getDrawingBlockDefinitionBounds(definition, content.blocks, reference);
     reference.transform = multiplyAffineMatrices(translationAffineMatrix(point.x, point.y), multiplyAffineMatrices(rotationAffineMatrix(angle % 360), scaleAffineMatrix(scale)));
-    return { content: { ...content, entities: [...content.entities, reference] }, reference };
+    return { reference };
+}
+
+export function insertNamedDrawingBlock(content, name, point, options = {}) {
+    const result = prepareNamedDrawingBlockInsertion(content, name, point, options);
+    if (result.error) return result;
+    return { content: { ...content, entities: [...content.entities, result.reference] }, reference: result.reference };
 }
 
 export function parseNamedBlockInput(input, kind) {

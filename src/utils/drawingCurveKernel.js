@@ -241,6 +241,38 @@ export function curveDerivativeAt(curve, parameter, options = {}) {
     return normalized && t !== null ? curveDerivativeAtNormalized(normalized, t) : null;
 }
 
+export function curveSecondDerivativeAt(curve, parameter, options = {}) {
+    const normalized = normalizeCurvePrimitive(curve, options);
+    const t = finiteUnitParameter(parameter);
+    if (!normalized || t === null) return null;
+    if (normalized.type === 'line') return { x: 0, y: 0 };
+    if (['circle', 'arc', 'ellipse'].includes(normalized.type)) {
+        const sweep = curveSweep(normalized);
+        const angle = (normalized.type === 'circle' ? 0 : normalized.startAngle) + sweep * t;
+        const local = {
+            x: -Math.cos(angle) * (normalized.type === 'ellipse' ? normalized.rx : normalized.r) * sweep ** 2,
+            y: -Math.sin(angle) * (normalized.type === 'ellipse' ? normalized.ry : normalized.r) * sweep ** 2,
+        };
+        return normalized.type === 'ellipse' ? rotateVector(local, normalized.rotation) : local;
+    }
+    const [first, second, third, fourth] = normalized.controlPoints;
+    return {
+        x: 6 * ((1 - t) * (third.x - 2 * second.x + first.x) + t * (fourth.x - 2 * third.x + second.x)),
+        y: 6 * ((1 - t) * (third.y - 2 * second.y + first.y) + t * (fourth.y - 2 * third.y + second.y)),
+    };
+}
+
+/** Intrinsic curvature vector: direction and magnitude survive path reversal. */
+export function curveCurvatureVectorAt(curve, parameter, options = {}) {
+    const first = curveDerivativeAt(curve, parameter, options);
+    const second = curveSecondDerivativeAt(curve, parameter, options);
+    if (!first || !second) return null;
+    const speedSquared = first.x ** 2 + first.y ** 2;
+    if (speedSquared <= resolveLimits(options).epsilon ** 2) return null;
+    const projection = (first.x * second.x + first.y * second.y) / speedSquared;
+    return { x: (second.x - first.x * projection) / speedSquared, y: (second.y - first.y * projection) / speedSquared };
+}
+
 export function curveLength(curve, options = {}) {
     const normalized = normalizeCurvePrimitive(curve, options);
     if (!normalized) return null;

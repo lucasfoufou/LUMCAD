@@ -1,3 +1,4 @@
+import { isValidDrawingPoint, normalizeDrawingPointStyle } from './drawingPoints.js';
 import { constructionLineGeometry, isConstructionLine } from './drawingConstructionLines.js';
 import { createDrawingId } from './drawingDocument.js';
 import {
@@ -27,6 +28,7 @@ const DIMENSION_TOOL_TYPES = Object.freeze({
 export function buildDrawingEntity(tool, first, current, layerId, forcedId = null, { defaultText = 'Text', options = {} } = {}) {
     if (!first || !current) return null;
     const id = forcedId || createDrawingId(tool);
+    if (tool === 'point') return isValidDrawingPoint(first) ? { id, type: 'point', layerId, x: first.x, y: first.y, pointStyle: normalizeDrawingPointStyle(options.pointStyle) } : null;
     if (isConstructionLine({ type: tool })) {
         const entity = { id, type: tool, layerId, x1: first.x, y1: first.y, x2: current.x, y2: current.y };
         return constructionLineGeometry(entity) ? entity : null;

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createLcadDocument, createLcadEnvelope } from './lcadDocument.js';
 import { createLcadArchive, readLcadArchive } from './lcadArchive.js';
 import { setDrawingBasePoint } from './drawingBasePoint.js';
-import { createDrawingBlockLibrary, importDrawingBlockLibrary } from './drawingBlockLibrary.js';
+import { createDrawingBlockLibrary, importDrawingBlockLibrary, inspectDrawingBlockLibrary, selectDrawingLibraryEntry, previewDrawingLibraryEntry } from './drawingBlockLibrary.js';
 import { createDrawingBlockWorkflow } from './drawingBlockWorkflow.js';
 
 function source() {
@@ -12,6 +12,42 @@ function source() {
     document.content = setDrawingBasePoint(document.content, { x: 10, y: 20 });
     return document;
 }
+
+test('content inspection lists whole drawings and named definitions without importing or mutating source data', () => {
+    const document = source();
+    document.content.blocks = [
+        { id: 'entry', name: 'Entry', entities: [{ id: 'nested', type: 'blockReference', blockId: 'dependency', layerId: 'geometry', x: 0, y: 0 }] },
+        { id: 'dependency', name: '*Dependency', entities: [document.content.entities[0]] },
+        { id: 'unrelated', name: 'Other', entities: [{ ...document.content.entities[0], id: 'other-line' }] },
+    ];
+    const original = structuredClone(document);
+    const inspected = inspectDrawingBlockLibrary(document);
+    assert.deepEqual(inspected.entries.map(entry => entry.key), ['drawing', 'block:entry', 'block:unrelated']);
+    const preview = previewDrawingLibraryEntry(inspected, 'block:entry');
+    assert.ok(preview.layers.some(layer => layer.id === preview.entities[0].layerId && layer.visible !== false));
+    assert.deepEqual(preview.entities[0].definitionBounds, { minX: 10, minY: 20, maxX: 14, maxY: 20 });
+    const selected = selectDrawingLibraryEntry(inspected, 'block:entry');
+    assert.deepEqual(new Set(selected.content.blocks.map(block => block.id)), new Set(['entry', 'dependency']));
+    const imported = importDrawingBlockLibrary(createLcadDocument(), selected);
+    assert.equal(imported.entryBlockIds.length, 1);
+    assert.equal(imported.content.entities.length, 0);
+    assert.equal(imported.content.blocks.length, 2);
+    assert.deepEqual(document, original);
+    assert.throws(() => selectDrawingLibraryEntry(inspected, 'missing'));
+    const whole = selectDrawingLibraryEntry(inspected, 'drawing');
+    assert.equal(whole.content.blocks.find(block => block.id === whole.content.metadata.blockLibrary.entryBlockIds[0]).entities[0].x1, 0);
+});
+
+test('content inspection respects exported library roots and rejects invalid library markers', () => {
+    const library = createDrawingBlockLibrary(source());
+    const inspected = inspectDrawingBlockLibrary(library);
+    assert.equal(inspected.entries.length, 1);
+    assert.equal(inspected.entries[0].blockId, library.content.metadata.blockLibrary.entryBlockIds[0]);
+    const restored = readLcadArchive(createLcadArchive(createLcadEnvelope(selectDrawingLibraryEntry(inspected, inspected.entries[0].key))));
+    assert.equal(inspectDrawingBlockLibrary(restored.document).entries.length, 1);
+    library.content.metadata.blockLibrary.entryBlockIds.push('missing');
+    assert.throws(() => inspectDrawingBlockLibrary(library));
+});
 
 test('document base point round trips without moving entities; invalid points cannot commit', () => {
     const document = source();

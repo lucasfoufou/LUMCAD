@@ -1,3 +1,4 @@
+import useDrawingShortcutLabel from '~hooks/useDrawingShortcutLabel';
 import React, { useEffect, useState } from 'react';
 
 import { useI18n } from '~i18n/I18nProvider';
@@ -23,6 +24,7 @@ export default function DrawingSnapControls({
     onTemporaryTrackingPoint,
 }) {
     const { locale, t } = useI18n();
+    const shortcutLabel = useDrawingShortcutLabel();
     const snaps = content.settings.snaps;
     const [scaleDraft, setScaleDraft] = useState(() => formatScaleRatio(scaleRatio, locale));
     const [polarAnglesDraft, setPolarAnglesDraft] = useState(() => formatPolarAngles(content.settings.polarAngles, locale));
@@ -105,7 +107,7 @@ export default function DrawingSnapControls({
                     })}
                     aria-pressed={Boolean(content.settings.ortho)}
                     aria-label={t('snap.orthoMode')}
-                    title={t('snap.orthoModeTitle')}
+                    title={`${shortcutLabel('toggleOrtho')}; ${t('commandPreferences.temporaryOrtho')}`}
                 >
                     O
                 </button>
@@ -118,7 +120,7 @@ export default function DrawingSnapControls({
                     })}
                     aria-pressed={Boolean(content.settings.polarTracking)}
                     aria-label={t('snap.polarMode')}
-                    title={t('snap.polarModeTitle')}
+                    title={shortcutLabel('togglePolar')}
                 >
                     P
                 </button>
@@ -128,7 +130,7 @@ export default function DrawingSnapControls({
                     onClick={() => updateSettings({ tracking: !content.settings.tracking })}
                     aria-pressed={Boolean(content.settings.tracking)}
                     aria-label={t('snap.objectTracking')}
-                    title={t('snap.objectTrackingTitle')}
+                    title={shortcutLabel('toggleObjectTracking')}
                 >
                     T
                 </button>

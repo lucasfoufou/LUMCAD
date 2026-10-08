@@ -1,3 +1,15 @@
+import { normalizeDrawingDwfUnderlay } from './drawingDwfMetadata.js';
+import { normalizeDrawingDgnUnderlay } from './drawingDgnMetadata.js';
+import { transformDrawingToleranceEntity } from './drawingTolerances.js';
+import { normalizeDrawingDimensionalConstraints } from './drawingDimensionalConstraints.js';
+import { mergeDrawingDimensionalCatalog } from './drawingDimensionalTransfer.js';
+import { normalizeDrawingGeometricConstraints, remapDrawingGeometricConstraints, translateDrawingGeometricConstraints } from './drawingConstraintDefinition.js';
+import { createI18nError } from '../i18n/translator.js';
+import { drawingBlockInstanceEntities, normalizeDrawingDynamicBlock, remapDrawingDynamicBlock } from './drawingDynamicBlocks.js';
+import { transformDrawingTableEntity } from './drawingTableGeometry.js';
+import { transformDrawingRevisionSymbol } from './drawingRevisionSymbols.js';
+import { transformDrawingLinework } from './drawingLinework.js';
+import { drawingPointBounds, transformDrawingPoint } from './drawingPoints.js';
 import { normalizeDrawingBlockClip, clippedDrawingBlockBounds, drawingBlockClipShape } from './drawingBlockClip.js';
 import { normalizeDrawingPdfUnderlay } from './drawingPdfMetadata.js';
 import { normalizeDrawingReference, isDrawingReferenceUnloaded, remapDrawingReferenceResources } from './drawingReferenceMetadata.js';
@@ -36,8 +48,10 @@ const MAX_BLOCK_ENTITIES = 100_000;
 export const DRAWING_BLOCK_REFERENCE_TYPE = 'blockReference';
 export function normalizeDrawingBlockReference(entity) {
     if (!entity || entity.type !== DRAWING_BLOCK_REFERENCE_TYPE) return entity;
-    const { leader: rawLeader, blockClip: rawClip, externalReference: rawReference, pdfUnderlay: rawPdf, spaceTransfer, ...source } = entity;
+    const { leader: rawLeader, blockClip: rawClip, externalReference: rawReference, pdfUnderlay: rawPdf, dwfUnderlay: rawDwf, dgnUnderlay: rawDgn, spaceTransfer, ...source } = entity;
     const pdfUnderlay = normalizeDrawingPdfUnderlay(rawPdf);
+    const dwfUnderlay = normalizeDrawingDwfUnderlay(rawDwf);
+    const dgnUnderlay = normalizeDrawingDgnUnderlay(rawDgn);
     const externalReference = normalizeDrawingReference(rawReference);
     const blockClip = normalizeDrawingBlockClip(rawClip);
     const leader = normalizeDrawingLeader(rawLeader, Boolean(entity[DRAWING_LEADER_PRESENTATION]));
@@ -47,6 +61,8 @@ export function normalizeDrawingBlockReference(entity) {
         ...source,
         ...(externalReference ? { externalReference } : {}),
         ...(pdfUnderlay ? { pdfUnderlay } : {}),
+        ...(dwfUnderlay ? { dwfUnderlay } : {}),
+        ...(dgnUnderlay ? { dgnUnderlay } : {}),
         ...(leader ? { leader } : {}),
         ...(blockClip ? { blockClip } : {}),
         ...(spaceTransfer === true ? { spaceTransfer: true } : {}),
@@ -100,12 +116,23 @@ export function normalizeDrawingBlocks(blocks, { normalizeEntity = entity => ({ 
             return normalized ? [normalized] : [];
         });
         entityCount += entities.length;
+        const { dynamic: rawDynamic, ...source } = candidate;
+        const dynamic = rawDynamic ? normalizeDrawingDynamicBlock(rawDynamic, entities) : null;
+        const geometricConstraints = normalizeDrawingGeometricConstraints(candidate.geometricConstraints, entities);
+        if (!geometricConstraints) throw createI18nError('errors.invalidGeometricConstraints');
+        const dimensional = normalizeDrawingDimensionalConstraints(candidate.dimensionalConstraints, entities, candidate.parameters);
+        if (dimensional.error || geometricConstraints.length + dimensional.constraints.length > 256
+            || dimensional.constraints.some(item => geometricConstraints.some(other => other.id === item.id))) throw createI18nError('errors.invalidDimensionalConstraints');
         const block = {
-            ...candidate,
+            ...source,
+            ...(dynamic ? { dynamic } : {}),
             id,
             name: typeof candidate.name === 'string' && candidate.name ? candidate.name : `*U${index + 1}`,
             basePoint: normalizePoint(candidate.basePoint) || { x: 0, y: 0 },
             entities,
+            ...(candidate.geometricConstraints !== undefined ? { geometricConstraints } : {}),
+            ...(candidate.dimensionalConstraints !== undefined || candidate.parameters !== undefined
+                ? { dimensionalConstraints: dimensional.constraints, parameters: dimensional.parameters } : {}),
         };
         const bounds = getDrawingBlockDefinitionBounds(block, blocks);
         return [{ ...block, ...(bounds ? { bounds } : {}) }];
@@ -116,6 +143,9 @@ export function createAnonymousDrawingBlock(entities, {
     basePoint = { x: 0, y: 0 },
     id = createBlockId('block'),
     name = null,
+    geometricConstraints,
+    dimensionalConstraints,
+    parameters,
 } = {}) {
     const base = normalizePoint(basePoint) || { x: 0, y: 0 };
     const localEntities = (Array.isArray(entities) ? entities : [])
@@ -126,7 +156,13 @@ export function createAnonymousDrawingBlock(entities, {
         name: name || `*U${id.replace(/[^a-zA-Z0-9]/g, '').slice(-8)}`,
         basePoint: { x: 0, y: 0 },
         entities: localEntities,
+        ...(dimensionalConstraints !== undefined || parameters !== undefined ? { dimensionalConstraints: structuredClone(dimensionalConstraints || []), parameters: structuredClone(parameters || []) } : {}),
+        ...(geometricConstraints?.length ? { geometricConstraints: translateDrawingGeometricConstraints(geometricConstraints, entities, { x: -base.x, y: -base.y }) } : {}),
     };
+    if (!normalizeDrawingGeometricConstraints(definition.geometricConstraints, localEntities)) throw createI18nError('errors.invalidGeometricConstraints');
+    const dimensional = normalizeDrawingDimensionalConstraints(definition.dimensionalConstraints, localEntities, definition.parameters);
+    if (dimensional.error || (definition.geometricConstraints?.length || 0) + dimensional.constraints.length > 256
+        || dimensional.constraints.some(item => definition.geometricConstraints?.some(other => other.id === item.id))) throw createI18nError('errors.invalidDimensionalConstraints');
     const bounds = getDrawingBlockDefinitionBounds(definition);
     return { ...definition, ...(bounds ? { bounds } : {}) };
 }
@@ -157,8 +193,9 @@ export function getDrawingBlockDefinitionBounds(definition, blocks = [], referen
     if (!definition || !Array.isArray(definition.entities)) return null;
     const blockMap = new Map((Array.isArray(blocks) ? blocks : []).map(block => [block.id, block]));
     if (definition.id) blockMap.set(definition.id, definition);
-    const entityMap = new Map(definition.entities.map(entity => [entity.id, entity]));
-    return definition.entities.reduce((combined, entity) => (
+    const entities = drawingBlockInstanceEntities(definition, reference);
+    const entityMap = new Map(entities.map(entity => [entity.id, entity]));
+    return entities.reduce((combined, entity) => (
         combineBounds(combined, getDrawingBlockEntityBounds(resolveDrawingAttributeText(entity, reference, 'all'), blockMap, entityMap, new Set([definition.id])))
     ), null);
 }
@@ -167,8 +204,8 @@ export function getDrawingBlockReferenceBounds(reference, blocks = []) {
     if (isDrawingReferenceUnloaded(reference)) return null;
     if (reference?.type !== DRAWING_BLOCK_REFERENCE_TYPE) return null;
     const definition = getDrawingBlockDefinition(blocks, reference.blockId);
-    const localBounds = clippedDrawingBlockBounds(getDrawingBlockDefinitionBounds(definition, blocks, reference)
-        || normalizeBounds(reference.definitionBounds), reference);
+    const localBounds = clippedDrawingBlockBounds(definition ? getDrawingBlockDefinitionBounds(definition, blocks, reference)
+        : normalizeBounds(reference.definitionBounds), reference);
     if (!localBounds) return null;
     const corners = boundsCorners(localBounds).map(point => transformAffinePoint(point, reference.transform));
     return boundsFromPoints(corners);
@@ -178,14 +215,20 @@ export function materializeDrawingBlockReference(reference, blocks, {
     recursive = false,
     maxDepth = 16,
     textStyles = [],
+    attributeDisplay = 'all',
+    includeLoadedReferences = false,
+    includeClipped = false,
+    includePdfUnderlays = false,
 } = {}) {
     const definition = getDrawingBlockDefinition(blocks, reference?.blockId);
-    if (!definition || drawingBlockClipShape(reference) || reference.externalReference || reference.pdfUnderlay) return [];
-    return definition.entities.flatMap(entity => {
-        const child = resolveDrawingBlockChild(entity, reference, 'all');
+    if (!definition || reference.dwfUnderlay || (!includeClipped && drawingBlockClipShape(reference)) || (reference.pdfUnderlay && !includePdfUnderlays)
+        || (reference.externalReference && (!includeLoadedReferences || reference.externalReference.loaded === false))) return [];
+    return drawingBlockInstanceEntities(definition, reference).flatMap(entity => {
+        const child = resolveDrawingBlockChild(entity, reference, attributeDisplay);
+        if (!child) return [];
         const transformed = transformDrawingEntityAffine(cloneJson(child), reference.transform, { textStyles });
         if (recursive && transformed.type === DRAWING_BLOCK_REFERENCE_TYPE && maxDepth > 0) {
-            return materializeDrawingBlockReference(transformed, blocks, { recursive, maxDepth: maxDepth - 1, textStyles });
+            return materializeDrawingBlockReference(transformed, blocks, { recursive, maxDepth: maxDepth - 1, textStyles, attributeDisplay, includeLoadedReferences, includeClipped, includePdfUnderlays });
         }
         return [transformed];
     });
@@ -233,7 +276,14 @@ export function remapDrawingBlockDefinition(block, {
         layerIdMap,
         assetIdMap,
     }));
-    const remapped = { ...block, id, entities };
+    const remapped = { ...block, id, entities, ...(block.dynamic ? { dynamic: remapDrawingDynamicBlock(block.dynamic, localIdMap) } : {}),
+        ...(block.geometricConstraints ? { geometricConstraints: remapDrawingGeometricConstraints(block.geometricConstraints, localIdMap, () => createBlockId('constraint')) } : {}) };
+    if (block.dimensionalConstraints !== undefined || block.parameters !== undefined) {
+        const dimensional = mergeDrawingDimensionalCatalog({ entities: [], geometricConstraints: remapped.geometricConstraints || [] },
+            block, localIdMap, entities, () => createBlockId('constraint'));
+        if (dimensional.error) throw createI18nError('errors.invalidDimensionalConstraints');
+        remapped.dimensionalConstraints = dimensional.dimensionalConstraints; remapped.parameters = dimensional.parameters;
+    }
     const bounds = getDrawingBlockDefinitionBounds(remapped);
     return { ...remapped, ...(bounds ? { bounds } : {}) };
 }
@@ -247,9 +297,16 @@ export function remapDrawingBlockEntity(entity, {
     const next = cloneJson(entity);
     if (entityIdMap.has(next.id)) next.id = entityIdMap.get(next.id);
     Object.assign(next, remapDrawingEntityDependencies(next, entityIdMap, { preserveAppearance: true }));
+    if (next.table?.quantityLink?.definition.selectedIds) {
+        const ids = next.table.quantityLink.definition.selectedIds;
+        if (ids.every(id => entityIdMap.has(id))) next.table.quantityLink.definition.selectedIds = ids.map(id => entityIdMap.get(id));
+        else delete next.table.quantityLink;
+    }
     if (next.layerId && layerIdMap.has(next.layerId)) next.layerId = layerIdMap.get(next.layerId);
     if (next.assetId && assetIdMap.has(next.assetId)) next.assetId = assetIdMap.get(next.assetId);
-    if (next.pdfUnderlay && assetIdMap.has(next.pdfUnderlay.assetId)) next.pdfUnderlay.assetId = assetIdMap.get(next.pdfUnderlay.assetId);
+    for (const key of ['pdfUnderlay', 'dwfUnderlay', 'dgnUnderlay']) {
+        if (next[key] && assetIdMap.has(next[key].assetId)) next[key].assetId = assetIdMap.get(next[key].assetId);
+    }
     if (next.blockId && blockIdMap.has(next.blockId)) next.blockId = blockIdMap.get(next.blockId);
     if (next.externalReference) next.externalReference = remapDrawingReferenceResources(next.externalReference, {
         blocks: blockIdMap, layers: layerIdMap, assets: assetIdMap,
@@ -257,7 +314,7 @@ export function remapDrawingBlockEntity(entity, {
     return next;
 }
 
-export function transformDrawingEntityAffine(entity, matrix, { textStyles = [] } = {}) {
+export function transformDrawingEntityAffine(entity, matrix, { textStyles = [], preserveNativeTranslation = false } = {}) {
     if (entity?.detachedSource) {
         const { detachedSource, ...rest } = entity;
         const transformedSource = transformDrawingEntityAffine(detachedSource, matrix, { textStyles });
@@ -266,6 +323,22 @@ export function transformDrawingEntityAffine(entity, matrix, { textStyles = [] }
         return { ...transformDrawingEntityAffine(entity.type === 'radialDimension' ? { ...rest, angle: Number.isFinite(rest.angle) ? rest.angle : -Math.PI / 4 } : rest, matrix, { textStyles }), detachedSource: transformedSource };
     }
     if (drawingAffineFrame(entity)) return transformDrawingAffineFrame(entity, matrix);
+    if (entity.tolerance) {
+        const defined = transformDrawingToleranceEntity(entity, matrix);
+        if (defined) return defined;
+    }
+    if (entity.table) {
+        const defined = transformDrawingTableEntity(entity, matrix);
+        if (defined) return defined;
+    }
+    if (entity.revisionSymbol) {
+        const defined = transformDrawingRevisionSymbol(entity, matrix);
+        if (defined) return defined;
+    }
+    if (entity.linework) {
+        const defined = transformDrawingLinework(entity, matrix);
+        if (defined) return defined;
+    }
     if (entity.splineDefinition) {
         const defined = transformDefinedSpline(entity, matrix);
         if (defined) return defined;
@@ -273,6 +346,7 @@ export function transformDrawingEntityAffine(entity, matrix, { textStyles = [] }
     if (entity.array?.kind === 'path') return transformPathArrayEntity(entity, matrix);
     if (entity.array?.kind === 'polar') return transformPolarArrayEntity(entity, matrix);
     if (entity.type === DRAWING_BLOCK_REFERENCE_TYPE) return transformDrawingBlockReference(entity, matrix);
+    if (entity.type === 'point') return transformDrawingPoint(entity, matrix);
     if (entity.type === 'ellipse' || entity.type === 'spline') {
         return transformAdvancedCurveAffine(entity, matrix);
     }
@@ -315,6 +389,10 @@ export function transformDrawingEntityAffine(entity, matrix, { textStyles = [] }
         };
     }
     if (entity.type === 'rectangle' || entity.type === 'polygon') {
+        // A translation does not change the native shape or its constraint selectors.
+        if (preserveNativeTranslation && matrix.a === 1 && matrix.b === 0 && matrix.c === 0 && matrix.d === 1) {
+            return translateDrawingBlockEntity(entity, matrix.e, matrix.f);
+        }
         const points = entity.type === 'rectangle' ? getRectangleOutlinePoints(entity) : getRegularPolygonVertices(entity);
         return entityAsTransformedPolyline(entity, points, matrix, true);
     }
@@ -347,7 +425,7 @@ export function transformDrawingEntityAffine(entity, matrix, { textStyles = [] }
 
 function translateDrawingBlockEntity(entity, dx, dy) {
     if (drawingAffineFrame(entity)) return transformDrawingAffineFrame(entity, translationAffineMatrix(dx, dy));
-    if (entity.splineDefinition || ['path', 'polar'].includes(entity.array?.kind) || entity.type === 'hatch') {
+    if (entity.tolerance || entity.table || entity.revisionSymbol || entity.linework || entity.splineDefinition || ['path', 'polar'].includes(entity.array?.kind) || entity.type === 'hatch') {
         return transformDrawingEntityAffine(entity, translationAffineMatrix(dx, dy));
     }
     if (entity.type === DRAWING_BLOCK_REFERENCE_TYPE) {
@@ -362,7 +440,7 @@ function translateDrawingBlockEntity(entity, dx, dy) {
         ...(entity.type === 'hatch' ? { pattern: transformHatchPatternAffine(entity.pattern, translationAffineMatrix(dx, dy)) } : {}),
     };
     if (['line', 'xline', 'ray'].includes(entity.type)) return { ...entity, x1: entity.x1 + dx, y1: entity.y1 + dy, x2: entity.x2 + dx, y2: entity.y2 + dy };
-    if (['rectangle', 'image', 'text'].includes(entity.type)) return { ...entity, x: entity.x + dx, y: entity.y + dy };
+    if (['point', 'rectangle', 'image', 'text'].includes(entity.type)) return { ...entity, x: entity.x + dx, y: entity.y + dy };
     if (['circle', 'polygon', 'arc'].includes(entity.type)) return { ...entity, cx: entity.cx + dx, cy: entity.cy + dy };
     if (entity.type === 'polyline') return {
         ...entity,
@@ -377,6 +455,7 @@ function translateDrawingBlockEntity(entity, dx, dy) {
 }
 
 function getDrawingBlockEntityBounds(entity, blockMap, entityMap, visiting) {
+    if (entity?.type === 'point') return drawingPointBounds(entity);
     if (!entity || isDrawingReferenceUnloaded(entity)) return null;
     if (entity.type === DRAWING_BLOCK_REFERENCE_TYPE) {
         if (visiting.has(entity.blockId)) return normalizeBounds(entity.definitionBounds);
@@ -384,8 +463,9 @@ function getDrawingBlockEntityBounds(entity, blockMap, entityMap, visiting) {
         if (!definition) return getDrawingBlockReferenceBounds(entity);
         const nextVisiting = new Set(visiting);
         nextVisiting.add(entity.blockId);
-        const localMap = new Map(definition.entities.map(child => [child.id, child]));
-        const localBounds = clippedDrawingBlockBounds(definition.entities.reduce((combined, child) => (
+        const entities = drawingBlockInstanceEntities(definition, entity);
+        const localMap = new Map(entities.map(child => [child.id, child]));
+        const localBounds = clippedDrawingBlockBounds(entities.reduce((combined, child) => (
             combineBounds(combined, getDrawingBlockEntityBounds(resolveDrawingAttributeText(child, entity, 'all'), blockMap, localMap, nextVisiting))
         ), null), entity);
         if (!localBounds) return null;

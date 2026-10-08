@@ -1,3 +1,5 @@
+import { normalizeDrawingField } from './drawingFieldDefinition.js';
+
 const DEFAULT_FONT_SIZE = 0.35;
 const MIN_FONT_SIZE = 0.01;
 const MAX_FONT_SIZE = 1_000_000;
@@ -156,6 +158,9 @@ export function normalizeDrawingTextEntity(entity, {
     else delete normalized.underline;
     if (typeof source.strikethrough === 'boolean') normalized.strikethrough = source.strikethrough;
     else delete normalized.strikethrough;
+    const field = normalizeDrawingField(source.field);
+    if (field) normalized.field = field;
+    else delete normalized.field;
     return normalized;
 }
 

@@ -33,10 +33,15 @@ pub fn read_shx_source(path: String) -> Result<ReferenceSource, String> {
     read_reference_source(path, SourceKind::Shx)
 }
 
-enum SourceKind { Image, Pdf, Shx }
+#[tauri::command]
+pub fn read_dwfx_source(path: String) -> Result<ReferenceSource, String> {
+    read_reference_source(path, SourceKind::Dwfx)
+}
+
+enum SourceKind { Image, Pdf, Shx, Dwfx }
 
 fn read_reference_source(path: String, kind: SourceKind) -> Result<ReferenceSource, String> {
-    let failure = match kind { SourceKind::Image => "image_source_failed", SourceKind::Pdf => "pdf_source_failed", SourceKind::Shx => "shx_source_failed" };
+    let failure = match kind { SourceKind::Image => "image_source_failed", SourceKind::Pdf => "pdf_source_failed", SourceKind::Shx => "shx_source_failed", SourceKind::Dwfx => "dwfx_source_failed" };
     let max_bytes = if matches!(kind, SourceKind::Shx) { 4 * 1024 * 1024 } else { MAX_IMAGE_BYTES };
     let path = Path::new(&path);
     if !path.is_absolute() {
@@ -65,6 +70,12 @@ fn read_reference_source(path: String, kind: SourceKind) -> Result<ReferenceSour
             return Err(error(failure));
         }
         "application/pdf"
+    } else if matches!(kind, SourceKind::Dwfx) {
+        // Detailed OPC/XPS validation occurs in the bounded document reader.
+        if extension != "dwfx" || !bytes.starts_with(b"PK\x03\x04") {
+            return Err(error(failure));
+        }
+        "model/vnd.dwfx+xps"
     } else if matches!(kind, SourceKind::Shx) {
         let valid = (extension == "shx" && bytes.starts_with(b"AutoCAD-86 "))
             || (extension == "shp" && std::str::from_utf8(&bytes).is_ok_and(|text| text.lines().any(|line| line.trim_start().starts_with('*'))));
@@ -111,6 +122,24 @@ mod tests {
         assert!(read_shx_source(path.to_string_lossy().into_owned()).is_err());
         File::create(&path).unwrap().set_len(4 * 1024 * 1024 + 1).unwrap();
         assert!(read_shx_source(path.to_string_lossy().into_owned()).unwrap_err().contains("asset_too_large"));
+    }
+
+    #[test]
+    fn reads_dwfx_snapshots_with_the_same_asset_limits_and_separate_image_validation() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("plan.dwfx");
+        let bytes = b"PK\x03\x04source snapshot";
+        std::fs::write(&path, bytes).unwrap();
+        let result = read_dwfx_source(path.to_string_lossy().into_owned()).unwrap();
+        assert_eq!(result.mime_type, "model/vnd.dwfx+xps");
+        assert_eq!(result.link, format!("data:model/vnd.dwfx+xps;base64,{}", BASE64.encode(bytes)));
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        assert!(read_image_source(path.to_string_lossy().into_owned()).is_err());
+        assert!(read_dwfx_source("relative.dwfx".into()).is_err());
+        std::fs::write(&path, b"not a package").unwrap();
+        assert!(read_dwfx_source(path.to_string_lossy().into_owned()).is_err());
+        File::create(&path).unwrap().set_len(MAX_IMAGE_BYTES + 1).unwrap();
+        assert!(read_dwfx_source(path.to_string_lossy().into_owned()).unwrap_err().contains("asset_too_large"));
     }
 
     #[test]

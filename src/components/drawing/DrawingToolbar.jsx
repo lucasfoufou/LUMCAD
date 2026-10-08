@@ -1,3 +1,4 @@
+import useDrawingShortcutLabel from '~hooks/useDrawingShortcutLabel';
 import React from 'react';
 
 import { useI18n } from '~i18n/I18nProvider';
@@ -8,6 +9,7 @@ const toolGroups = [
         { id: 'pan', glyph: '✥', labelKey: 'toolbar.pan', alias: 'P' },
     ],
     [
+        { id: 'point', glyph: '⊙', labelKey: 'toolbar.point', alias: 'POINT' },
         { id: 'xline', glyph: '↔', labelKey: 'toolbar.xline', alias: 'XL' },
         { id: 'ray', glyph: '↗', labelKey: 'toolbar.ray', alias: 'RAY' },
         { id: 'line', glyph: '╱', labelKey: 'toolbar.line', alias: 'L' },
@@ -27,6 +29,7 @@ const toolGroups = [
 
 export default function DrawingToolbar({ activeTool, activeOperation, onToolChange, actions, selectionCount, canUndo, canRedo }) {
     const { t } = useI18n();
+    const shortcutLabel = useDrawingShortcutLabel();
     return (
         <aside className="drawing-toolbar" aria-label={t('toolbar.label')}>
             {toolGroups.map((group, groupIndex) => (
@@ -43,11 +46,11 @@ export default function DrawingToolbar({ activeTool, activeOperation, onToolChan
                 </div>
             ))}
             <div className="drawing-toolbar-group">
-                <ToolButton glyph="↶" label={t('toolbar.undo')} disabled={!canUndo} onClick={actions.undo} />
-                <ToolButton glyph="↷" label={t('toolbar.redo')} disabled={!canRedo} onClick={actions.redo} />
-                <ToolButton glyph="⧉" label={t('toolbar.copy')} disabled={!selectionCount} onClick={actions.copy} />
-                <ToolButton glyph="✂" label={t('toolbar.cut')} disabled={!selectionCount} onClick={actions.cut} />
-                <ToolButton glyph="▣" label={t('toolbar.paste')} onClick={actions.paste} />
+                <ToolButton glyph="↶" label={shortcutLabel('undo')} disabled={!canUndo} onClick={actions.undo} />
+                <ToolButton glyph="↷" label={shortcutLabel('redo')} disabled={!canRedo} onClick={actions.redo} />
+                <ToolButton glyph="⧉" label={shortcutLabel('copy')} disabled={!selectionCount} onClick={actions.copy} />
+                <ToolButton glyph="✂" label={shortcutLabel('cut')} disabled={!selectionCount} onClick={actions.cut} />
+                <ToolButton glyph="▣" label={shortcutLabel('paste')} onClick={actions.paste} />
             </div>
             <div className="drawing-toolbar-group">
                 <ToolButton glyph="⇱" label={t('toolbar.move')} active={activeOperation === 'move'} onClick={actions.move} />
@@ -72,7 +75,7 @@ export default function DrawingToolbar({ activeTool, activeOperation, onToolChan
                 <ToolButton glyph="↔" label={t('toolbar.stretch')} active={activeOperation === 'stretch'} onClick={actions.stretch} />
                 <ToolButton glyph="⇔" label={t('toolbar.lengthen')} active={activeOperation === 'lengthen'} onClick={actions.lengthen} />
                 <ToolButton glyph="×" label={t('toolbar.scale')} active={activeOperation === 'scale'} onClick={actions.scale} />
-                <ToolButton glyph="⌫" label={t('toolbar.delete')} disabled={!selectionCount} onClick={actions.delete} danger />
+                <ToolButton glyph="⌫" label={shortcutLabel('delete')} disabled={!selectionCount} onClick={actions.delete} danger />
             </div>
             <div className="drawing-toolbar-group">
                 <ToolButton glyph="＋" label={t('toolbar.zoomIn')} onClick={actions.zoomIn} />

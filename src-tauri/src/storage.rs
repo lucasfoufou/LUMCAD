@@ -397,6 +397,22 @@ fn atomic_write(path: &Path, envelope: &Value) -> Result<(), String> {
     atomic_write_checked(path, envelope, None)
 }
 
+/// Small sidecar metadata uses the same synchronized temporary-file replacement as drawings.
+pub(crate) fn write_metadata_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let parent = path.parent().ok_or_else(|| storage_error("create_folder", Some(path), None, None))?;
+    fs::create_dir_all(parent).map_err(|error| format_io_error("create_folder", parent, error))?;
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+    let temporary = parent.join(format!(".metadata.{}.{}.tmp", std::process::id(), nonce));
+    let result = (|| {
+        let mut file = OpenOptions::new().create_new(true).write(true).open(&temporary)
+            .map_err(|error| format_io_error("create_temporary_file", &temporary, error))?;
+        file.write_all(bytes).and_then(|_| file.sync_all()).map_err(|error| format_io_error("sync_file", &temporary, error))?;
+        replace_file(&temporary, path).map_err(|error| format_io_error("replace_file", path, error))
+    })();
+    if result.is_err() { let _ = fs::remove_file(&temporary); }
+    result
+}
+
 fn atomic_write_checked(path: &Path, envelope: &Value, revision: Option<&str>) -> Result<(), String> {
     let _guard = DOCUMENT_WRITE_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let (manifest, assets) = prepare_archive(envelope)?;
@@ -619,6 +635,8 @@ fn normalize_image_mime_type(value: &str) -> Option<&'static str> {
         "image/webp" => Some("image/webp"),
         "image/svg+xml" => Some("image/svg+xml"),
         "application/pdf" => Some("application/pdf"),
+        "model/vnd.dwfx+xps" => Some("model/vnd.dwfx+xps"),
+        "image/vnd.dgn" => Some("image/vnd.dgn"),
         _ => None,
     }
 }
@@ -631,6 +649,8 @@ fn image_extension(mime_type: &str) -> &'static str {
         "image/webp" => "webp",
         "image/svg+xml" => "svg",
         "application/pdf" => "pdf",
+        "model/vnd.dwfx+xps" => "dwfx",
+        "image/vnd.dgn" => "dgn",
         _ => "bin",
     }
 }
@@ -663,8 +683,123 @@ fn storage_error(
 }
 
 #[tauri::command]
+pub fn read_table_csv(path: String) -> Result<String, String> {
+    read_bounded_utf8(&path, "csv")
+}
+
+#[tauri::command]
+pub fn read_drawing_wmf(path: String) -> Result<tauri::ipc::Response, String> {
+    read_wmf_bytes(Path::new(&path)).map(tauri::ipc::Response::new)
+}
+
+#[tauri::command]
+pub fn read_drawing_dgn(path: String) -> Result<tauri::ipc::Response, String> {
+    read_interchange_bytes(Path::new(&path), "dgn").map(tauri::ipc::Response::new)
+}
+
+fn read_wmf_bytes(path: &Path) -> Result<Vec<u8>, String> {
+    read_interchange_bytes(path, "wmf")
+}
+
+fn read_interchange_bytes(path: &Path, format: &str) -> Result<Vec<u8>, String> {
+    let invalid = format!("{format}Invalid");
+    let limit_error = format!("{format}Limit");
+    const LIMIT: u64 = 64 * 1024 * 1024;
+    if !path.is_absolute() || !path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case(format)) {
+        return Err(invalid.clone());
+    }
+    let file = File::open(path).map_err(|_| invalid.clone())?;
+    let metadata = file.metadata().map_err(|_| invalid.clone())?;
+    if !metadata.is_file() { return Err(invalid.clone()); }
+    if metadata.len() > LIMIT { return Err(limit_error.clone()); }
+    let mut bytes = Vec::new();
+    file.take(LIMIT + 1).read_to_end(&mut bytes).map_err(|_| invalid.clone())?;
+    if bytes.len() as u64 > LIMIT { return Err(limit_error.clone()); }
+    Ok(bytes)
+}
+
+#[tauri::command]
+pub fn read_standards_json(path: String) -> Result<String, String> {
+    read_drawing_json(path)
+}
+
+#[tauri::command]
+pub fn read_drawing_json(path: String) -> Result<String, String> {
+    let text = read_bounded_utf8(&path, "json")?;
+    serde_json::from_str::<serde_json::Value>(&text).map_err(|_| "importInvalid")?;
+    Ok(text)
+}
+
+fn read_bounded_utf8(path: &str, extension: &str) -> Result<String, String> {
+    let target = Path::new(&path);
+    if !target.is_absolute() || !target.extension().is_some_and(|value| value.eq_ignore_ascii_case(extension)) {
+        return Err("importInvalid".into());
+    }
+    let file = File::open(target).map_err(|_| "importInvalid")?;
+    let metadata = file.metadata().map_err(|_| "importInvalid")?;
+    const LIMIT: u64 = 4 * 1024 * 1024;
+    if !metadata.is_file() || metadata.len() > LIMIT { return Err("importInvalid".into()); }
+    let mut text = String::new();
+    file.take(LIMIT + 1).read_to_string(&mut text).map_err(|_| "importInvalid")?;
+    if text.len() as u64 > LIMIT { return Err("importInvalid".into()); }
+    Ok(text)
+}
+
+#[tauri::command]
 pub fn read_lcad_document(path: String) -> Result<LoadedDocument, String> {
     load_from_path(Path::new(&path), false)
+}
+
+// Recovery must see the original bytes before ZIP validation or normalization.
+// This read-only entry point never changes the active file or recovery snapshot.
+#[tauri::command]
+pub fn read_lcad_recovery_source(path: String, protected_path: Option<String>, max_bytes: Option<u64>) -> Result<tauri::ipc::Response, String> {
+    if let Some(protected) = protected_path {
+        ensure_distinct_drawing_path(Path::new(&path), Path::new(&protected))?;
+    }
+    read_recovery_bytes(Path::new(&path), max_bytes.unwrap_or(MAX_REFERENCE_BYTES).min(MAX_REFERENCE_BYTES)).map(tauri::ipc::Response::new)
+}
+
+#[tauri::command]
+pub fn resolve_lcad_recovery_path(path: String, relative_to: Option<String>) -> Result<String, String> {
+    resolve_dependency_path(path, relative_to, "lcad")
+}
+
+#[tauri::command]
+pub fn resolve_table_csv_path(path: String, relative_to: Option<String>) -> Result<String, String> {
+    resolve_dependency_path(path, relative_to, "csv")
+}
+
+fn resolve_dependency_path(path: String, relative_to: Option<String>, extension: &str) -> Result<String, String> {
+    let mut target = PathBuf::from(path);
+    if !target.is_absolute() {
+        let parent = relative_to.as_deref().map(Path::new).filter(|value| value.is_absolute())
+            .and_then(Path::parent).ok_or_else(|| storage_error("invalid_format", Some(&target), None, None))?;
+        target = parent.join(target);
+    }
+    let supported = |path: &Path| path.extension().and_then(|value| value.to_str()).is_some_and(|value| value.eq_ignore_ascii_case(extension));
+    if !supported(&target) { return Err(storage_error("invalid_format", Some(&target), None, None)); }
+    let canonical = fs::canonicalize(&target).map_err(|error| format_io_error("open_file", &target, error))?;
+    if !supported(&canonical) { return Err(storage_error("invalid_format", Some(&canonical), None, None)); }
+    Ok(canonical.to_string_lossy().into_owned())
+}
+
+fn read_recovery_bytes(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
+    if !path.is_absolute() || !is_lcad_path(path) {
+        return Err(storage_error("invalid_format", Some(path), None, None));
+    }
+    let file = File::open(path).map_err(|error| format_io_error("open_file", path, error))?;
+    let metadata = file.metadata().map_err(|error| format_io_error("open_file", path, error))?;
+    if !metadata.is_file() || metadata.len() > limit {
+        return Err(storage_error("reference_too_large", Some(path), None, None));
+    }
+    let mut bytes = Vec::new();
+    file.take(limit + 1).read_to_end(&mut bytes)
+        .map_err(|error| format_io_error("open_file", path, error))?;
+    if bytes.len() as u64 > limit {
+        return Err(storage_error("reference_too_large", Some(path), None, None));
+    }
+    Ok(bytes)
 }
 
 #[derive(Debug, Serialize)]
@@ -738,17 +873,25 @@ pub fn write_lcad_document(
 }
 
 #[tauri::command]
-pub fn export_lcad_document(path: String, envelope: Value, protected_path: Option<String>) -> Result<SaveResult, String> {
+pub fn export_lcad_document(path: String, envelope: Value, protected_path: Option<String>, protected_paths: Option<Vec<String>>) -> Result<SaveResult, String> {
     let target = normalized_save_path(PathBuf::from(path))?;
     if let Some(protected) = protected_path {
-        let protected = PathBuf::from(protected);
-        if target == protected || fs::canonicalize(&target).ok().zip(fs::canonicalize(&protected).ok())
-            .is_some_and(|(target, protected)| target == protected) {
-            return Err(storage_error("protected_drawing", Some(&target), None, None));
-        }
+        ensure_distinct_drawing_path(&target, Path::new(&protected))?;
+    }
+    if let Some(paths) = protected_paths {
+        if paths.len() > 64 { return Err(storage_error("invalid_document", None, None, None)); }
+        for protected in paths { ensure_distinct_drawing_path(&target, Path::new(&protected))?; }
     }
     atomic_write(&target, &envelope)?;
     Ok(SaveResult { path: Some(target.to_string_lossy().into_owned()), saved_at: saved_at_millis(), recovery: false })
+}
+
+fn ensure_distinct_drawing_path(target: &Path, protected: &Path) -> Result<(), String> {
+    if target == protected || fs::canonicalize(target).ok().zip(fs::canonicalize(protected).ok())
+        .is_some_and(|(target, protected)| target == protected) {
+        return Err(storage_error("protected_drawing", Some(target), None, None));
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -808,6 +951,132 @@ pub fn clear_recovery(app: AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dgn_reading_bounds_binary_files_and_requires_absolute_dgn_paths() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("sample.DGN");
+        std::fs::write(&path, [8, 9, 254, 2]).unwrap();
+        assert_eq!(read_interchange_bytes(&path, "dgn").unwrap(), vec![8, 9, 254, 2]);
+        assert_eq!(read_interchange_bytes(Path::new("relative.dgn"), "dgn").unwrap_err(), "dgnInvalid");
+        let other = directory.path().join("sample.wmf");
+        std::fs::write(&other, [1]).unwrap();
+        assert!(read_interchange_bytes(&other, "dgn").is_err());
+        let folder = directory.path().join("folder.dgn");
+        std::fs::create_dir(&folder).unwrap();
+        assert!(read_interchange_bytes(&folder, "dgn").is_err());
+        File::create(&path).unwrap().set_len(64 * 1024 * 1024 + 1).unwrap();
+        assert_eq!(read_interchange_bytes(&path, "dgn").unwrap_err(), "dgnLimit");
+    }
+
+    #[test]
+    fn wmf_reading_bounds_binary_files_and_requires_absolute_wmf_paths() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("sample.WMF");
+        std::fs::write(&path, [1, 0, 255, 128]).unwrap();
+        assert_eq!(read_wmf_bytes(&path).unwrap(), vec![1, 0, 255, 128]);
+        assert!(read_wmf_bytes(Path::new("relative.wmf")).is_err());
+        let other = directory.path().join("sample.txt");
+        std::fs::write(&other, [1]).unwrap();
+        assert!(read_wmf_bytes(&other).is_err());
+        let folder = directory.path().join("folder.wmf");
+        std::fs::create_dir(&folder).unwrap();
+        assert!(read_wmf_bytes(&folder).is_err());
+        File::create(&path).unwrap().set_len(64 * 1024 * 1024 + 1).unwrap();
+        assert_eq!(read_wmf_bytes(&path).unwrap_err(), "wmfLimit");
+    }
+
+    #[test]
+    fn recovery_paths_resolve_relative_sources_and_protect_all_batch_originals() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("root.lcad");
+        let child = directory.path().join("child.lcad");
+        atomic_write(&root, &valid_envelope("Root")).unwrap();
+        atomic_write(&child, &valid_envelope("Child")).unwrap();
+        let saved_root = fs::read(&root).unwrap();
+        let saved_child = fs::read(&child).unwrap();
+        let resolved = resolve_lcad_recovery_path("child.lcad".into(), Some(root.to_string_lossy().into_owned())).unwrap();
+        assert_eq!(PathBuf::from(resolved), fs::canonicalize(&child).unwrap());
+        assert!(resolve_lcad_recovery_path("child.lcad".into(), None).is_err());
+        assert!(resolve_lcad_recovery_path("../secret.txt".into(), Some(root.to_string_lossy().into_owned())).is_err());
+        assert!(read_lcad_recovery_source(child.to_string_lossy().into_owned(), None, Some(1)).is_err());
+        let protected = vec![root.to_string_lossy().into_owned(), child.to_string_lossy().into_owned()];
+        assert!(export_lcad_document(child.to_string_lossy().into_owned(), valid_envelope("Recovered"), None, Some(protected.clone())).unwrap_err().contains("protected_drawing"));
+        #[cfg(unix)]
+        {
+            let alias = directory.path().join("alias.lcad");
+            std::os::unix::fs::symlink(&child, &alias).unwrap();
+            assert_eq!(resolve_lcad_recovery_path(alias.to_string_lossy().into_owned(), None).unwrap(), fs::canonicalize(&child).unwrap().to_string_lossy());
+            assert!(export_lcad_document(alias.to_string_lossy().into_owned(), valid_envelope("Recovered"), None, Some(protected.clone())).is_err());
+        }
+        let output = directory.path().join("copy.lcad");
+        export_lcad_document(output.to_string_lossy().into_owned(), valid_envelope("Recovered"), None, Some(protected)).unwrap();
+        assert_eq!(read_envelope(&output).unwrap()["document"]["name"], "Recovered");
+        assert_eq!(fs::read(&root).unwrap(), saved_root);
+        assert_eq!(fs::read(&child).unwrap(), saved_child);
+    }
+
+    #[test]
+    fn recovery_reader_preserves_damaged_bytes_and_enforces_read_limits() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("damaged.lcad");
+        let bytes = b"PK\x03\x04incomplete archive";
+        fs::write(&path, bytes).unwrap();
+        assert!(load_from_path(&path, false).is_err());
+        assert_eq!(read_recovery_bytes(&path, 64).unwrap(), bytes);
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        assert!(read_recovery_bytes(&path, 4).is_err());
+        assert!(read_recovery_bytes(Path::new("relative.lcad"), 64).is_err());
+        let other = directory.path().join("other.txt");
+        fs::write(&other, bytes).unwrap();
+        assert!(read_recovery_bytes(&other, 64).is_err());
+        let folder = directory.path().join("folder.lcad");
+        fs::create_dir(&folder).unwrap();
+        assert!(read_recovery_bytes(&folder, 64).is_err());
+        assert!(!directory.path().join(RECOVERY_FILENAME).exists());
+        assert!(read_lcad_recovery_source(path.to_string_lossy().into_owned(), Some(path.to_string_lossy().into_owned()), None).is_err());
+        #[cfg(unix)]
+        {
+            let alias = directory.path().join("alias.lcad");
+            std::os::unix::fs::symlink(&path, &alias).unwrap();
+            assert!(read_lcad_recovery_source(alias.to_string_lossy().into_owned(), Some(path.to_string_lossy().into_owned()), None).is_err());
+        }
+    }
+
+    #[test]
+    fn standards_json_reader_rejects_bad_paths_encoding_size_and_json() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("standards.JSON");
+        let name = path.to_string_lossy().into_owned();
+        fs::write(&path, "{\"name\":\"Bâtiment\"}").unwrap();
+        assert_eq!(read_standards_json(name.clone()).unwrap(), "{\"name\":\"Bâtiment\"}");
+        assert_eq!(read_drawing_json(name.clone()).unwrap(), read_standards_json(name.clone()).unwrap());
+        assert!(read_standards_json("relative.json".into()).is_err());
+        assert!(read_standards_json(directory.path().join("wrong.csv").to_string_lossy().into_owned()).is_err());
+        fs::write(&path, "not JSON").unwrap();
+        assert!(read_standards_json(name.clone()).is_err());
+        fs::write(&path, [0xff, 0xfe]).unwrap();
+        assert!(read_standards_json(name.clone()).is_err());
+        File::create(&path).unwrap().set_len(4 * 1024 * 1024 + 1).unwrap();
+        assert!(read_standards_json(name).is_err());
+    }
+
+    #[test]
+    fn table_csv_reader_limits_paths_encoding_size_and_file_type() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("table.CSV");
+        fs::write(&path, "\u{feff}Libellé;Valeur\r\nA;=2+3").unwrap();
+        assert_eq!(read_table_csv(path.to_string_lossy().into_owned()).unwrap(), "\u{feff}Libellé;Valeur\r\nA;=2+3");
+        assert!(read_table_csv("relative.csv".into()).is_err());
+        assert!(read_table_csv(directory.path().join("no.json").to_string_lossy().into_owned()).is_err());
+        fs::write(&path, [0xff, 0xfe]).unwrap();
+        assert!(read_table_csv(path.to_string_lossy().into_owned()).is_err());
+        File::create(&path).unwrap().set_len(4 * 1024 * 1024 + 1).unwrap();
+        assert!(read_table_csv(path.to_string_lossy().into_owned()).is_err());
+        let folder = directory.path().join("folder.csv");
+        fs::create_dir(&folder).unwrap();
+        assert!(read_table_csv(folder.to_string_lossy().into_owned()).is_err());
+    }
     use serde_json::json;
 
     const PIXEL_DATA_URL: &str = "data:image/png;base64,iVBORw0KGgo=";
@@ -902,8 +1171,8 @@ mod tests {
         atomic_write(&source, &valid_envelope("Host")).unwrap();
         let original = fs::read(&source).unwrap();
         let protected = Some(source.to_string_lossy().into_owned());
-        assert!(export_lcad_document(source.to_string_lossy().into_owned(), valid_envelope("Export"), protected.clone()).unwrap_err().contains("protected_drawing"));
-        export_lcad_document(output.to_string_lossy().into_owned(), valid_envelope("Export"), protected).unwrap();
+        assert!(export_lcad_document(source.to_string_lossy().into_owned(), valid_envelope("Export"), protected.clone(), None).unwrap_err().contains("protected_drawing"));
+        export_lcad_document(output.to_string_lossy().into_owned(), valid_envelope("Export"), protected, None).unwrap();
         assert_eq!(fs::read(&source).unwrap(), original);
         assert_eq!(load_from_path(&output, false).unwrap().envelope["document"]["name"], "Export");
     }
@@ -973,6 +1242,60 @@ mod tests {
     }
 
     #[test]
+    fn preserves_dwfx_source_assets() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("dwfx-source.lcad");
+        let mut envelope = envelope_with_asset("DWFx source");
+        let link = "data:model/vnd.dwfx+xps;base64,UEsDBHNvdXJjZQ==";
+        envelope["document"]["assets"][0]["link"] = json!(link);
+        envelope["document"]["assets"][0]["mimeType"] = json!("model/vnd.dwfx+xps");
+        let mut preview = envelope["document"]["assets"][0].clone();
+        preview["id"] = json!("preview"); preview["mimeType"] = json!("image/png"); preview["link"] = json!(PIXEL_DATA_URL);
+        envelope["document"]["assets"].as_array_mut().unwrap().push(preview);
+        let metadata = json!({"version": 1, "format": "dwfx", "assetId": "roof/reference", "name": "plan.dwfx",
+            "pageNumber": 2, "pageCount": 3, "width": 0.21, "height": 0.297});
+        envelope["document"]["content"]["entities"] = json!([{"id": "underlay", "type": "blockReference", "layerId": "geometry", "blockId": "cache",
+            "transform": {"a": 2, "b": 0, "c": 0, "d": 2, "e": 10, "f": 20}, "dwfUnderlay": metadata.clone()}]);
+        envelope["document"]["content"]["blocks"] = json!([{"id": "cache", "name": "Cached page", "basePoint": {"x": 0, "y": 0}, "entities": [
+            {"id": "image", "type": "image", "assetId": "preview", "layerId": "geometry", "x": 0, "y": 0, "width": 0.21, "height": 0.297}
+        ]}]);
+        atomic_write(&path, &envelope).unwrap();
+        let loaded = read_envelope(&path).unwrap();
+        assert_eq!(loaded["document"]["content"]["entities"][0]["dwfUnderlay"], metadata);
+        assert_eq!(loaded["document"]["assets"][1]["link"], PIXEL_DATA_URL);
+        assert_eq!(loaded["document"]["assets"][0]["link"], link);
+        assert_eq!(loaded["document"]["assets"][0]["mimeType"], "model/vnd.dwfx+xps");
+    }
+
+    #[test]
+    fn preserves_dgn_source_assets() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("dgn-source.lcad");
+        let mut envelope = envelope_with_asset("DGN source");
+        let mut bytes = vec![0_u8; 1538];
+        bytes[..4].copy_from_slice(&[8, 9, 254, 2]);
+        bytes[1112..1116].copy_from_slice(&[0, 0, 232, 3]);
+        bytes[1116..1120].copy_from_slice(&[0, 0, 100, 0]);
+        bytes[1120..1124].copy_from_slice(b"m mm");
+        bytes[1536..].copy_from_slice(&[255, 255]);
+        let link = format!("data:image/vnd.dgn;base64,{}", BASE64.encode(&bytes));
+        envelope["document"]["assets"][0]["link"] = json!(link);
+        envelope["document"]["assets"][0]["mimeType"] = json!("image/vnd.dgn");
+        let metadata = json!({"version": 1, "format": "v7", "assetId": "roof/reference", "name": "plan.dgn", "metresPerMaster": 0.001});
+        envelope["document"]["content"]["blocks"] = json!([{"id": "cache", "name": "DGN cache", "basePoint": {"x": 0, "y": 0}, "entities": [
+            {"id": "line", "type": "line", "layerId": "geometry", "x1": 0, "y1": 0, "x2": 1, "y2": 1}
+        ]}]);
+        envelope["document"]["content"]["entities"] = json!([{"id": "underlay", "type": "blockReference", "blockId": "cache", "layerId": "geometry",
+            "transform": {"a": 2, "b": 0, "c": 0, "d": 2, "e": 10, "f": 20}, "dgnUnderlay": metadata.clone()}]);
+        atomic_write(&path, &envelope).unwrap();
+        let loaded = read_envelope(&path).unwrap();
+        assert_eq!(loaded["document"]["assets"][0]["link"], link);
+        assert_eq!(loaded["document"]["assets"][0]["mimeType"], "image/vnd.dgn");
+        assert_eq!(loaded["document"]["content"]["entities"][0]["dgnUnderlay"], metadata);
+        assert_eq!(image_extension("image/vnd.dgn"), "dgn");
+    }
+
+    #[test]
     fn preserves_native_curved_block_clips() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("curve-clips.lcad");
@@ -1038,6 +1361,52 @@ mod tests {
     }
 
     #[test]
+    fn preserves_embedded_drawing_standards() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("standards.lcad");
+        let mut envelope = valid_envelope("Standards");
+        let binding = json!({"version": 1, "path": "/missing/office.json", "standard": {
+            "format": "lumcad-standards", "version": 1, "name": "Office", "catalogs": {
+                "layers": [], "textStyles": [], "dimensionStyles": [], "leaderStyles": [], "multilineStyles": [], "tableStyles": []
+            }
+        }});
+        envelope["document"]["content"]["standards"] = binding.clone();
+        atomic_write(&path, &envelope).unwrap();
+        assert_eq!(read_envelope(&path).unwrap()["document"]["content"]["standards"], binding);
+    }
+
+    #[test]
+    fn preserves_object_web_link_metadata() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("links.lcad");
+        let mut envelope = valid_envelope("Links");
+        let entity = json!({"id":"line", "type":"line", "layerId":"geometry", "x1":0, "y1":0, "x2":1, "y2":1,
+            "hyperlink":{"url":"https://example.com/spec.pdf#page=2", "label":"Technical sheet"}});
+        envelope["document"]["content"]["entities"] = json!([entity]);
+        atomic_write(&path, &envelope).unwrap();
+        assert_eq!(read_envelope(&path).unwrap()["document"]["content"]["entities"][0], entity);
+    }
+
+    #[test]
+    fn preserves_saved_quantity_extractions() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("quantities.lcad");
+        let mut envelope = valid_envelope("Quantities");
+        let definitions = json!([{"id": "quantity-1", "name": "Lengths", "nested": true,
+            "groupBy": ["type", "attribute:CODE"], "sums": ["length"], "selectedIds": ["source-1"]}]);
+        envelope["document"]["content"]["dataExtractions"] = definitions.clone();
+        atomic_write(&path, &envelope).unwrap();
+        assert_eq!(read_envelope(&path).unwrap()["document"]["content"]["dataExtractions"], definitions);
+        let link = json!({"definition": definitions[0], "headers": ["Type", "Code", "Count", "Length", "Measured"], "status": "current"});
+        let table = json!({"id": "quantity-table", "type": "polyline", "layerId": "geometry", "parts": [],
+            "table": {"cells": [[{"value": "Type"}, {"value": "Code"}, {"value": "Count"}, {"value": "Length"}, {"value": "Measured"}],
+                [{"value": "line"}, {"value": ""}, {"value": "120"}, {"value": "600"}, {"value": "120"}]], "quantityLink": link}});
+        envelope["document"]["content"]["entities"] = json!([table]);
+        atomic_write(&path, &envelope).unwrap();
+        assert_eq!(read_envelope(&path).unwrap()["document"]["content"]["entities"][0], table);
+    }
+
+    #[test]
     fn preserves_named_selection_filters() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("filters.lcad");
@@ -1090,6 +1459,22 @@ mod tests {
         atomic_write(&path, &envelope).unwrap();
         let loaded = read_envelope(&path).unwrap();
         assert_eq!(loaded["document"]["content"]["entities"], entities);
+    }
+
+    #[test]
+    fn preserves_native_points_and_point_defaults() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("points.lcad");
+        let mut envelope = valid_envelope("Survey points");
+        let style = json!({"symbol": "circle-cross", "size": 0.25});
+        let entities = json!([{"id": "point-1", "type": "point", "layerId": "geometry",
+            "x": 12.5, "y": -7.25, "pointStyle": style.clone()}]);
+        envelope["document"]["content"]["entities"] = entities.clone();
+        envelope["document"]["content"]["settings"]["pointStyle"] = style.clone();
+        atomic_write(&path, &envelope).unwrap();
+        let loaded = read_envelope(&path).unwrap();
+        assert_eq!(loaded["document"]["content"]["entities"], entities);
+        assert_eq!(loaded["document"]["content"]["settings"]["pointStyle"], style);
     }
 
     #[test]
@@ -1160,6 +1545,53 @@ mod tests {
         envelope["document"]["content"]["entities"] = entities.clone();
         atomic_write(&path, &envelope).unwrap();
         assert_eq!(read_envelope(&path).unwrap()["document"]["content"]["entities"], entities);
+    }
+
+    #[test]
+    fn preserves_geometric_constraints_without_solving_geometry() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("geometric-constraints.lcad");
+        let mut envelope = valid_envelope("Constraints");
+        let entities = json!([
+            {"id": "edge", "type": "line", "layerId": "geometry", "x1": 0, "y1": 0, "x2": 4, "y2": 0.2}
+        ]);
+        let constraints = json!([
+            {"id": "horizontal", "type": "horizontal", "refs": [{"entityId": "edge"}]},
+            {"id": "fixed", "type": "fix", "refs": [{"entityId": "edge", "point": "start"}], "values": [0, 0]}
+        ]);
+        envelope["document"]["content"]["entities"] = entities.clone();
+        envelope["document"]["content"]["geometricConstraints"] = constraints.clone();
+        atomic_write(&path, &envelope).unwrap();
+        let loaded = read_envelope(&path).unwrap();
+        assert_eq!(loaded["document"]["content"]["geometricConstraints"], constraints);
+        assert_eq!(loaded["document"]["content"]["entities"], entities);
+    }
+
+    #[test]
+    fn preserves_driving_dimensions_and_parameter_formulas_without_solving() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("driving-dimensions.lcad");
+        let mut envelope = valid_envelope("Driving dimensions");
+        let entities = json!([
+            {"id": "edge", "type": "line", "layerId": "geometry", "x1": 0, "y1": 0, "x2": 3, "y2": 0}
+        ]);
+        let parameters = json!([{"name": "width", "type": "distance", "expression": "5m"}]);
+        let dimensions = json!([
+            {"id": "dimension", "name": "d1", "type": "aligned", "expression": "width",
+                "refs": [{"entityId": "edge"}]}
+        ]);
+        envelope["document"]["content"]["entities"] = entities.clone();
+        envelope["document"]["content"]["parameters"] = parameters.clone();
+        envelope["document"]["content"]["dimensionalConstraints"] = dimensions.clone();
+        let blocks = json!([{"id": "driven-block", "name": "Driven block", "entities": entities,
+            "parameters": parameters, "dimensionalConstraints": dimensions}]);
+        envelope["document"]["content"]["blocks"] = blocks.clone();
+        atomic_write(&path, &envelope).unwrap();
+        let loaded = read_envelope(&path).unwrap();
+        assert_eq!(loaded["document"]["content"]["parameters"], parameters);
+        assert_eq!(loaded["document"]["content"]["dimensionalConstraints"], dimensions);
+        assert_eq!(loaded["document"]["content"]["blocks"], blocks);
+        assert_eq!(loaded["document"]["content"]["entities"], entities);
     }
 
     #[test]

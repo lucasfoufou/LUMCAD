@@ -3,11 +3,14 @@ import { normalizeDrawingContent } from './drawingDocument.js';
 import { refreshDrawingBlockBounds } from './drawingBlocks.js';
 import { getDrawingEntityDependencyIds } from './drawingDimensions.js';
 import { findNamedDrawingBlock } from './drawingNamedBlocks.js';
+import { normalizeDrawingDynamicBlock } from './drawingDynamicBlocks.js';
 
 export function createDrawingBlockEditDraft(content, nameOrId) {
     const definition = findNamedDrawingBlock(content, nameOrId);
     if (!definition) return { error: 'missing' };
-    const draft = normalizeDrawingContent(JSON.parse(JSON.stringify({ ...content, entities: definition.entities })));
+    const draft = normalizeDrawingContent(JSON.parse(JSON.stringify({ ...content, entities: definition.entities, geometricConstraints: definition.geometricConstraints || [],
+        dimensionalConstraints: definition.dimensionalConstraints || [], parameters: definition.parameters || [],
+        blockDynamicDraft: definition.dynamic || { parameters: [], actions: [] } })));
     return { blockId: definition.id, name: definition.name, content: draft };
 }
 
@@ -15,8 +18,16 @@ export function saveDrawingBlockEdit(root, blockId, draft) {
     const original = root.blocks.find(block => block.id === blockId);
     if (!original) return { error: 'missing' };
     if (!Array.isArray(draft?.entities) || !Array.isArray(draft?.blocks)) return { error: 'dependency' };
-    const blocks = draft.blocks.map(block => block.id === blockId ? { ...original, entities: draft.entities } : block);
-    if (!blocks.some(block => block.id === blockId)) blocks.push({ ...original, entities: draft.entities });
+    const dynamic = normalizeDrawingDynamicBlock(draft.blockDynamicDraft || original.dynamic || { parameters: [], actions: [] }, draft.entities);
+    if (!dynamic) return { error: 'dependency' };
+    const { dynamic: originalDynamic, ...base } = original;
+    const edited = { ...base, entities: draft.entities,
+        ...(original.geometricConstraints !== undefined || draft.geometricConstraints?.length ? { geometricConstraints: draft.geometricConstraints || [] } : {}),
+        ...(original.dimensionalConstraints !== undefined || original.parameters !== undefined || draft.dimensionalConstraints?.length || draft.parameters?.length
+            ? { dimensionalConstraints: draft.dimensionalConstraints || [], parameters: draft.parameters || [] } : {}),
+        ...(dynamic.parameters.length || dynamic.actions.length ? { dynamic } : {}) };
+    const blocks = draft.blocks.map(block => block.id === blockId ? edited : block);
+    if (!blocks.some(block => block.id === blockId)) blocks.push(edited);
     if (blocks.length > 1024 || blocks.reduce((total, block) => total + block.entities.length, 0) > 100000) return { error: 'limit' };
     const error = validateDrawingBlockGraph(blocks);
     if (error) return { error };

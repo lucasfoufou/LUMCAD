@@ -4,11 +4,25 @@ import test from 'node:test';
 import {
     evaluateDrawingCalculation,
     evaluateDrawingExpression,
+    remapDrawingExpressionVariables,
     drawingDynamicInputAnchor,
     hasDrawingPointSyntax,
     parseDrawingPointInput,
     resolveDrawingPointInput,
 } from './drawingPrecisionInput.js';
+
+test('formula transfer renames variables without changing units, functions, constants or exponents', () => {
+    const source = 'max(M, 2m) + max + 1e3mm + pi';
+    const names = new Map([['m', 'm_copy'], ['max', 'max_copy'], ['mm', 'mm_copy'], ['e', 'e_copy'], ['pi', 'pi_copy']]);
+    const variables = { m: 3, max: 4 };
+    const result = remapDrawingExpressionVariables(source, names, { variables });
+    assert.equal(result, 'max(m_copy, 2m) + max_copy + 1e3mm + pi');
+    assert.equal(evaluateDrawingExpression(result, { variables: { m_copy: 3, max_copy: 4 } }), evaluateDrawingExpression(source, { variables }));
+    assert.equal(remapDrawingExpressionVariables(' (Angle + angle) rad ', new Map([['angle', 'turn']]),
+        { variables: { angle: 1 }, unitType: 'angle' }), '(turn + turn) rad');
+    assert.throws(() => remapDrawingExpressionVariables('a', new Map([['a', 'pi']]), { variables: { a: 1 } }));
+    assert.throws(() => remapDrawingExpressionVariables('missing', names));
+});
 
 test('drawing expressions safely evaluate arithmetic, functions, constants, and variables', () => {
     assert.equal(evaluateDrawingExpression('2 + 3 * 4'), 14);

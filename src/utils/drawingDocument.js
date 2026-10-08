@@ -1,3 +1,16 @@
+import { normalizeDrawingHyperlink } from './drawingHyperlinks.js';
+import { normalizeDrawingDataDefinitions } from './drawingDataDefinitions.js';
+import { normalizeDrawingStandardsBinding } from './drawingStandardsBinding.js';
+import { normalizeDrawingDimensionalConstraints } from './drawingDimensionalConstraints.js';
+import { rebuildDrawingToleranceEntity } from './drawingTolerances.js';
+import { normalizeDrawingGeometricConstraints, remapDrawingGeometricConstraints, translateDrawingGeometricConstraints, transformedDrawingCopyConstraints } from './drawingConstraintDefinition.js';
+import { collectDrawingDimensionalCatalog, mergeDrawingDimensionalCatalog, includeDrawingDrivingAnnotations, transformedDrawingDimensionalCatalog } from './drawingDimensionalTransfer.js';
+import { createI18nError } from '../i18n/translator.js';
+import { normalizeDrawingTableStyles } from './drawingTables.js';
+import { rebuildDrawingTableEntity } from './drawingTableGeometry.js';
+import { rebuildDrawingRevisionSymbol } from './drawingRevisionSymbols.js';
+import { rebuildDrawingLinework, normalizeDrawingMultilineStyles } from './drawingLinework.js';
+import { normalizeDrawingPointStyle, drawingPointMarkerMatrix } from './drawingPoints.js';
 import { normalizeDrawingAnnotation, normalizeAnnotationScales, supportsDrawingAnnotation, restoreDrawingAnnotationContent, currentAnnotationScale } from './drawingAnnotations.js';
 import { normalizeDrawingUnits, normalizeDrawingUcs, normalizeDrawingNamedUcs, normalizeDrawingLimits } from './drawingCoordinates.js';
 import { normalizeDrawingPlotStyles, resolveDrawingPlotAppearance } from './drawingPlotStyles.js';
@@ -88,8 +101,12 @@ export function createDefaultDrawingContent({
         dimensionStyles: normalizeDimensionStyles(),
         activeDimensionStyleId: DEFAULT_DIMENSION_STYLE_ID,
         textStyles: [{ ...DEFAULT_DRAWING_TEXT_STYLE }],
+        multilineStyles: normalizeDrawingMultilineStyles(),
+        tableStyles: normalizeDrawingTableStyles(),
         activeTextStyleId: DEFAULT_DRAWING_TEXT_STYLE_ID,
         selectionFilters: [],
+        dataExtractions: [],
+        standards: null,
         leaderStyles: [],
         layerStates: [],
         plotStyles: [],
@@ -99,6 +116,7 @@ export function createDefaultDrawingContent({
         blocks: [],
         entities: [],
         settings: {
+            pointStyle: normalizeDrawingPointStyle(),
             gridSpacing: Math.max(0.0001, Number(gridSpacing) || 0.5),
             snaps: { grid: true, endpoint: true, midpoint: true, center: true, intersection: true, nearest: false },
             dynamicInput: true,
@@ -151,6 +169,13 @@ export function normalizeDrawingContent(content) {
             .filter(entity => entity?.type !== 'blockReference' || blockIds.has(entity.blockId))
         : [];
     const blockContent = refreshDrawingBlockBounds({ blocks, entities });
+    const geometricConstraints = normalizeDrawingGeometricConstraints(content.geometricConstraints, blockContent.entities);
+    if (!geometricConstraints) throw createI18nError('errors.invalidGeometricConstraints');
+    const dimensional = normalizeDrawingDimensionalConstraints(content.dimensionalConstraints, blockContent.entities, content.parameters);
+    if (dimensional.error || geometricConstraints.length + dimensional.constraints.length > 256
+        || new Set([...geometricConstraints, ...dimensional.constraints].map(item => item.id)).size !== geometricConstraints.length + dimensional.constraints.length) {
+        throw createI18nError('errors.invalidDimensionalConstraints');
+    }
     return {
         ...defaults,
         ...content,
@@ -162,19 +187,27 @@ export function normalizeDrawingContent(content) {
         textStyles,
         activeTextStyleId,
         selectionFilters: normalizeDrawingSelectionFilters(content.selectionFilters),
+        dataExtractions: normalizeDrawingDataDefinitions(content.dataExtractions),
+        standards: normalizeDrawingStandardsBinding(content.standards),
         leaderStyles: normalizeDrawingLeaderStyles(content.leaderStyles),
+        multilineStyles: normalizeDrawingMultilineStyles(content.multilineStyles),
+        tableStyles: normalizeDrawingTableStyles(content.tableStyles),
         layerStates: normalizeDrawingLayerStates(content.layerStates),
         plotStyles: normalizeDrawingPlotStyles(content.plotStyles),
         namedUcs: normalizeDrawingNamedUcs(content.namedUcs),
         ...(content.annotationScales ? { annotationScales: normalizeAnnotationScales(content.annotationScales) } : {}),
         namedViews: normalizeNamedDrawingViews(content.namedViews),
         groups: normalizeDrawingGroups(content.groups, blockContent.entities),
+        ...(content.geometricConstraints !== undefined ? { geometricConstraints } : {}),
+        ...(content.dimensionalConstraints !== undefined ? { dimensionalConstraints: dimensional.constraints } : {}),
+        ...(content.parameters !== undefined ? { parameters: dimensional.parameters } : {}),
         blocks: blockContent.blocks,
         entities: refreshDrawingHatches(refreshPathArrays({ entities: blockContent.entities })).entities,
         activeLayerId: layers.some(layer => layer.id === content.activeLayerId) ? content.activeLayerId : layers[0].id,
         settings: {
             ...defaults.settings,
             ...sourceSettings,
+            pointStyle: normalizeDrawingPointStyle(sourceSettings.pointStyle),
             ...(sourceSettings.annotationScale !== undefined ? { annotationScale: currentAnnotationScale(content) } : {}),
             ...(sourceSettings.annotationShowAll !== undefined ? { annotationShowAll: sourceSettings.annotationShowAll === true } : {}),
             plotStyleMode: ['off', 'named', 'color'].includes(sourceSettings.plotStyleMode) ? sourceSettings.plotStyleMode : 'off',
@@ -359,9 +392,17 @@ export function transformSelectedEntities(content, selectedIds, updater, { copy 
         ...remapDrawingEntityDependencies(entity, idMap, { preserveAppearance: true }),
         id: idMap.get(sources[index].id),
     }));
+    const relationships = transformedDrawingCopyConstraints(content, sources, copies, idMap, updater, () => createDrawingId('constraint'));
+    if (relationships.error) return { error: relationships.error, changed: false, content, selectedIds, entities: [] };
+    const dimensional = transformedDrawingDimensionalCatalog({ ...content, geometricConstraints: relationships.constraints }, content, idMap, copies,
+        updater, () => createDrawingId('constraint'));
+    if (dimensional.error) return { error: dimensional.error, changed: false, content, selectedIds, entities: [] };
     return {
         changed: true,
-        content: { ...content, entities: [...content.entities, ...copies] },
+        content: { ...content, entities: [...content.entities, ...copies],
+            ...(content.dimensionalConstraints !== undefined || dimensional.dimensionalConstraints.length
+                ? { dimensionalConstraints: dimensional.dimensionalConstraints, parameters: dimensional.parameters } : {}),
+            ...(content.geometricConstraints !== undefined || relationships.constraints.length ? { geometricConstraints: relationships.constraints } : {}) },
         selectedIds: sources
             .filter(entity => editableSourceIds.has(entity.id))
             .map(entity => idMap.get(entity.id)),
@@ -451,13 +492,29 @@ export function copySelectedEntities(content, selectedIds, offset = { x: 0.5, y:
 }
 
 export function pasteDrawingEntities(content, originals, offset = { x: 0.5, y: 0.5 }) {
+    originals = includeDrawingDrivingAnnotations(content, originals);
     const idMap = new Map(originals.map(entity => [entity.id, createDrawingId(entity.type)]));
     const copies = originals.map(entity => {
         const next = { ...remapDrawingEntityDependencies(entity, idMap, { preserveAppearance: true }), id: idMap.get(entity.id) };
         return translateEntity(next, offset.x, offset.y);
     });
+    const sourceConstraints = translateDrawingGeometricConstraints((content.geometricConstraints || [])
+        .filter(constraint => constraint.refs.every(ref => idMap.has(ref.entityId))), originals, offset);
+    if (sourceConstraints.some(constraint => !constraint)) return { error: 'invalid', content, selectedIds: [], entities: [] };
+    const constraints = [...(content.geometricConstraints || []),
+        ...remapDrawingGeometricConstraints(sourceConstraints, idMap, () => createDrawingId('constraint'))];
+    if (constraints.length > 256) return { error: 'limit', content, selectedIds: [], entities: [] };
+    if (!normalizeDrawingGeometricConstraints(constraints, [...content.entities, ...copies])) return { error: 'invalid', content, selectedIds: [], entities: [] };
+    const catalog = collectDrawingDimensionalCatalog(content, idMap.keys());
+    if (catalog.error) return { error: catalog.error, content, selectedIds: [], entities: [] };
+    const dimensional = mergeDrawingDimensionalCatalog({ ...content, geometricConstraints: constraints }, { ...catalog, entities: originals },
+        idMap, [...content.entities, ...copies], () => createDrawingId('constraint'));
+    if (dimensional.error) return { error: dimensional.error, content, selectedIds: [], entities: [] };
     return {
-        content: { ...content, entities: [...content.entities, ...copies] },
+        content: { ...content, entities: [...content.entities, ...copies],
+            ...(content.dimensionalConstraints !== undefined || dimensional.dimensionalConstraints.length
+                ? { dimensionalConstraints: dimensional.dimensionalConstraints, parameters: dimensional.parameters } : {}),
+            ...(content.geometricConstraints !== undefined || constraints.length ? { geometricConstraints: constraints } : {}) },
         selectedIds: copies.map(entity => entity.id),
         entities: copies,
     };
@@ -708,6 +765,9 @@ function normalizeDrawingLayer(layer) {
 function normalizeDrawingEntityAppearance(entity, textOptions = {}) {
     if (!entity || typeof entity !== 'object') return entity;
     const normalized = normalizeDrawingEntityGeometry(entity, textOptions);
+    const hyperlink = normalizeDrawingHyperlink(entity.hyperlink);
+    if (hyperlink) normalized.hyperlink = hyperlink;
+    else delete normalized.hyperlink;
     const annotation = supportsDrawingAnnotation(entity) && normalizeDrawingAnnotation(entity.annotation);
     if (annotation) normalized.annotation = annotation;
     else delete normalized.annotation;
@@ -753,6 +813,26 @@ function normalizeDrawingPolylinePartTransparency(part) {
 }
 
 function normalizeDrawingEntityGeometry(entity, textOptions = {}) {
+    if (entity.tolerance) {
+        const rebuilt = rebuildDrawingToleranceEntity(entity);
+        if (rebuilt) entity = rebuilt;
+        else { const { tolerance, ...geometry } = entity; entity = geometry; }
+    }
+    if (entity.table) {
+        const rebuilt = rebuildDrawingTableEntity(entity);
+        if (rebuilt) entity = rebuilt;
+        else { const { table, ...geometry } = entity; entity = geometry; }
+    }
+    if (entity.revisionSymbol) {
+        const rebuilt = rebuildDrawingRevisionSymbol(entity);
+        if (rebuilt) entity = rebuilt;
+        else { const { revisionSymbol, ...geometry } = entity; entity = geometry; }
+    }
+    if (entity.linework) {
+        const rebuilt = rebuildDrawingLinework(entity);
+        if (rebuilt) entity = rebuilt;
+        else { const { linework, ...geometry } = entity; entity = geometry; }
+    }
     const normalized = { ...reconcileSplineDefinition(entity) };
     if (entity.wipeout) {
         const mask = entity.type === 'polyline' && !entity.parts && entity.closed && createDrawingWipeout(entity.points, entity.layerId, entity.id, entity.wipeout.frame);
@@ -818,6 +898,12 @@ function normalizeDrawingEntityGeometry(entity, textOptions = {}) {
             : Number(entity.fillet) > 0 ? 'fillet' : Number(entity.chamfer) > 0 ? 'chamfer' : 'square';
         normalized.cornerStyle = style;
         normalized.cornerValue = Math.max(0, finiteOr(entity.cornerValue ?? entity.chamfer ?? entity.fillet, 0));
+    }
+    if (entity.type === 'point') {
+        normalized.x = Math.max(-1e12, Math.min(1e12, finiteOr(entity.x, 0)));
+        normalized.y = Math.max(-1e12, Math.min(1e12, finiteOr(entity.y, 0)));
+        normalized.pointStyle = normalizeDrawingPointStyle(entity.pointStyle);
+        if (entity.pointTransform) normalized.pointTransform = drawingPointMarkerMatrix(entity);
     }
     if (['line', 'xline', 'ray'].includes(entity.type)) {
         normalized.x1 = finiteOr(entity.x1, 0);

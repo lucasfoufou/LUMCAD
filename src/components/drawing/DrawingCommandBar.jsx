@@ -1,3 +1,5 @@
+import { useAppSettings } from '~settings/AppSettingsProvider';
+import { getDrawingCommandDefinition } from '~utils/drawingCommands';
 import React, { forwardRef, useId, useImperativeHandle, useMemo, useRef, useState } from 'react';
 
 import { useI18n } from '~i18n/I18nProvider';
@@ -9,6 +11,7 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
     value = '', onChange, onSubmit, message, operation = null, activeTool = 'select',
 }, forwardedRef) {
     const { t } = useI18n();
+    const { settings } = useAppSettings();
     const inputRef = useRef(null);
     const historyPanelId = useId();
     const [history, setHistory] = useState([]);
@@ -19,8 +22,14 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
     const suggestions = useMemo(() => {
         if (operation) return getDrawingOperationOptionSuggestions(operation, value);
         if (activeTool !== 'select') return getDrawingCreationOptionSuggestions(activeTool, value);
-        return getDrawingCommandSuggestions(value);
-    }, [activeTool, operation, value]);
+        const prefix = value.trim().toUpperCase();
+        const personal = prefix && !/\s/.test(prefix) ? settings.commandAliases
+            .filter(row => row.alias.startsWith(prefix)).map(row => {
+                const definition = getDrawingCommandDefinition(row.command);
+                return { ...definition, alias: row.alias, completion: row.alias, tokens: [row.alias] };
+            }) : [];
+        return [...personal, ...getDrawingCommandSuggestions(value)].slice(0, 5);
+    }, [activeTool, operation, value, settings.commandAliases]);
     const activeSuggestionIndex = suggestions.length && suggestionIndex >= 0
         ? Math.min(suggestions.length - 1, suggestionIndex)
         : -1;

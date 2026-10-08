@@ -1,3 +1,4 @@
+import { drawingComparisonValue } from './drawingComparison.js';
 import { createI18nError } from '../i18n/translator.js';
 import { createDrawingId } from './drawingDocument.js';
 import { normalizeLcadDocument } from './lcadDocument.js';
@@ -102,7 +103,9 @@ export function detachDrawingReference(document, referenceId) {
         collectStrings(entity);
         if (entity.layerId) used.layers.add(entity.layerId);
         if (entity.assetId) used.assets.add(entity.assetId);
-        if (entity.pdfUnderlay?.assetId) used.assets.add(entity.pdfUnderlay.assetId);
+        for (const key of ['pdfUnderlay', 'dwfUnderlay', 'dgnUnderlay']) {
+            if (entity[key]?.assetId) used.assets.add(entity[key].assetId);
+        }
         if (entity.textStyleId) used.textStyles.add(entity.textStyleId);
         if (entity.dimensionStyleId) used.dimensionStyles.add(entity.dimensionStyleId);
         for (const part of entity.parts || []) visit(part);
@@ -169,13 +172,8 @@ export function compareDrawingReference(host, referenceId, source) {
         const maps = insertion.externalReference.sourceMaps;
         const reverse = Object.fromEntries(RESOURCE_KEYS.map(key => [key, new Map(Object.entries(maps[key]).map(([from, to]) => [to, from]))]));
         const resourceForField = { layerId: 'layers', assetId: 'assets', blockId: 'blocks', textStyleId: 'textStyles', dimensionStyleId: 'dimensionStyles' };
-        const canonical = value => {
-            if (Array.isArray(value)) return value.map(canonical);
-            if (!value || typeof value !== 'object') return value;
-            return Object.fromEntries(Object.keys(value).sort().filter(key => !['bounds', 'definitionBounds'].includes(key)).map(key => [key,
-                resourceForField[key] ? reverse[resourceForField[key]].get(value[key]) || value[key] : canonical(value[key]),
-            ]));
-        };
+        const canonical = value => drawingComparisonValue(value, { mapField: (key, fieldValue) => resourceForField[key]
+            ? reverse[resourceForField[key]].get(fieldValue) || fieldValue : fieldValue });
         const root = document.content.blocks.find(block => block.id === insertion.blockId);
         const result = { entities: new Map((root?.entities || []).map(entity => [entity.id, JSON.stringify(canonical(entity))])) };
         for (const key of RESOURCE_KEYS) {

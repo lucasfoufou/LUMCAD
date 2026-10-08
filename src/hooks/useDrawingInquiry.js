@@ -1,15 +1,19 @@
 import { drawingWorldToUcs } from '~utils/drawingCoordinates';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { canSelectEntity } from '~utils/drawingDocument';
 import { measureDrawingEntity, measureDrawingPoints } from '~utils/drawingInquiry';
 
 const COMMANDS = new Set(['measureGeometry', 'distanceInquiry', 'areaInquiry', 'coordinateInquiry', 'entityList', 'drawingStatus', 'massProperties']);
 
-export default function useDrawingInquiry({ content, selectedIds, operation, setOperation, setActiveTool, setMessage, setSidebarPanel, enabled, t }) {
-    const [result, setResult] = useState(null);
+export default function useDrawingInquiry({ content, selectedIds, operation, setOperation, setActiveTool, setMessage, setSidebarPanel, enabled, t, initialResult = null }) {
+    const [result, setResult] = useState(initialResult);
+    const resultRef = useRef(initialResult);
     const [cumulativeArea, setCumulativeArea] = useState(0);
     const present = data => {
-        if (data.mode === 'id') data = { ...data, world: { x: data.x, y: data.y }, ...drawingWorldToUcs({ x: data.x, y: data.y }, content.settings?.ucs), coordinateSystem: content.settings?.ucs };
+        if (data?.mode === 'id') data = { ...data, world: { x: data.x, y: data.y }, ...drawingWorldToUcs({ x: data.x, y: data.y }, content.settings?.ucs), coordinateSystem: content.settings?.ucs };
+        // Native requests can read immediately after asynchronous file work,
+        // before a background WebKit window has committed its next render.
+        resultRef.current = data;
         setResult(data); setOperation(null); setSidebarPanel('inquiry');
         setMessage(t('inquiry.complete'));
     };
@@ -95,5 +99,5 @@ export default function useDrawingInquiry({ content, selectedIds, operation, set
         else setMessage(t('inquiry.unsupported'));
         return true;
     };
-    return { result, run, point, input, copy, present };
+    return { result, getResult: () => resultRef.current, run, point, input, copy, present };
 }

@@ -18,7 +18,7 @@ import { DEFAULT_DRAWING_TEXT_STYLE_ID } from './drawingText.js';
 import { isEditableSpline } from './drawingSplineEditing.js';
 import { isDrawingWipeout } from './drawingWipeout.js';
 
-const CREATION_PANEL_ENTITY_TYPES = new Set(['line', 'xline', 'ray', 'polyline', 'region', 'blockReference', 'rectangle', 'circle', 'polygon', 'arc', 'ellipse', 'spline', 'hatch', 'text', 'image', 'wipeout']);
+const CREATION_PANEL_ENTITY_TYPES = new Set(['point', 'line', 'xline', 'ray', 'polyline', 'region', 'blockReference', 'rectangle', 'circle', 'polygon', 'arc', 'ellipse', 'spline', 'hatch', 'text', 'image', 'wipeout']);
 
 export function supportsDrawingCreationPanel(entityOrType) {
     if (isDrawingWipeout(entityOrType) || isDrawingDimensionEntity(entityOrType)) return true;

@@ -39,6 +39,18 @@ export function drawingWorldToUcs(point, ucs) {
     return { ...point, x: dx * Math.cos(radians) + dy * Math.sin(radians), y: -dx * Math.sin(radians) + dy * Math.cos(radians) };
 }
 
+/** A screen-anchored orientation indicator; its position never represents the UCS origin. */
+export function drawingUcsIndicatorGeometry(settings, viewBox, worldUnitsPerPixel) {
+    if (!viewBox || ![viewBox.x, viewBox.y, viewBox.width, viewBox.height, worldUnitsPerPixel].every(Number.isFinite)
+        || viewBox.width <= 0 || viewBox.height <= 0 || worldUnitsPerPixel <= 0) return null;
+    const size = worldUnitsPerPixel * 30;
+    const origin = { x: viewBox.x + worldUnitsPerPixel * 48, y: viewBox.y + viewBox.height - worldUnitsPerPixel * 48 };
+    const rotation = normalizeDrawingUcs(settings?.ucs).rotation * Math.PI / 180;
+    return { origin, size,
+        xAxis: { x: origin.x + size * Math.cos(rotation), y: origin.y + size * Math.sin(rotation) },
+        yAxis: { x: origin.x + size * Math.sin(rotation), y: origin.y - size * Math.cos(rotation) } };
+}
+
 /** Typed bare lengths remain metres; explicit unit suffixes retain the established parser contract. */
 export function resolveDrawingUcsInput(value, options = {}, settings = {}) {
     const units = normalizeDrawingUnits(settings.units);

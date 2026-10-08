@@ -1,3 +1,5 @@
+import CommandAliasFields from './CommandAliasFields';
+import { validateDrawingAliases, validateDrawingCommandShortcuts, DEFAULT_DRAWING_SHORTCUTS } from '~utils/drawingCommandPreferences';
 import React, { useEffect, useState } from 'react';
 
 import { useI18n } from '~i18n/I18nProvider';
@@ -11,11 +13,14 @@ export default function AppSettingsDialog({ open, onClose }) {
     const [mcpStatus, setMcpStatus] = useState(null);
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState(false);
+    const [shortcutError, setShortcutError] = useState(false);
+    const [aliasError, setAliasError] = useState(false);
     const [copied, setCopied] = useState(false);
 
     useEffect(() => {
         if (!open) return undefined;
         setDraft(settings);
+        setAliasError(false);
         setSaveError(false);
         setCopied(false);
         let disposed = false;
@@ -48,6 +53,12 @@ export default function AppSettingsDialog({ open, onClose }) {
 
     const save = async event => {
         event.preventDefault();
+        try { validateDrawingAliases(draft.commandAliases); }
+        catch { setAliasError(true); return; }
+        setAliasError(false);
+        try { validateDrawingCommandShortcuts(draft.commandShortcuts); }
+        catch { setShortcutError(true); return; }
+        setShortcutError(false);
         setSaving(true);
         setSaveError(false);
         try {
@@ -111,7 +122,22 @@ export default function AppSettingsDialog({ open, onClose }) {
                             </SettingsField>
                         </SettingsSection>
 
+                        <SettingsSection title={t('commandPreferences.aliasTitle')} description={t('commandPreferences.aliasHint')}>
+                            <CommandAliasFields value={draft.commandAliases} onChange={commandAliases => { update({ commandAliases }); setAliasError(false); }} />
+                            {aliasError && <p role="alert" className="lumcad-settings-error is-visible">{t('commandPreferences.aliasError')}</p>}
+                        </SettingsSection>
+
+                        <SettingsSection title={t('commandPreferences.shortcutTitle')} description={t('commandPreferences.shortcutHint')}>
+                            <CommandAliasFields shortcuts value={draft.commandShortcuts} onChange={commandShortcuts => { update({ commandShortcuts }); setShortcutError(false); }} />
+                            <button type="button" className="lumcad-settings-button" onClick={() => update({ commandShortcuts: DEFAULT_DRAWING_SHORTCUTS.map(row => ({ ...row })) })}>{t('commandPreferences.resetShortcuts')}</button>
+                            {shortcutError && <p role="alert" className="lumcad-settings-error is-visible">{t('commandPreferences.shortcutError')}</p>}
+                        </SettingsSection>
+
                         <SettingsSection title={t('settings.newDrawingsTitle')} description={t('settings.newDrawingsDescription')}>
+                            <SettingsField label={t('template.defaultPath')} hint={t('template.defaultPathHint')}>
+                                <input type="text" value={draft.drawingDefaults.templatePath}
+                                    onChange={event => updateDrawingDefaults({ templatePath: event.target.value })} />
+                            </SettingsField>
                             <SettingsField label={t('settings.defaultGridSpacing')}>
                                 <div className="lumcad-settings-input-unit">
                                     <input

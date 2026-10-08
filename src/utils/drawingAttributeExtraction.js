@@ -1,4 +1,6 @@
+import { drawingReportCsvCell as csvCell } from './drawingReportExport.js';
 import { drawingAttributeDefinitions, drawingAttributeValues } from './drawingBlockAttributes.js';
+import { drawingBlockInstanceEntities } from './drawingDynamicBlocks.js';
 import { IDENTITY_AFFINE_MATRIX, multiplyAffineMatrices } from './drawingAffine.js';
 import { normalizeDrawingBlockReference } from './drawingBlocks.js';
 
@@ -30,19 +32,12 @@ export function extractDrawingAttributes(content, { selectedIds = null } = {}) {
             records.push(record);
         }
         const nextAncestors = new Set([...ancestors, block.id]);
-        for (const child of block.entities) visit(child, matrix, instancePath, nextAncestors, layerId);
+        for (const child of drawingBlockInstanceEntities(block, entity)) visit(child, matrix, instancePath, nextAncestors, layerId);
     };
     for (const entity of content.entities) {
         if (!selected || selected.has(entity.id)) visit(entity, IDENTITY_AFFINE_MATRIX, [], new Set(), null);
     }
     return records;
-}
-
-function csvCell(value) {
-    let text = String(value ?? '');
-    // Keep exported strings inert when opened directly in spreadsheet software.
-    if (/^[\s\u0000-\u001f]*[=+@-]/.test(text)) text = `'${text}`;
-    return `"${text.replaceAll('"', '""')}"`;
 }
 
 export function serializeDrawingAttributeExtraction(records, format = 'csv') {

@@ -1,0 +1,17 @@
+[
+    {"shortcut":"MOD+SHIFT+S","command":"@saveAs"},
+    {"shortcut":"MOD+O","command":"@open"},
+    {"shortcut":"MOD+N","command":"@newDocument"},
+    {"shortcut":"MOD+Z","command":"@undo"},
+    {"shortcut":"MOD+SHIFT+Z","command":"@redo"},
+    {"shortcut":"MOD+Y","command":"@redo"},
+    {"shortcut":"MOD+C","command":"@copy"},
+    {"shortcut":"MOD+X","command":"@cut"},
+    {"shortcut":"MOD+V","command":"@paste"},
+    {"shortcut":"DELETE","command":"@delete"},
+    {"shortcut":"BACKSPACE","command":"@delete"},
+    {"shortcut":"F3","command":"@toggleSnaps"},
+    {"shortcut":"F8","command":"@toggleOrtho"},
+    {"shortcut":"F10","command":"@togglePolar"},
+    {"shortcut":"F11","command":"@toggleObjectTracking"}
+]

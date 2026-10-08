@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { drawingUcsToWorld, drawingWorldToUcs, resolveDrawingUcsInput, normalizeDrawingUnits, formatDrawingDistance, formatDrawingAngle, drawingPointWithinLimits } from './drawingCoordinates.js';
+import { drawingUcsIndicatorGeometry, drawingUcsToWorld, drawingWorldToUcs, resolveDrawingUcsInput, normalizeDrawingUnits, formatDrawingDistance, formatDrawingAngle, drawingPointWithinLimits } from './drawingCoordinates.js';
 import { createDefaultDrawingContent, normalizeDrawingContent } from './drawingDocument.js';
 import { resolveDrawingSnap, constrainOrthogonalPoint } from './drawingTracking.js';
 import { snapDrawingPoint } from './drawingGeometry.js';
@@ -60,4 +60,29 @@ test('units, named UCS and limits round-trip through the portable archive', asyn
     assert.deepEqual(loaded.content.settings.ucs, ucs);
     assert.deepEqual(loaded.content.settings.limits, document.content.settings.limits);
     assert.deepEqual(loaded.content.namedUcs, document.content.namedUcs);
+});
+
+
+test('UCS indicator keeps its screen anchor while panning across the old origin visibility threshold', () => {
+    const settings = { ucs: { x: 0, y: 0, rotation: 0 } };
+    const scale = 0.1;
+    // The former implementation jumped between (0,0) and the screen corner here.
+    for (const x of [-3.01, -2.99, 20]) {
+        const view = { x, y: -5, width: 80, height: 60 };
+        const marker = drawingUcsIndicatorGeometry(settings, view, scale);
+        near({ x: (marker.origin.x - view.x) / scale, y: (view.y + view.height - marker.origin.y) / scale }, { x: 48, y: 48 });
+        near({ x: (marker.xAxis.x - marker.origin.x) / scale, y: (marker.xAxis.y - marker.origin.y) / scale }, { x: 30, y: 0 });
+    }
+});
+
+test('UCS indicator size and anchor stay fixed through zoom and UCS origin changes; rotation still follows UCS', () => {
+    for (const scale of [0.001, 0.1, 10]) {
+        const view = { x: 30, y: 20, width: 800 * scale, height: 600 * scale };
+        const first = drawingUcsIndicatorGeometry({ ucs: { x: 0, y: 0, rotation: 90 } }, view, scale);
+        const moved = drawingUcsIndicatorGeometry({ ucs: { x: 150, y: -300, rotation: 90 } }, view, scale);
+        assert.deepEqual(first, moved);
+        near({ x: (first.origin.x - view.x) / scale, y: (view.y + view.height - first.origin.y) / scale }, { x: 48, y: 48 });
+        near({ x: (first.xAxis.x - first.origin.x) / scale, y: (first.xAxis.y - first.origin.y) / scale }, { x: 0, y: 30 });
+        near({ x: (first.yAxis.x - first.origin.x) / scale, y: (first.yAxis.y - first.origin.y) / scale }, { x: 30, y: 0 });
+    }
 });

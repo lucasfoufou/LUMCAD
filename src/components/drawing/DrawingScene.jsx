@@ -1,3 +1,7 @@
+import { drawingCurvePathToSvgData } from '~utils/drawingCurveSvg';
+import { drawingGripLabel as gripName } from '~utils/drawingGripLabels';
+import { drawingPointPath, drawingPointSvgTransform, normalizeDrawingPointStyle } from '~utils/drawingPoints';
+import { drawingBlockInstanceEntities } from '~utils/drawingDynamicBlocks';
 import { drawingBlockClipShape } from '~utils/drawingBlockClip';
 import { ANNOTATION_HIDDEN } from '~utils/drawingAnnotations';
 import { resolveDrawingPlotEntityDetails } from '~utils/drawingPlotStyles';
@@ -198,7 +202,9 @@ function DrawingEntity({
     };
 
     let shape = null;
-    if (isConstructionLine(entity)) {
+    if (entity.type === 'point') {
+        shape = <path d={drawingPointPath(entity)} transform={drawingPointSvgTransform(entity)} {...shapeProps} fill={normalizeDrawingPointStyle(entity.pointStyle).symbol === 'dot' ? shapeProps.stroke : 'none'} />;
+    } else if (isConstructionLine(entity)) {
         shape = <ConstructionLineGeometry entity={entity} viewBox={viewBox} shapeProps={shapeProps} />;
     } else if (entity.type === 'line') {
         shape = <line x1={entity.x1} y1={entity.y1} x2={entity.x2} y2={entity.y2} {...shapeProps} />;
@@ -301,7 +307,8 @@ function BlockReferenceGeometry({
     const clipId = `block-clip-${useId().replace(/:/g, '')}`;
     const clip = drawingBlockClipShape(reference);
     if (!block || reference.externalReference?.loaded === false || visitedBlockIds.has(block.id)) return null;
-    const childMap = createDimensionSourceMap(block.entities, blockMap, { layers: [...layerMap.values()], textStyles });
+    const children = drawingBlockInstanceEntities(block, reference);
+    const childMap = createDimensionSourceMap(children, blockMap, { layers: [...layerMap.values()], textStyles });
     const localViewBox = inverseAffineViewBox(viewBox, reference.transform);
     const nextVisited = new Set(visitedBlockIds);
     nextVisited.add(block.id);
@@ -309,7 +316,7 @@ function BlockReferenceGeometry({
         <g transform={affineMatrixToSvg(reference.transform)}>
             {clip && <defs><clipPath id={clipId} clipPathUnits="userSpaceOnUse"><path d={clip.paths.map(path => curvePartsPath(path.parts, true)).join(' ')} clipRule={clip.rule} /></clipPath></defs>}
             <g clipPath={clip ? `url(#${clipId})` : undefined}>
-            {block.entities.map(child => {
+            {children.map(child => {
                 const entity = resolveDrawingBlockChild(child, reference, attributeDisplay);
                 if (!entity) return null;
                 const layer = layerMap.get(entity.layerId);
@@ -425,28 +432,6 @@ function normalizedRect(entity) {
     };
 }
 
-function gripName(id, t) {
-    const directKey = ({
-        'array-origin': 'grip.arrayOrigin',
-        start: 'grip.start',
-        end: 'grip.end',
-        'top-left': 'grip.topLeft',
-        'top-right': 'grip.topRight',
-        'bottom-right': 'grip.bottomRight',
-        'bottom-left': 'grip.bottomLeft',
-        center: 'grip.center',
-        radius: 'grip.radius',
-        'dimension-position': 'grip.dimensionPosition',
-        [DRAWING_QDIM_GRIP_IDS.offset]: 'grip.qdimOffset',
-        [DRAWING_QDIM_GRIP_IDS.spacing]: 'grip.qdimSpacing',
-    })[id];
-    if (directKey) return t(directKey);
-    const vertex = /^vertex-(\d+)/.exec(id);
-    if (vertex) return t('grip.vertex', { number: Number(vertex[1]) + 1 });
-    const part = /^part-(\d+)/.exec(id);
-    if (part) return t('grip.part', { number: Number(part[1]) + 1 });
-    return t('grip.point');
-}
 
 const rectTransform = drawingRectTransform;
 
@@ -483,6 +468,7 @@ function PolylineGeometry({
     entity,
     shapeProps,
     usePartAppearance = false,
+    renderText = true,
     viewBox = null,
     circleGeometryCache = null,
 }) {
@@ -495,18 +481,21 @@ function PolylineGeometry({
         const partProps = usePartAppearance ? {
             ...shapeProps,
             ...(part.color ? { stroke: part.color } : {}),
-            ...(part.lineWeight ? { strokeWidth: partWeight } : {}),
+            ...(part.lineWeight || part.lineWidth ? { strokeWidth: partWeight } : {}),
             ...(part.lineType ? lineTypeStrokeProps(part.lineType, partWeight) : {}),
             ...(Object.hasOwn(part, 'transparency') ? { opacity: transparencyToOpacity(part.transparency) } : {}),
         } : shapeProps;
+        if (part.type === 'text') return renderText ? <DrawingTextShape key={index} entity={part} color={partProps.stroke} opacity={partProps.opacity} />
+            : <rect key={index} {...normalizedRect(part)} {...partProps} transform={rectTransform(part)} />;
         if (part.type === 'line') return <line key={index} x1={part.x1} y1={part.y1} x2={part.x2} y2={part.y2} {...partProps} />;
         if (part.type === 'rectangle') return <RectangleGeometry key={index} entity={part} shapeProps={partProps} />;
         if (part.type === 'circle') return circleViewportShape(part, viewBox, partProps, index, circleGeometryCache);
         if (part.type === 'polygon') return <polygon key={index} points={polygonPoints(part)} {...partProps} />;
         if (part.type === 'arc') return <path key={index} d={getArcPath(part)} {...partProps} />;
         if (part.type === 'ellipse') return <EllipseGeometry key={index} entity={part} shapeProps={partProps} />;
+        if (part.type === 'hatch') return <HatchGeometry key={index} entity={part} shapeProps={partProps} />;
         if (part.type === 'spline') return <SplineGeometry key={index} entity={part} shapeProps={partProps} />;
-        if (part.type === 'polyline') return <PolylineGeometry key={index} entity={part} shapeProps={partProps} usePartAppearance={usePartAppearance} viewBox={viewBox} circleGeometryCache={circleGeometryCache} />;
+        if (part.type === 'polyline') return <PolylineGeometry key={index} entity={part} shapeProps={partProps} usePartAppearance={usePartAppearance} renderText={renderText} viewBox={viewBox} circleGeometryCache={circleGeometryCache} />;
         return null;
     });
 }
@@ -567,10 +556,11 @@ function HitShape({ entity, sources, viewBox, circleGeometryCache }) {
         fill: 'none',
         pointerEvents: 'stroke',
     };
+    if (entity.type === 'point') return <circle cx={entity.x} cy={entity.y} r={normalizeDrawingPointStyle(entity.pointStyle).size / 2} transform={drawingPointSvgTransform(entity)} {...hitProps} pointerEvents="all" />;
     if (isConstructionLine(entity)) return <ConstructionLineGeometry entity={entity} viewBox={viewBox} shapeProps={hitProps} />;
     if (entity.type === 'line') return <line x1={entity.x1} y1={entity.y1} x2={entity.x2} y2={entity.y2} {...hitProps} />;
     if (isDrawingWipeout(entity)) return <polygon points={polylinePoints(entity)} {...hitProps} pointerEvents="all" />;
-    if (entity.type === 'polyline') return <PolylineGeometry entity={entity} shapeProps={hitProps} viewBox={viewBox} circleGeometryCache={circleGeometryCache} />;
+    if (entity.type === 'polyline') return <PolylineGeometry entity={entity} shapeProps={hitProps} renderText={false} viewBox={viewBox} circleGeometryCache={circleGeometryCache} />;
     if (entity.type === 'rectangle') return entity.cornerStyle === 'chamfer' || entity.cornerStyle === 'fillet'
         ? <path d={getRectangleOutlinePath(entity)} {...hitProps} transform={rectTransform(entity)} />
         : <rect {...normalizedRect(entity)} {...hitProps} transform={rectTransform(entity)} />;
@@ -604,9 +594,10 @@ function SelectionShape({ entity, sources, preview = false, viewBox, circleGeome
         opacity: preview ? 0.9 : undefined,
         pointerEvents: 'none',
     };
+    if (entity.type === 'point') return <path d={drawingPointPath(entity)} transform={drawingPointSvgTransform(entity)} {...props} />;
     if (isConstructionLine(entity)) return <ConstructionLineGeometry entity={entity} viewBox={viewBox} shapeProps={props} />;
     if (entity.type === 'line') return <line x1={entity.x1} y1={entity.y1} x2={entity.x2} y2={entity.y2} {...props} />;
-    if (entity.type === 'polyline') return <PolylineGeometry entity={entity} shapeProps={props} viewBox={viewBox} circleGeometryCache={circleGeometryCache} />;
+    if (entity.type === 'polyline') return <PolylineGeometry entity={entity} shapeProps={props} renderText={false} viewBox={viewBox} circleGeometryCache={circleGeometryCache} />;
     if (entity.type === 'rectangle') return entity.cornerStyle === 'chamfer' || entity.cornerStyle === 'fillet'
         ? <path d={getRectangleOutlinePath(entity)} {...props} transform={rectTransform(entity)} />
         : <rect {...normalizedRect(entity)} {...props} transform={rectTransform(entity)} />;
@@ -783,26 +774,7 @@ function entityPath(entity) {
 }
 
 function curvePartsPath(parts, closed) {
-    if (!Array.isArray(parts) || !parts.length) return '';
-    let d = '';
-    parts.forEach((part, index) => {
-        const start = curveStart(part);
-        const end = curveEnd(part);
-        if (!start || !end) return;
-        if (!d || index === 0) d += `M ${start.x} ${start.y} `;
-        if (part.type === 'line') d += `L ${end.x} ${end.y} `;
-        else if (part.type === 'arc') {
-            const sweep = angularSweep(part);
-            d += `A ${Math.abs(part.r)} ${Math.abs(part.r)} 0 ${Math.abs(sweep) > Math.PI ? 1 : 0} ${sweep > 0 ? 1 : 0} ${end.x} ${end.y} `;
-        } else if (part.type === 'ellipse') {
-            const sweep = angularSweep(part);
-            d += `A ${Math.abs(part.rx)} ${Math.abs(part.ry)} ${Number(part.rotation) || 0} ${Math.abs(sweep) > Math.PI ? 1 : 0} ${sweep > 0 ? 1 : 0} ${end.x} ${end.y} `;
-        } else if (part.type === 'spline' && part.controlPoints?.length === 4) {
-            const points = part.controlPoints;
-            d += `C ${points[1].x} ${points[1].y} ${points[2].x} ${points[2].y} ${points[3].x} ${points[3].y} `;
-        }
-    });
-    return `${d}${closed ? 'Z' : ''}`.trim();
+    return drawingCurvePathToSvgData({ parts, closed });
 }
 
 function curveStart(curve) {

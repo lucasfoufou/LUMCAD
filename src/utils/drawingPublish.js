@@ -1,3 +1,4 @@
+import { flattenDrawingSvgGroups } from './drawingSvgGroups.js';
 import { applyImageAdjustmentsToPixels, hasImageAdjustments } from './drawingImageAdjustments.js';
 import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
@@ -255,18 +256,18 @@ export function getDrawingImageTargetSize({ heightMm, sourceHeight, sourceWidth,
     };
 }
 
-export function resolveDrawingNonScalingStroke({ dashArray = 'none', dashOffset = 0, strokeWidth, transformScale = 1 }) {
+export function resolveDrawingNonScalingStroke({ dashArray = 'none', dashOffset = 0, strokeWidth, transformScale = 1, unitsPerPixel = CSS_MILLIMETRES_PER_PIXEL }) {
     const scale = Math.abs(Number(transformScale));
     const width = Number.parseFloat(strokeWidth);
     if (!Number.isFinite(scale) || scale <= 0 || !Number.isFinite(width) || width < 0) return null;
-    const localPixelsToMillimetres = CSS_MILLIMETRES_PER_PIXEL / scale;
+    const localPixelsToUnits = unitsPerPixel / scale;
     const dashValues = String(dashArray || '').toLowerCase() === 'none'
         ? []
         : String(dashArray || '').match(/[-+]?(?:\d+\.?\d*|[.]\d+)(?:e[-+]?\d+)?/gi)?.map(Number) || [];
     return {
-        dashArray: dashValues.length ? dashValues.map(value => decimal(value * localPixelsToMillimetres)).join(' ') : 'none',
-        dashOffset: decimal((Number.parseFloat(dashOffset) || 0) * localPixelsToMillimetres),
-        strokeWidth: decimal(width * localPixelsToMillimetres),
+        dashArray: dashValues.length ? dashValues.map(value => decimal(value * localPixelsToUnits)).join(' ') : 'none',
+        dashOffset: decimal((Number.parseFloat(dashOffset) || 0) * localPixelsToUnits),
+        strokeWidth: decimal(width * localPixelsToUnits),
     };
 }
 
@@ -300,11 +301,40 @@ export function createStandaloneDrawingSvg(svg) {
     return clone;
 }
 
-async function rasterizeDrawingSvg(svg, paper, quality, { forcePng = false } = {}) {
-    const size = getDrawingRasterSize(paper, quality.rasterDpi);
-    const prepared = await prepareStandaloneDrawingSvg(svg, paper, quality, size);
+/** Standalone vector model output through the publication resource/style pipeline. */
+export async function serializeDrawingModelSvg(svg, frame) {
+    const prepared = await prepareStandaloneDrawingSvg(svg, null, { imageDpi: 1200, jpegQuality: 1 }, frame, true);
+    try {
+        if (frame.background !== 'transparent') {
+            const rect = prepared.svg.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            for (const [key, value] of Object.entries(frame.viewBox)) rect.setAttribute(key, String(value));
+            rect.setAttribute('fill', frame.background);
+            prepared.svg.insertBefore(rect, prepared.svg.firstChild);
+        }
+        return new XMLSerializer().serializeToString(prepared.svg);
+    } finally { prepared.host.remove(); }
+}
+
+export async function rasterizeDrawingSvg(svg, paper, quality, { forcePng = false, pixelSize = null, background = '#ffffff' } = {}) {
+    const size = pixelSize || getDrawingRasterSize(paper, quality.rasterDpi);
+    if (![size.width, size.height].every(value => Number.isSafeInteger(value) && value > 0 && value <= MAX_RASTER_DIMENSION)
+        || size.width * size.height > MAX_RASTER_PIXELS || !(forcePng && background === 'transparent') && !/^#[0-9a-f]{6}$/i.test(background)) throw new Error('wmfLimit');
+    const prepared = await prepareStandaloneDrawingSvg(svg, paper, quality, size, Boolean(pixelSize));
     let xml;
     try {
+        if (pixelSize) {
+            // WebKit may render an SVG image with a sub-unit viewBox as empty.
+            // Use pixel viewport units while retaining every child and its world transform.
+            const root = prepared.svg;
+            const box = root.viewBox.baseVal;
+            const scale = size.width / box.width;
+            const group = root.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'g');
+            group.setAttribute('transform', `matrix(${scale} 0 0 ${scale} ${-box.x * scale} ${-box.y * scale})`);
+            while (root.firstChild) group.appendChild(root.firstChild);
+            root.appendChild(group);
+            root.setAttribute('viewBox', `0 0 ${size.width} ${size.height}`);
+            flattenDrawingSvgGroups(root);
+        }
         xml = new XMLSerializer().serializeToString(prepared.svg);
     } finally {
         prepared.host.remove();
@@ -316,10 +346,12 @@ async function rasterizeDrawingSvg(svg, paper, quality, { forcePng = false } = {
         const canvas = document.createElement('canvas');
         canvas.width = size.width;
         canvas.height = size.height;
-        const context = canvas.getContext('2d', { alpha: false });
+        const context = canvas.getContext('2d', { alpha: background === 'transparent' });
         if (!context) throw new Error('The drawing raster canvas is unavailable.');
-        context.fillStyle = '#ffffff';
-        context.fillRect(0, 0, size.width, size.height);
+        if (background !== 'transparent') {
+            context.fillStyle = background;
+            context.fillRect(0, 0, size.width, size.height);
+        }
         context.drawImage(image, 0, 0, size.width, size.height);
         const format = forcePng ? 'PNG' : 'JPEG';
         return {
@@ -334,15 +366,20 @@ async function rasterizeDrawingSvg(svg, paper, quality, { forcePng = false } = {
     }
 }
 
-async function prepareStandaloneDrawingSvg(svg, paper, quality, intrinsicSize = paper) {
+async function prepareStandaloneDrawingSvg(svg, paper, quality, intrinsicSize = paper, modelRender = false) {
     await waitForDrawingSvgResources(svg);
     const standalone = createStandaloneDrawingSvg(svg);
     standalone.setAttribute('width', String(intrinsicSize.width));
     standalone.setAttribute('height', String(intrinsicSize.height));
     const host = attachHiddenSvg(standalone);
     try {
-        materializeDrawingSvgStrokes(standalone);
-        await downsampleDrawingSvgImages(standalone, quality.imageDpi, quality.jpegQuality);
+        const unitsPerPixel = modelRender ? standalone.viewBox.baseVal.width / intrinsicSize.width : CSS_MILLIMETRES_PER_PIXEL;
+        // Model bitmaps render at their final pixel size. Preserve pixel-space strokes:
+        // WebKit can drop straight segments when materialized widths are tiny world values.
+        // Paper/vector publication still needs physical stroke conversion.
+        if (!modelRender) materializeDrawingSvgStrokes(standalone, unitsPerPixel);
+        await downsampleDrawingSvgImages(standalone, modelRender ? 96 : quality.imageDpi, quality.jpegQuality,
+            modelRender ? CSS_MILLIMETRES_PER_PIXEL / unitsPerPixel : 1);
         return { host, svg: standalone };
     } catch (error) {
         host.remove();
@@ -350,7 +387,7 @@ async function prepareStandaloneDrawingSvg(svg, paper, quality, intrinsicSize = 
     }
 }
 
-function materializeDrawingSvgStrokes(svg) {
+function materializeDrawingSvgStrokes(svg, unitsPerPixel) {
     [svg, ...svg.querySelectorAll('*')].forEach(element => {
         const style = svg.ownerDocument.defaultView?.getComputedStyle?.(element);
         const vectorEffect = style?.getPropertyValue('vector-effect') || element.getAttribute('vector-effect');
@@ -362,6 +399,7 @@ function materializeDrawingSvgStrokes(svg) {
             dashOffset: style?.getPropertyValue('stroke-dashoffset') || element.getAttribute('stroke-dashoffset'),
             strokeWidth: style?.getPropertyValue('stroke-width') || element.getAttribute('stroke-width'),
             transformScale: getSvgElementScale(element, svg),
+            unitsPerPixel,
         });
         if (!metrics) return;
         element.style.setProperty('stroke-width', metrics.strokeWidth);
@@ -372,7 +410,7 @@ function materializeDrawingSvgStrokes(svg) {
     });
 }
 
-async function downsampleDrawingSvgImages(svg, imageDpi, jpegQuality) {
+async function downsampleDrawingSvgImages(svg, imageDpi, jpegQuality, millimetresPerUnit = 1) {
     await Promise.all([...svg.querySelectorAll('image')].map(async element => {
         const href = element.getAttribute('href') || element.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
         if (!href || /^data:image\/svg[+]xml/i.test(href)) return;
@@ -381,8 +419,8 @@ async function downsampleDrawingSvgImages(svg, imageDpi, jpegQuality) {
         if (!matrix) return;
         const localWidth = getSvgLength(element, 'width');
         const localHeight = getSvgLength(element, 'height');
-        const widthMm = Math.abs(localWidth) * Math.hypot(matrix.a, matrix.b);
-        const heightMm = Math.abs(localHeight) * Math.hypot(matrix.c, matrix.d);
+        const widthMm = Math.abs(localWidth) * Math.hypot(matrix.a, matrix.b) * millimetresPerUnit;
+        const heightMm = Math.abs(localHeight) * Math.hypot(matrix.c, matrix.d) * millimetresPerUnit;
         if (!(widthMm > 0) || !(heightMm > 0)) return;
         const target = getDrawingImageTargetSize({
             heightMm,

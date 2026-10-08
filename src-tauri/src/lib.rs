@@ -1,10 +1,13 @@
+mod hyperlinks;
 mod clipboard;
 mod image_source;
 mod mcp;
 mod native_menu;
 mod printing;
+mod recovery_history;
 mod settings;
 mod storage;
+mod transmittal;
 
 use tauri::{Emitter, Manager};
 
@@ -18,12 +21,22 @@ pub fn run() {
         .manage(mcp::McpRuntimeState::default())
         .manage(storage::PendingOpen::default())
         .invoke_handler(tauri::generate_handler![
+            transmittal::write_drawing_transmittal,
+            storage::resolve_table_csv_path,
             image_source::read_image_source,
             image_source::read_pdf_source,
+            image_source::read_dwfx_source,
             image_source::read_shx_source,
             clipboard::write_drawing_clipboard,
             clipboard::read_drawing_clipboard,
             storage::read_lcad_document,
+            storage::read_lcad_recovery_source,
+            storage::resolve_lcad_recovery_path,
+            storage::read_table_csv,
+            storage::read_drawing_wmf,
+            storage::read_drawing_dgn,
+            storage::read_standards_json,
+            storage::read_drawing_json,
             storage::read_lcad_reference,
             storage::write_lcad_reference,
             storage::write_lcad_document,
@@ -31,6 +44,9 @@ pub fn run() {
             storage::autosave_lcad_document,
             storage::load_startup_document,
             storage::clear_recovery,
+            recovery_history::list_recovery_history,
+            recovery_history::record_recovery_history,
+            recovery_history::forget_recovery_history,
             mcp::set_mcp_frontend_ready,
             mcp::complete_mcp_request,
             mcp::get_mcp_status,
@@ -39,6 +55,10 @@ pub fn run() {
             printing::prepare_print_page,
             printing::publish_plot_file,
             printing::write_attribute_export,
+            printing::write_spreadsheet_export,
+            printing::write_drawing_wmf,
+            printing::write_drawing_image,
+            hyperlinks::open_drawing_hyperlink,
         ])
         .setup(|app| {
             let settings = settings::load(app.handle()).map_err(std::io::Error::other)?;

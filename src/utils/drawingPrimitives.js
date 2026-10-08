@@ -1,3 +1,8 @@
+import { transformDrawingToleranceEntity } from './drawingTolerances.js';
+import { transformDrawingTableEntity } from './drawingTableGeometry.js';
+import { transformDrawingRevisionSymbol } from './drawingRevisionSymbols.js';
+import { transformDrawingLinework } from './drawingLinework.js';
+import { transformDrawingPoint } from './drawingPoints.js';
 import { drawingAffineFrame, transformDrawingAffineFrame, framedDrawingPoint } from './drawingAffineFrame.js';
 import { transformDefinedSpline } from './drawingSplineCreation.js';
 import { getImageClipPoints } from './drawingImageClip.js';
@@ -221,6 +226,22 @@ export function transformEntity(entity, transform = {}, options = {}) {
     if (!resolved) return entity;
     const { origin, scaleX, scaleY } = resolved;
     if (drawingAffineFrame(entity)) return transformDrawingAffineFrame(entity, scaleAffineMatrix(scaleX, scaleY, origin));
+    if (entity?.tolerance) {
+        const defined = transformDrawingToleranceEntity(entity, scaleAffineMatrix(scaleX, scaleY, origin));
+        if (defined) return defined;
+    }
+    if (entity?.table) {
+        const defined = transformDrawingTableEntity(entity, scaleAffineMatrix(scaleX, scaleY, origin));
+        if (defined) return defined;
+    }
+    if (entity?.revisionSymbol) {
+        const defined = transformDrawingRevisionSymbol(entity, scaleAffineMatrix(scaleX, scaleY, origin));
+        if (defined) return defined;
+    }
+    if (entity?.linework) {
+        const defined = transformDrawingLinework(entity, scaleAffineMatrix(scaleX, scaleY, origin));
+        if (defined) return defined;
+    }
     if (entity?.splineDefinition) {
         const defined = transformDefinedSpline(entity, scaleAffineMatrix(scaleX, scaleY, origin));
         if (defined) return defined;
@@ -229,6 +250,7 @@ export function transformEntity(entity, transform = {}, options = {}) {
     if (entity.array?.kind === 'path') return transformPathArrayEntity(entity, scaleAffineMatrix(scaleX, scaleY, origin));
     const point = value => transformPoint(value, resolved);
     const similarity = isSimilarityScale(scaleX, scaleY);
+    if (entity.type === 'point') return transformDrawingPoint(entity, scaleAffineMatrix(scaleX, scaleY, origin));
 
     if (entity.type === 'blockReference') {
         return transformDrawingBlockReference(entity, scaleAffineMatrix(scaleX, scaleY, origin));
@@ -310,6 +332,22 @@ export function translateEntity(entity, dx, dy) {
         return { ...translateEntity(rest, dx, dy), detachedSource: translateEntity(detachedSource, dx, dy) };
     }
     if (drawingAffineFrame(entity)) return transformDrawingAffineFrame(entity, translationAffineMatrix(dx, dy));
+    if (entity?.tolerance) {
+        const defined = transformDrawingToleranceEntity(entity, translationAffineMatrix(dx, dy));
+        if (defined) return defined;
+    }
+    if (entity?.table) {
+        const defined = transformDrawingTableEntity(entity, translationAffineMatrix(dx, dy));
+        if (defined) return defined;
+    }
+    if (entity?.revisionSymbol) {
+        const defined = transformDrawingRevisionSymbol(entity, translationAffineMatrix(dx, dy));
+        if (defined) return defined;
+    }
+    if (entity?.linework) {
+        const defined = transformDrawingLinework(entity, translationAffineMatrix(dx, dy));
+        if (defined) return defined;
+    }
     if (entity?.splineDefinition) {
         const defined = transformDefinedSpline(entity, translationAffineMatrix(dx, dy));
         if (defined) return defined;
@@ -327,7 +365,7 @@ export function translateEntity(entity, dx, dy) {
         return transformHatchEntity(entity, matrix, boundary => translateEntity(boundary, dx, dy));
     }
     if (['line', 'xline', 'ray'].includes(entity.type)) return { ...entity, x1: entity.x1 + dx, y1: entity.y1 + dy, x2: entity.x2 + dx, y2: entity.y2 + dy };
-    if (entity.type === 'rectangle' || entity.type === 'image' || entity.type === 'text') return { ...entity, x: entity.x + dx, y: entity.y + dy };
+    if (['point', 'rectangle', 'image', 'text'].includes(entity.type)) return { ...entity, x: entity.x + dx, y: entity.y + dy };
     if (entity.type === 'circle') return { ...entity, cx: entity.cx + dx, cy: entity.cy + dy };
     if (entity.type === 'polygon' || entity.type === 'arc') return { ...entity, cx: entity.cx + dx, cy: entity.cy + dy };
     if (entity.type === 'polyline') return {
@@ -348,8 +386,25 @@ export function rotateEntity(entity, angleInput, origin) {
         return { ...rotateEntity(entity.type === 'radialDimension' ? { ...rest, angle: Number.isFinite(rest.angle) ? rest.angle : -Math.PI / 4 } : rest, angleInput, origin), detachedSource: rotateEntity(detachedSource, angleInput, origin) };
     }
     const angleDegrees = angleInputToDegrees(angleInput);
+    if (entity?.type === 'point' && origin && Number.isFinite(angleDegrees)) return transformDrawingPoint(entity, rotationAffineMatrix(angleDegrees, origin));
     if (drawingAffineFrame(entity)) return transformDrawingAffineFrame(entity, rotationAffineMatrix(angleDegrees, origin));
     if (!entity || !origin || !Number.isFinite(angleDegrees)) return entity;
+    if (entity?.tolerance) {
+        const defined = transformDrawingToleranceEntity(entity, rotationAffineMatrix(angleDegrees, origin));
+        if (defined) return defined;
+    }
+    if (entity?.table) {
+        const defined = transformDrawingTableEntity(entity, rotationAffineMatrix(angleDegrees, origin));
+        if (defined) return defined;
+    }
+    if (entity?.revisionSymbol) {
+        const defined = transformDrawingRevisionSymbol(entity, rotationAffineMatrix(angleDegrees, origin));
+        if (defined) return defined;
+    }
+    if (entity?.linework) {
+        const defined = transformDrawingLinework(entity, rotationAffineMatrix(angleDegrees, origin));
+        if (defined) return defined;
+    }
     if (entity?.splineDefinition) {
         const defined = transformDefinedSpline(entity, rotationAffineMatrix(angleDegrees, origin));
         if (defined) return defined;
@@ -420,6 +475,23 @@ export function mirrorEntity(entity, axisFirst, axisSecond, options = {}) {
     }
     if (drawingAffineFrame(entity)) return transformDrawingAffineFrame(entity, mirrorAffineMatrix(axisFirst, axisSecond));
     if (!entity || !axisFirst || !axisSecond || pointDistance(axisFirst, axisSecond) <= EPSILON) return entity;
+    if (entity.type === 'point') return transformDrawingPoint(entity, mirrorAffineMatrix(axisFirst, axisSecond));
+    if (entity?.tolerance) {
+        const defined = transformDrawingToleranceEntity(entity, mirrorAffineMatrix(axisFirst, axisSecond));
+        if (defined) return defined;
+    }
+    if (entity?.table) {
+        const defined = transformDrawingTableEntity(entity, mirrorAffineMatrix(axisFirst, axisSecond));
+        if (defined) return defined;
+    }
+    if (entity?.revisionSymbol) {
+        const defined = transformDrawingRevisionSymbol(entity, mirrorAffineMatrix(axisFirst, axisSecond));
+        if (defined) return defined;
+    }
+    if (entity?.linework) {
+        const defined = transformDrawingLinework(entity, mirrorAffineMatrix(axisFirst, axisSecond));
+        if (defined) return defined;
+    }
     if (entity?.splineDefinition) {
         const defined = transformDefinedSpline(entity, mirrorAffineMatrix(axisFirst, axisSecond));
         if (defined) return defined;

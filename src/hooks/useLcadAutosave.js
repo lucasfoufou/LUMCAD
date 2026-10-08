@@ -4,7 +4,7 @@ import { useI18n } from '~i18n/I18nProvider';
 import { createLcadEnvelope } from '~utils/lcadDocument';
 import { autosaveLcadDocument, saveLcadDocumentAs, writeLcadDocument } from '~utils/lcadStorage';
 
-export default function useLcadAutosave({ document, filePath, onPathChange, delayMs = 900 }) {
+export default function useLcadAutosave({ document, filePath, onPathChange, protectedPath = null, protectedPaths = null, delayMs = 900 }) {
     const { t } = useI18n();
     const signature = useMemo(() => JSON.stringify(document), [document]);
     const latestRef = useRef({ document, signature });
@@ -92,7 +92,7 @@ export default function useLcadAutosave({ document, filePath, onPathChange, dela
             const result = await enqueue(() => saveLcadDocumentAs(
                 createLcadEnvelope(snapshot.document),
                 snapshot.document.name,
-                { filterName: t('fileDialog.lcadDrawing') },
+                { filterName: t('fileDialog.lcadDrawing'), protectedPath, protectedPaths: protectedPaths || [] },
             ));
             if (!result) {
                 if (mountedRef.current) setStatus(snapshot.signature === lastSavedSignatureRef.current ? 'saved' : 'dirty');
@@ -115,7 +115,7 @@ export default function useLcadAutosave({ document, filePath, onPathChange, dela
             }
             throw saveError;
         }
-    }, [enqueue, onPathChange, t]);
+    }, [enqueue, onPathChange, protectedPath, protectedPaths, t]);
 
     const saveNow = useCallback(async () => {
         if (timerRef.current) window.clearTimeout(timerRef.current);

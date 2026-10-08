@@ -1,3 +1,6 @@
+import { materializeConstrainedDrawingBlock } from './drawingBlockConstraints.js';
+import { mergeDrawingDimensionalCatalog, transformedDrawingDimensionalCatalog } from './drawingDimensionalTransfer.js';
+import { remapDrawingGeometricConstraints, normalizeDrawingGeometricConstraints, transformedDrawingCopyConstraints } from './drawingConstraintDefinition.js';
 import { drawingAffineFrame } from './drawingAffineFrame.js';
 import { createPathArrayDraft } from './drawingPathArray.js';
 import { createPolarArrayDraft } from './drawingPolarArray.js';
@@ -124,24 +127,54 @@ function explodeDrawingEntitiesWithAppearance(content, entityIds, options) {
         }
         return selected.has(entity.id) && canEditEntity(content, entity);
     });
-    const exploded = candidates.map(source => ({
-        source,
-        replacements: explodeDrawingSource(source, content, options),
-    })).filter(result => result.replacements.length);
+    const exploded = [];
+    for (const source of candidates) {
+        const result = source.type === 'blockReference'
+            ? materializeConstrainedDrawingBlock(source, content.blocks || [], {
+                recursive: Boolean(options.recursiveBlocks), textStyles: content.textStyles,
+                maxDepth: Math.max(1, Math.min(64, Number(options.maxBlockDepth) || 16)),
+            }) : { entities: explodeDrawingSource(source, content, options), constraints: [] };
+        if (result.error) return { error: result.error, changed: false, content, selectedIds: entityIds || [] };
+        if (result.entities.length) exploded.push({ source, replacements: result.entities, constraints: result.constraints,
+            dimensionalConstraints: result.dimensionalConstraints || [], parameters: result.parameters || [] });
+    }
     const sources = exploded.map(result => result.source);
     if (!sources.length) return { changed: false, content, selectedIds: entityIds || [], explodedCount: 0 };
 
     const sourceIds = new Set(sources.map(entity => entity.id));
-    const replacements = exploded.flatMap(({ source, replacements: raw }) => (
-        assignExplodedEntityIds(raw.map(part => applyExplodedAppearance(part, source, options.preserveBlockAppearance && source.type === 'blockReference' ? 'parts' : options.appearanceMode)))
-    ));
+    if ([...(content.geometricConstraints || []), ...(content.dimensionalConstraints || [])].some(item => item.refs.some(ref => sourceIds.has(ref.entityId))
+        || item.dimensionId && sourceIds.has(item.dimensionId))) {
+        return { error: 'topology', changed: false, content, selectedIds: entityIds || [] };
+    }
+    let constraints = [...(content.geometricConstraints || [])];
+    const replacements = [];
+    let dimensional = { dimensionalConstraints: content.dimensionalConstraints || [], parameters: content.parameters || [] };
+    for (const { source, replacements: raw, constraints: local, ...catalog } of exploded) {
+        const copies = assignExplodedEntityIds(raw.map(part => applyExplodedAppearance(part, source,
+            options.preserveBlockAppearance && source.type === 'blockReference' ? 'parts' : options.appearanceMode)));
+        const ids = new Map(raw.map((part, index) => [part.id, copies[index].id]));
+        constraints.push(...remapDrawingGeometricConstraints(local, ids, id => id));
+        const merged = mergeDrawingDimensionalCatalog({ entities: [...content.entities, ...replacements], geometricConstraints: constraints, ...dimensional },
+            { ...catalog, entities: raw }, ids, [...content.entities, ...replacements, ...copies], () => createDrawingId('constraint'));
+        if (merged.error) return { error: merged.error, changed: false, content, selectedIds: entityIds || [] };
+        dimensional = merged; replacements.push(...copies);
+    }
+    if (constraints.length > 256) return { error: 'limit', changed: false, content, selectedIds: entityIds || [] };
     const entities = content.entities.filter(entity => (
         !sourceIds.has(entity.id)
         && !getDrawingEntityDependencyIds(entity).some(id => sourceIds.has(id))
     ));
+    const retainedIds = new Set(entities.map(entity => entity.id));
+    constraints = constraints.filter(item => item.refs.every(ref => retainedIds.has(ref.entityId) || replacements.some(entity => entity.id === ref.entityId)));
+    if (!normalizeDrawingGeometricConstraints(constraints, [...entities, ...replacements])) {
+        return { error: 'topology', changed: false, content, selectedIds: entityIds || [] };
+    }
     return {
         changed: true,
-        content: { ...content, entities: [...entities, ...replacements] },
+        content: { ...content, entities: [...entities, ...replacements],
+            ...(content.dimensionalConstraints !== undefined || dimensional.dimensionalConstraints.length
+                ? { dimensionalConstraints: dimensional.dimensionalConstraints, parameters: dimensional.parameters } : {}),
+            ...(content.geometricConstraints !== undefined || constraints.length ? { geometricConstraints: constraints } : {}) },
         selectedIds: replacements.map(entity => entity.id),
         explodedCount: sources.length,
         entities: replacements,
@@ -180,9 +213,18 @@ export function mirrorDrawingEntities(content, entityIds, axisFirst, axisSecond,
         };
     });
     const requested = new Set(entityIds || []);
+    const relationships = transformedDrawingCopyConstraints(content, originals, copies, idMap,
+        entity => mirrorEntity(entity, axisFirst, axisSecond, { mirrorTextGlyphs }), () => createDrawingId('constraint'));
+    if (relationships.error) return { error: relationships.error, changed: false, content, selectedIds: entityIds || [], entities: [] };
+    const dimensional = transformedDrawingDimensionalCatalog({ ...content, geometricConstraints: relationships.constraints }, content, idMap, copies,
+        entity => mirrorEntity(entity, axisFirst, axisSecond, { mirrorTextGlyphs }), () => createDrawingId('constraint'));
+    if (dimensional.error) return { error: dimensional.error, changed: false, content, selectedIds: entityIds || [], entities: [] };
     return {
         changed: true,
-        content: { ...content, entities: [...content.entities, ...copies] },
+        content: { ...content, entities: [...content.entities, ...copies],
+            ...(content.dimensionalConstraints !== undefined || dimensional.dimensionalConstraints.length
+                ? { dimensionalConstraints: dimensional.dimensionalConstraints, parameters: dimensional.parameters } : {}),
+            ...(content.geometricConstraints !== undefined || relationships.constraints.length ? { geometricConstraints: relationships.constraints } : {}) },
         selectedIds: copies.filter((_, index) => requested.has(originals[index].id)).map(entity => entity.id),
         entities: copies,
     };
@@ -494,6 +536,12 @@ function arrayGuide(id, layerId, first, second) {
 }
 
 function explodeDrawingSource(source, content, options) {
+    if (source.table || source.tolerance) return source.parts || [];
+    if (source.revisionSymbol) return source.parts || [];
+    if (source.linework) {
+        const { linework, ...geometry } = source;
+        return geometry.type === 'polyline' && Array.isArray(geometry.parts) ? geometry.parts : [geometry];
+    }
     if (source.type === 'blockReference') {
         return materializeDrawingBlockReference(source, content.blocks || [], {
             recursive: Boolean(options.recursiveBlocks),

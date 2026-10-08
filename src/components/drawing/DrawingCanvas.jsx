@@ -1,3 +1,8 @@
+import { rebuildDrawingToleranceEntity } from '~utils/drawingTolerances';
+import { rebuildDrawingTableEntity } from '~utils/drawingTableGeometry';
+import { previewDrawingRevision } from '~utils/drawingRevisionSymbols';
+import { beginDrawingSketch, appendDrawingSketch, drawingSketchEntities } from '~utils/drawingSketch';
+import { previewDrawingLinework } from '~utils/drawingLinework';
 import { createPortal } from 'react-dom';
 import DrawingCoordinateOverlay from '~components/drawing/DrawingCoordinateOverlay';
 import { drawingPointWithinLimits } from '~utils/drawingCoordinates';
@@ -52,6 +57,7 @@ import {
     createTangentCircle,
     findThreeEntityTangentCircles,
     fitViewBox,
+    fitDrawingBounds,
     getDimensionGeometry,
     getViewBoxWorldUnitsPerPixel,
     pointDistance,
@@ -107,9 +113,9 @@ import { getOperationOrthogonalOrigin } from '~utils/drawingOperationOptions';
 import { drawingDynamicInputAnchor } from '~utils/drawingPrecisionInput';
 import { createStretchPreviewEntities } from '~utils/drawingStretchOperations';
 import { scaleDrawingViewBox, zoomDrawingViewBox } from '~utils/drawingViewport';
-import { drawingTextFontSizeToPixels, resolveDrawingTextStyle } from '~utils/drawingText';
+import { drawingTextFontSizeToPixels, resolveDrawingTextStyle, normalizeDrawingTextEntity } from '~utils/drawingText';
 
-const drawingTools = new Set(['line', 'xline', 'ray', 'ellipse', 'spline', 'rectangle', 'circle', 'polygon', 'arc', 'text']);
+const drawingTools = new Set(['point', 'line', 'xline', 'ray', 'ellipse', 'spline', 'rectangle', 'circle', 'polygon', 'arc', 'text']);
 const cornerOperationTypes = new Set(['fillet', 'chamfer', 'blend']);
 const trimExtendTypes = new Set(['trim', 'extend']);
 const breakStretchLengthenTypes = new Set(['break', 'breakAtPoint', 'stretch', 'lengthen']);
@@ -397,6 +403,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             return true;
         }
 
+        if (activeTool === 'point') return commitCreationEntity(buildDrawingEntity('point', point, point, content.activeLayerId, null, { options: { pointStyle: content.settings?.pointStyle } }));
         const currentGesture = gesture?.kind === 'draw' && gesture.tool === activeTool ? gesture : null;
         const points = currentGesture ? [...(currentGesture.points || [currentGesture.first]), point] : [point];
         if (activeTool === 'spline' && (points.length > MAX_SPLINE_CREATION_POINTS
@@ -457,7 +464,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     };
 
     const submitCreationInputForTool = (tool, rawValue) => {
-        if (!drawingTools.has(tool) || ['line', 'xline', 'ray', 'text'].includes(tool)) return false;
+        if (!drawingTools.has(tool) || ['point', 'line', 'xline', 'ray', 'text'].includes(tool)) return false;
         if (tool === 'spline' && tool === activeTool && ['', 'DONE'].includes(String(rawValue).trim().toUpperCase())) {
             const entity = gesture?.kind === 'draw' && gesture.tool === 'spline'
                 ? buildSplineCreationEntity(gesture.points, content.activeLayerId, gesture.mode) : null;
@@ -763,6 +770,14 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         fit() {
             setViewBox(fitViewBox(content, canvasSize.width / Math.max(1, canvasSize.height)));
         },
+        fitObjects(ids, bounds = null) {
+            if (bounds && [bounds.minX, bounds.minY, bounds.maxX, bounds.maxY].every(Number.isFinite)) {
+                setViewBox(fitDrawingBounds(bounds, canvasSize.width / Math.max(1, canvasSize.height))); return;
+            }
+            const selected = new Set(ids);
+            const entities = content.entities.filter(entity => selected.has(entity.id));
+            if (entities.length) setViewBox(fitViewBox({ ...content, entities }, canvasSize.width / Math.max(1, canvasSize.height)));
+        },
         zoom(factor) {
             setViewBox(current => zoomDrawingViewBox(current, factor, {
                 x: current.x + current.width / 2,
@@ -953,6 +968,12 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         if ((interactiveOperation || !['select', 'pan'].includes(activeTool)) && !drawingPointWithinLimits(worldPoint(event), content.settings)) {
             onStatus?.(t('coordinates.outsideLimits')); return;
         }
+        if (interactiveOperation?.type === 'sketch' && event.button === 0) {
+            event.preventDefault();
+            svgRef.current.setPointerCapture(event.pointerId);
+            setGesture({ kind: 'sketch', sketch: beginDrawingSketch(worldPoint(event), interactiveOperation.increment, interactiveOperation.mode) });
+            return;
+        }
         if (temporaryTrackingPointMode) {
             event.preventDefault();
             const point = snapPoint(
@@ -1099,6 +1120,11 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     };
 
     const handlePointerMove = event => {
+        if (gesture?.kind === 'sketch') {
+            const point = worldPoint(event);
+            if (drawingPointWithinLimits(point, content.settings)) setGesture(current => current?.kind === 'sketch' ? { ...current, sketch: appendDrawingSketch(current.sketch, point) } : current);
+            return;
+        }
         if (gesture?.kind === 'pan') {
             const rect = svgRef.current.getBoundingClientRect();
             const dx = (event.clientX - gesture.clientX) / rect.width * gesture.viewBox.width;
@@ -1210,6 +1236,13 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         }
         if (gesture && !drawingPointWithinLimits(worldPoint(event), content.settings)) {
             onStatus?.(t('coordinates.outsideLimits')); setGesture(null);
+            if (svgRef.current?.hasPointerCapture(event.pointerId)) svgRef.current.releasePointerCapture(event.pointerId);
+            return;
+        }
+        if (gesture?.kind === 'sketch') {
+            const sketch = appendDrawingSketch(gesture.sketch, worldPoint(event));
+            onInteractiveOperation?.({ sketch });
+            setGesture(null);
             if (svgRef.current?.hasPointerCapture(event.pointerId)) svgRef.current.releasePointerCapture(event.pointerId);
             return;
         }
@@ -1450,7 +1483,16 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const leaderDraft = interactiveOperation?.type === 'leaderCreation' && interactiveOperation.points.length
         ? { id: 'leader-preview', type: 'polyline', layerId: content.activeLayerId, closed: false,
             points: [...interactiveOperation.points, ...(operationPoint ? [operationPoint] : [])] } : null;
-    const draftEntities = [gestureDraft, wipeoutDraft, leaderDraft, blockInsertDraft, ...mirrorDrafts, ...arrayDrafts, ...alignDrafts, ...cornerDrafts,
+    const toleranceDraft = interactiveOperation?.type === 'tolerance' && operationPoint ? rebuildDrawingToleranceEntity({ id: 'tolerance-preview', layerId: content.activeLayerId,
+        tolerance: { ...interactiveOperation.tolerance, transform: { a: 1, b: 0, c: 0, d: 1, e: operationPoint.x, f: operationPoint.y } } }) : null;
+    const tableDraft = interactiveOperation?.type === 'table' && operationPoint ? rebuildDrawingTableEntity({ id: 'table-preview', layerId: content.activeLayerId,
+        table: { ...interactiveOperation.table, transform: { a: 1, b: 0, c: 0, d: 1, e: operationPoint.x, f: operationPoint.y } } }) : null;
+    const fieldDraft = interactiveOperation?.type === 'field' && operationPoint ? normalizeDrawingTextEntity({ id: 'field-preview',
+        layerId: content.activeLayerId, x: operationPoint.x, y: operationPoint.y, width: 8, height: 1, fontSize: 0.35, text: interactiveOperation.text }) : null;
+    const revisionDraft = previewDrawingRevision(interactiveOperation, operationPoint, content.activeLayerId);
+    const lineworkDraft = previewDrawingLinework(interactiveOperation, operationPoint, content.activeLayerId);
+    const sketchDrafts = drawingSketchEntities(gesture?.kind === 'sketch' ? gesture.sketch : interactiveOperation?.type === 'sketch' ? interactiveOperation.sketch : null, content.activeLayerId);
+    const draftEntities = [toleranceDraft, fieldDraft, tableDraft, revisionDraft, ...sketchDrafts, lineworkDraft, gestureDraft, wipeoutDraft, leaderDraft, blockInsertDraft, ...mirrorDrafts, ...arrayDrafts, ...alignDrafts, ...cornerDrafts,
         ...breakDrafts, ...stretchDrafts, ...lengthenDrafts,
         ...(clipboardPreview?.entities || []), ...offsetPreview,
         ...copyPreview, ...transformCopyPreview, ...trimPreviewEntities, ...extendPreviewEntities].filter(Boolean);

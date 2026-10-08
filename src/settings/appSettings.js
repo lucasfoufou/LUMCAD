@@ -1,3 +1,5 @@
+import { validateDrawingAliases, validateDrawingCommandShortcuts, DEFAULT_DRAWING_SHORTCUTS } from '../utils/drawingCommandPreferences.js';
+
 import { invoke } from '@tauri-apps/api/core';
 
 import { normalizeLocale } from '../i18n/translator.js';
@@ -7,10 +9,13 @@ export const APP_SETTINGS_STORAGE_KEY = 'lumcad.settings.v1';
 const LEGACY_LANGUAGE_STORAGE_KEY = 'lumcad.locale';
 export const DEFAULT_APP_SETTINGS = Object.freeze({
     version: 1,
+    commandAliases: Object.freeze([]),
+    commandShortcuts: DEFAULT_DRAWING_SHORTCUTS,
     language: 'en',
     autosaveDelayMs: 900,
     drawingDefaults: Object.freeze({
         designer: '',
+        templatePath: '',
         gridSpacing: 0.5,
         tracking: false,
         angleUnit: 'degrees',
@@ -31,10 +36,13 @@ export function normalizeAppSettings(value) {
     const mcp = source.mcp && typeof source.mcp === 'object' ? source.mcp : {};
     return {
         version: 1,
+        commandAliases: normalizeAliases(source.commandAliases),
+        commandShortcuts: normalizeShortcuts(source.commandShortcuts),
         language: normalizeLocale(source.language),
         autosaveDelayMs: clampFiniteInteger(source.autosaveDelayMs, 300, 10_000, 900),
         drawingDefaults: {
             designer: String(drawingDefaults.designer || '').trim().slice(0, 120),
+            templatePath: normalizeTemplatePath(drawingDefaults.templatePath),
             gridSpacing: clampFiniteNumber(drawingDefaults.gridSpacing, 0.0001, 1_000, 0.5),
             tracking: Boolean(drawingDefaults.tracking),
             angleUnit: ['degrees', 'radians', 'gradians'].includes(drawingDefaults.angleUnit)
@@ -101,6 +109,13 @@ export async function getMcpStatus() {
     return invoke('get_mcp_status');
 }
 
+export function normalizeTemplatePath(value) {
+    if (typeof value !== 'string') return '';
+    const path = value.trim();
+    return path.length <= 4096 && !/[\u0000-\u001f]/.test(path)
+        && /^(?:\/|[a-z]:[\\/]|\\\\)/i.test(path) && /\.lcad$/i.test(path) ? path : '';
+}
+
 function clampFiniteInteger(value, minimum, maximum, fallback) {
     const number = Number(value);
     if (!Number.isInteger(number)) return fallback;
@@ -128,4 +143,13 @@ function removeLegacyLanguage() {
     } catch {
         // Legacy cleanup is optional in privacy-restricted webviews.
     }
+}
+
+function normalizeAliases(value) {
+    try { return validateDrawingAliases(value || []); } catch { return []; }
+}
+
+function normalizeShortcuts(value) {
+    try { return validateDrawingCommandShortcuts(value ?? DEFAULT_DRAWING_SHORTCUTS); }
+    catch { return DEFAULT_DRAWING_SHORTCUTS.map(row => ({ ...row })); }
 }

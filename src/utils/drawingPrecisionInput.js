@@ -63,6 +63,8 @@ const MAX_ABSOLUTE_RESULT = 1e15;
 
 export function evaluateDrawingExpression(value, {
     variables = {},
+    resolveVariable,
+    onVariable,
     unitType = 'length',
     lengthUnit = 'm',
     angleUnit = 'degrees',
@@ -78,12 +80,32 @@ export function evaluateDrawingExpression(value, {
     const wholeAngleUnit = unitType === 'angle' ? splitWholeExpressionAngleUnit(source, units) : null;
     const parser = createExpressionParser(tokenizeExpression(wholeAngleUnit?.expression || source), {
         variables: normalizeDrawingVariables(variables),
+        resolveVariable,
+        onVariable,
         units,
     });
     const result = parser.parse() * (wholeAngleUnit?.factor || 1);
     if (!Number.isFinite(result) || Math.abs(result) > MAX_ABSOLUTE_RESULT) {
         throw precisionInputError('resultOutOfRange');
     }
+    return result;
+}
+
+/** Rename parsed variable references without touching units, functions or numeric exponents. */
+export function remapDrawingExpressionVariables(value, names, options = {}) {
+    const source = normalizeExpressionSource(value, options.decimalComma);
+    const edits = [];
+    evaluateDrawingExpression(source, { ...options, onVariable: (name, start, end) => {
+        const replacement = names.get(name);
+        if (replacement === undefined || replacement === name) return;
+        if (!/^[a-z_][a-z0-9_]{0,63}$/.test(replacement) || Object.hasOwn(CONSTANTS, replacement)) {
+            throw precisionInputError('invalidExpression');
+        }
+        edits.push({ start, end, replacement });
+    } });
+    let result = source;
+    for (const { start, end, replacement } of edits.reverse()) result = result.slice(0, start) + replacement + result.slice(end);
+    if (result.length > MAX_EXPRESSION_LENGTH) throw precisionInputError('expressionTooLong');
     return result;
 }
 
@@ -320,7 +342,7 @@ function tokenizeExpression(source) {
         }
         if (/[a-zA-Z_]/.test(char)) {
             const match = source.slice(index).match(/^[a-zA-Z_][a-zA-Z0-9_]*/);
-            tokens.push({ type: 'identifier', value: match[0].toLowerCase() });
+            tokens.push({ type: 'identifier', value: match[0].toLowerCase(), start: index, end: index + match[0].length });
             index += match[0].length;
             continue;
         }
@@ -341,7 +363,7 @@ function tokenizeExpression(source) {
     return tokens;
 }
 
-function createExpressionParser(tokens, { variables, units }) {
+function createExpressionParser(tokens, { variables, units, resolveVariable, onVariable }) {
     let position = 0;
     let depth = 0;
     const current = () => tokens[position];
@@ -380,8 +402,11 @@ function createExpressionParser(tokens, { variables, units }) {
             return applyUnit(value);
         }
         if (Object.hasOwn(CONSTANTS, identifier.value)) return applyUnit(CONSTANTS[identifier.value]);
-        if (!Object.hasOwn(variables, identifier.value)) throw precisionInputError('unknownVariable');
-        return applyUnit(variables[identifier.value]);
+        onVariable?.(identifier.value, identifier.start, identifier.end);
+        const value = Object.hasOwn(variables, identifier.value) ? variables[identifier.value]
+            : typeof resolveVariable === 'function' ? resolveVariable(identifier.value) : undefined;
+        if (!Number.isFinite(value)) throw precisionInputError('unknownVariable');
+        return applyUnit(value);
     });
     const applyUnit = value => {
         const token = current();
