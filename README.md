@@ -143,7 +143,7 @@ The first command benchmarks the document pipeline in Node; the second replays r
 
 ## Releases
 
-Releases are built by [`.github/workflows/release.yml`](./.github/workflows/release.yml) whenever a tag matching `v*` is pushed. The workflow validates and tests the source, builds every supported desktop target sequentially into one draft GitHub release, signs the updater artifacts, verifies every installer, signature, URL, architecture, and `latest.json` entry, and publishes the release only after every platform succeeds.
+Releases are built by [`.github/workflows/release.yml`](./.github/workflows/release.yml) whenever a tag matching `v*` is pushed. The workflow validates and tests the source, creates one draft GitHub release, then builds and signs all four desktop targets in parallel. A single final job assembles `latest.json`, verifies every installer, signature, URL and platform entry, and publishes the release only after every platform succeeds.
 
 The workflow requires the repository secret `TAURI_SIGNING_PRIVATE_KEY`. The matching public key is embedded in LUMCAD; never commit or lose the private key. See [RELEASING.md](./RELEASING.md) for key custody, local signed builds, the complete release sequence, expected artifacts, and end-to-end update validation.
 

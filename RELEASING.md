@@ -28,16 +28,18 @@ Never commit, paste into an issue, or attach the private key to a release. Losin
 `.github/workflows/release.yml` performs these stages:
 
 1. validate the tag against every declared project version, verify the updater secret, and run `npm run check`;
-2. build macOS Apple Silicon, macOS Intel, Linux x64, and Windows x64 sequentially into one draft release;
-3. sign each updater payload and let `tauri-action` merge every platform into `latest.json`;
-4. download the draft assets, normalize updater API URLs to final tagged public download URLs using the release's asset metadata, run `scripts/verify-release-assets.mjs`, and upload the verified manifest;
+2. create or reuse one draft release and pass its ID to every build (refuse an already published release);
+3. build macOS Apple Silicon, macOS Intel, Linux x64, and Windows x64 in parallel, signing and uploading each target's uniquely named assets to that draft;
+4. after all four builds succeed, download the assets, assemble one complete `latest.json` with `scripts/create-updater-manifest.mjs`, run `scripts/verify-release-assets.mjs`, and upload the verified manifest;
 5. publish the GitHub release only after the complete manifest passes.
 
 The expected user installers are two `.dmg` files, one NSIS `.exe`, one `.AppImage`, and one `.deb`. The updater additionally requires two macOS `.app.tar.gz` archives, their signatures, signatures for the Windows installer and Linux AppImage, and a `latest.json` containing `darwin-aarch64`, `darwin-x86_64`, `windows-x86_64`, and `linux-x86_64`.
 
-Build jobs remain sequential because every `tauri-action` invocation updates the same draft release and manifest. Parallel jobs can overwrite a platform entry or create competing drafts.
+Keep the four builds parallel (`max-parallel: 4`, subject to GitHub runner availability). Build jobs receive the pre-created `releaseId` and must keep `uploadUpdaterJson: false`: they never create a release or write the shared manifest. Only the final publish job assembles and uploads `latest.json`. Simply parallelizing independent release creation or manifest updates would introduce races and could drop platform entries. `fail-fast: false` allows other builds to finish if one fails, but any failed target prevents publication; rerun failed jobs after resolving the failure.
 
-`tauri-action` can emit GitHub API asset URLs while a release is a draft. Draft browser URLs may also contain a temporary `untagged-*` name. `scripts/normalize-updater-urls.mjs` maps only known assets of the matching release to their final public tag URLs, preserving signatures and all platform aliases. Verification remains strict; it is not bypassed to accept API URLs. For a release created with an older workflow, normalize and verify the downloaded assets, upload only the corrected `latest.json`, then rerun the failed publish job.
+The manifest assembler uses the explicit default `tauri-action` asset names (including the version and architecture), includes canonical platform keys and app/AppImage/NSIS aliases, and refuses missing/ambiguous payloads or missing/empty signatures. If artifact naming changes, update the assembler and its tests together. The final verifier also requires both DMGs and the Debian installer. No build needs to wait for another target, although validation and draft creation run first and final publication remains serial.
+
+`tauri-action` can emit GitHub API asset URLs while a release is a draft. Draft browser URLs may also contain a temporary `untagged-*` name. The assembler reuses `scripts/normalize-updater-urls.mjs` to map only known assets of the matching release to their final public tag URLs, preserving signatures and platform aliases. Verification remains strict; it is not bypassed to accept API URLs. For a release created with an older workflow, normalize and verify the downloaded assets, upload only the corrected `latest.json`, then rerun the failed publish job.
 
 ## Prepare a version
 

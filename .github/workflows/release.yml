@@ -52,16 +52,43 @@ jobs:
       - name: Run frontend and Rust checks
         run: npm run check
 
+  prepare:
+    name: Prepare draft release
+    needs: validate
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.release.outputs.release_id }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Create or reuse the single draft
+        id: release
+        shell: bash
+        run: |
+          if draft=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft); then
+            test "$draft" = true || { echo 'Refusing to modify an already published release'; exit 1; }
+          else
+            options=()
+            if [[ "$GITHUB_REF_NAME" == *-* ]]; then options+=(--prerelease); fi
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
+              --title "LUMCAD $GITHUB_REF_NAME" --generate-notes "${options[@]}"
+          fi
+          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\") | .id")
+          [[ "$release_id" =~ ^[0-9]+$ ]] || { echo 'Expected exactly one release ID'; exit 1; }
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build · ${{ matrix.label }}
-    needs: validate
+    needs: prepare
     permissions:
       contents: write
     strategy:
       fail-fast: false
-      # tauri-action updates the same draft release for every target. Keeping the
-      # jobs sequential prevents concurrent drafts or missing platform assets.
-      max-parallel: 1
+      # Each target uploads uniquely named assets to the same pre-created draft.
+      # Only the publish job writes latest.json after all four builds succeed.
+      max-parallel: 4
       matrix:
         include:
           - label: macOS Apple Silicon
@@ -113,19 +140,15 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
           APPLE_SIGNING_IDENTITY: ${{ startsWith(matrix.platform, 'macos-') && '-' || '' }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: LUMCAD ${{ github.ref_name }}
-          releaseBody: Download the installer for your platform from the assets below.
-          generateReleaseNotes: true
-          releaseDraft: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          releaseId: ${{ needs.prepare.outputs.release_id }}
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: true
           retryAttempts: 2
-          updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
 
   publish:
     name: Publish GitHub release
-    needs: build
+    needs: [prepare, build]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -134,15 +157,21 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
       - name: Download draft release assets
         run: |
           mkdir release-assets
           gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --dir release-assets
 
-      - name: Verify installers and signed updater manifest
+      - name: Assemble and verify the complete updater manifest
+        env:
+          RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\")" > "$RUNNER_TEMP/release-metadata.json"
-          node scripts/normalize-updater-urls.mjs release-assets/latest.json "$RUNNER_TEMP/release-metadata.json" "$GITHUB_REF_NAME"
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > "$RUNNER_TEMP/release-metadata.json"
+          node scripts/create-updater-manifest.mjs release-assets "$RUNNER_TEMP/release-metadata.json" "$GITHUB_REF_NAME"
           node scripts/verify-release-assets.mjs release-assets "$GITHUB_REF_NAME"
           gh release upload "$GITHUB_REF_NAME" release-assets/latest.json --repo "$GITHUB_REPOSITORY" --clobber
 
