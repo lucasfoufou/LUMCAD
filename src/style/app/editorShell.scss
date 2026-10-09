@@ -412,7 +412,9 @@
     font-family: var(--font-num);
   }
 
-  input:focus { border: 0; }
+  // The bar shows the single focus indication; the input inside draws none.
+  input:focus,
+  input:focus-visible { border: 0; outline: none; }
 
   > button[type="submit"] {
     flex: none;
@@ -443,10 +445,11 @@
   flex: 0 1 auto;
   max-width: 55%;
   min-width: 0;
-  padding-right: 8px;
+  padding-inline: 8px;
   overflow: hidden;
   color: var(--muted);
   font-size: var(--text-sm);
+  text-align: end;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

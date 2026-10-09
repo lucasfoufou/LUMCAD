@@ -38,8 +38,11 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
     useImperativeHandle(forwardedRef, () => ({
         focus(nextValue = null) {
             if (nextValue !== null) onChange(nextValue);
+            // Focus now, within the forwarding keydown: a key pressed right after
+            // (typically Enter) must reach the input, not the canvas. The caret
+            // moves to the end once the new value has rendered.
+            inputRef.current?.focus({ preventScroll: true });
             window.requestAnimationFrame(() => {
-                inputRef.current?.focus();
                 inputRef.current?.setSelectionRange(inputRef.current.value.length, inputRef.current.value.length);
             });
         },
@@ -101,9 +104,9 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
     };
 
     return (
-        // Command line of the window header: the prompt shows the current message
-        // before the input; suggestions, history and the options of the active
-        // command open below it.
+        // Command line of the window header: the current message follows the
+        // input; suggestions, history and the options of the active command open
+        // below it.
         <div className={`drawing-command-area${(focused && suggestions.length > 0) || historyOpen ? ' is-listing' : ''}`}>
             <form
                 className="drawing-command-bar"
@@ -130,7 +133,6 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
                 >
                     <span aria-hidden="true">{historyOpen ? '^' : '>'}</span>
                 </Button>
-                {message && <span className="drawing-command-message" title={message} aria-live="polite">{message}</span>}
                 <Input
                     ref={inputRef}
                     value={value}
@@ -147,6 +149,8 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
                     spellCheck="false"
                     placeholder={message ? '' : t('commandBar.placeholder')}
                 />
+                {/* Status messages trail the input (inline end), like a status area. */}
+                {message && <span className="drawing-command-message" title={message} aria-live="polite">{message}</span>}
                 <Button type="submit">{t('commandBar.enter')}</Button>
                 {focused && suggestions.length > 0 && !historyOpen && (
                     <div className="drawing-command-suggestions" role="listbox" aria-label={t('commandBar.suggestions')}>

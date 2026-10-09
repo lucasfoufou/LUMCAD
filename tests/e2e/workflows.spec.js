@@ -225,3 +225,16 @@ test('publication writes a real downloadable PDF from the front', async ({ page 
     expect(bytes.subarray(0, 5).toString()).toBe('%PDF-');
     expect(bytes.length).toBeGreaterThan(1000);
 });
+
+test('a command typed outside the command line runs on an immediate Enter', async ({ page }) => {
+    await start(page);
+    // Focus the canvas, as after drawing, then type the alias and Enter with no pause.
+    await page.locator('.drawing-canvas-svg').click({ position: { x: 40, y: 40 } });
+    await page.keyboard.press('l');
+    await page.keyboard.press('Enter');
+    await expect.poll(async () => (await state(page)).editor.activeTool).toBe('line');
+    await page.keyboard.press('Escape');
+    await page.locator('.drawing-canvas-svg').click({ position: { x: 40, y: 40 } });
+    await page.keyboard.type('circ');
+    await expect(page.locator('.drawing-command-bar input')).toHaveValue('circ');
+});
