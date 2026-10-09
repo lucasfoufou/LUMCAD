@@ -76,11 +76,14 @@ export function deleteDimensionStyle(content, nameOrId) {
 }
 
 export function applyCurrentStyleToNewDimensions(content, previous) {
+    const unstyled = entity => isDrawingDimensionEntity(entity) && !entity.dimensionStyleId && entity.previewMode !== 'copy';
+    // Most commits add no unstyled dimension: avoid indexing every previous entity.
+    if (!content.entities.some(unstyled)) return content;
     const previousIds = new Set((previous?.entities || []).map(entity => entity.id));
     const style = findDimensionStyle(content, content.activeDimensionStyleId) || findDimensionStyle(content, DEFAULT_DIMENSION_STYLE_ID);
     let changed = false;
     const entities = content.entities.map(entity => {
-        if (!isDrawingDimensionEntity(entity) || entity.dimensionStyleId || entity.previewMode === 'copy' || previousIds.has(entity.id)) return entity;
+        if (!unstyled(entity) || previousIds.has(entity.id)) return entity;
         changed = true;
         const overrides = normalizeDimensionStyleOverrides(entity);
         return applyDimensionStyle({ ...entity, dimensionStyleOverrides: overrides }, style, { keepOverrides: true });

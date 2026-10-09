@@ -91,11 +91,15 @@ function equivalentArc(left, right) {
 /** Refresh linked labels in the source edit's history step. Independent label transforms detach. */
 export function refreshDrawingArcTexts(content, previous = content) {
     const refresh = (entities, previousEntities = []) => {
+        if (!entities.some(entity => entity.arcText && entity.sourceId)) return entities;
         const previousById = new Map(previousEntities.map(entity => [entity.id, entity]));
         const byId = new Map(entities.map(entity => [entity.id, entity]));
         let changed = false;
         const next = entities.map(entity => {
             if (!entity.arcText || !entity.sourceId) return entity;
+            // Untouched label and source: the previous commit already refreshed this pair.
+            if (previousEntities !== entities && previousById.get(entity.id) === entity
+                && byId.get(entity.sourceId) === previousById.get(entity.sourceId)) return entity;
             const definition = normalizeDrawingArcText(entity.arcText);
             if (!definition) return entity;
             const source = byId.get(entity.sourceId);

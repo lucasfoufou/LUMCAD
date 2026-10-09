@@ -1220,9 +1220,19 @@ function intersectEntities(left, right) {
     return leftParts.flatMap(leftPart => rightParts.flatMap(rightPart => intersectPrimitiveEntities(leftPart, rightPart)));
 }
 
+// Entities are immutable between history commits, so their normalized curve
+// paths can be reused by every snap query that tests them for intersections.
+const intersectionPathCache = new WeakMap();
+
+function cachedEntityPaths(entity) {
+    if (!entity || typeof entity !== 'object') return extractEntityPaths(entity);
+    if (!intersectionPathCache.has(entity)) intersectionPathCache.set(entity, extractEntityPaths(entity));
+    return intersectionPathCache.get(entity);
+}
+
 function intersectEntityPaths(left, right) {
-    const leftPaths = extractEntityPaths(left);
-    const rightPaths = extractEntityPaths(right);
+    const leftPaths = cachedEntityPaths(left);
+    const rightPaths = cachedEntityPaths(right);
     if (!leftPaths.length || !rightPaths.length) return null;
     return leftPaths.flatMap(leftPath => rightPaths.flatMap(rightPath => (
         intersectPaths(leftPath, rightPath).points.map(intersection => intersection.point)

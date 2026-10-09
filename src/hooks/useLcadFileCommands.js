@@ -6,7 +6,7 @@ import { localizeError } from '~i18n/translator';
 import { createLcadDocument, createLcadEnvelope } from '~utils/lcadDocument';
 import { createLcadRecoveredSession, readSavedRecoveredCandidate } from '~utils/lcadRecovery';
 import { createLcadTemplateSession, parseNewDrawingInput, parseTemplateSaveInput, prepareLcadTemplate } from '~utils/lcadTemplates';
-import { printRenderedLayouts, waitForPrintRendering } from '~utils/drawingPrint';
+import { printRenderedLayouts } from '~utils/drawingPrint';
 import {
     createDrawingDwfx,
     createDrawingPdf,
@@ -29,7 +29,7 @@ export default function useLcadFileCommands({
     filePath,
     recovered,
     onReplaceSession,
-    publishRendererRef = null,
+    withPublishPages = null,
     setMessage,
     blockEditing = false,
     protectedPaths = [],
@@ -269,12 +269,12 @@ export default function useLcadFileCommands({
         }
         setIsExporting(true);
         try {
-            await waitForPrintRendering(window);
             const requested = new Set(layouts.map(layout => layout.id));
-            const pages = (publishRendererRef?.current?.getPages?.() || [])
-                .filter(page => requested.has(page.layout.id));
-            if (pages.length !== layouts.length) throw new Error(t('publish.renderIncomplete'));
-            const bytes = await createDrawingPdf(pages, { title: document.name });
+            const bytes = await withPublishPages(rendered => {
+                const pages = rendered.filter(page => requested.has(page.layout.id));
+                if (pages.length !== layouts.length) throw new Error(t('publish.renderIncomplete'));
+                return createDrawingPdf(pages, { title: document.name });
+            });
             const result = await writeDrawingPublishFile({
                 bytes,
                 defaultName: document.name,
@@ -290,7 +290,7 @@ export default function useLcadFileCommands({
         } finally {
             setIsExporting(false);
         }
-    }, [blockEditing, document.name, filePath, publishRendererRef, resolveRequestedLayouts, setMessage, t]);
+    }, [blockEditing, document.name, filePath, withPublishPages, resolveRequestedLayouts, setMessage, t]);
 
     const exportPageSetups = useCallback(async pageSetupIds => {
         const requestedIds = new Set(Array.isArray(pageSetupIds) ? pageSetupIds : []);

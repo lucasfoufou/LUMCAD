@@ -130,7 +130,7 @@ function createRoofSection(index, originX, originY) {
         });
         entities.push({
             id: id(`label-${row}`), type: 'text', layerId: 'bench-text', x: startX - 0.45, y: cableY,
-            text: `S${index + 1}.${row + 1}`, fontSize: 0.18, textMode: 'single',
+            text: `S${index + 1}.${row + 1}`, fontSize: 0.18, textMode: 'singleLine', wrapMode: 'none', width: 0.8, height: 0.25,
         });
         if (row === 0) entities.push({ id: id('dimension-rail'), type: 'linearDimension', layerId: 'dimensions', sourceId: railIds[0], offset: -0.6 });
     }
@@ -140,7 +140,7 @@ function createRoofSection(index, originX, originY) {
     });
     entities.push({
         id: id('title'), type: 'text', layerId: 'bench-text', x: originX, y: originY + SECTION_HEIGHT + 0.3,
-        text: `Roof section ${index + 1}`, fontSize: 0.35, textMode: 'single',
+        text: `Roof section ${index + 1}`, fontSize: 0.35, textMode: 'singleLine', wrapMode: 'none', width: 3.6, height: 0.5,
     });
     entities.push({
         id: id('dimension-width'), type: 'linearDimension', layerId: 'dimensions',

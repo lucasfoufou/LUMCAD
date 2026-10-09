@@ -36,6 +36,7 @@ import { affineMatrixToSvg, getDrawingBlockReferenceBounds, inverseAffineViewBox
 import { getDrawingEntityRenderMode } from '~utils/drawingInteraction';
 import { drawingEntityRenderBounds, drawingEntityViewportChanged, drawingEntityUsesDefaultDimensionSize } from '~utils/drawingViewportDependence';
 import { createDrawingIndexCache, createDrawingSpatialIndex } from '~utils/drawingSpatialIndex';
+import { chunkDrawingEntities } from '~utils/drawingSceneChunks';
 import { createDrawingBlockSymbols } from '~utils/drawingBlockSymbols';
 import useStableArray from '~hooks/useStableArray';
 
@@ -48,6 +49,10 @@ function DrawingScene({
     previewSelectedIds = null,
     highlightedIds = EMPTY_ARRAY,
     interactive = false,
+    // Interactive scenes render 12 px transparent hit shapes for DOM picking.
+    // The model canvas disables them and picks through pickDrawingEntity; its
+    // plain entities then also drop their wrapper group, halving the DOM.
+    hitShapes = true,
     dimensionTextSize = 0.35,
     draftEntity = null,
     draftEntities = EMPTY_ARRAY,
@@ -113,6 +118,61 @@ function DrawingScene({
         return new Set(index.query({ minX: cullArea.x - marginX, minY: cullArea.y - marginY, maxX: cullArea.x + cullArea.width + marginX, maxY: cullArea.y + cullArea.height + marginY }));
     }, [cullArea, content.entities]);
 
+    // Model canvas: shapes never change with selection; outlines and grips live
+    // in a decoration layer drawn above the scene (see EntityDecoration).
+    const bare = interactive && !hitShapes;
+    const isSelected = id => (previewSelected ? previewSelected.has(id) : selected.has(id));
+    const gripsFor = entity => gripsEnabled && (selected.has(entity.id) || selectedQdimGripSeries.has(entity.seriesId));
+    const decorated = [];
+    const entityElements = content.entities.map((entity, position) => {
+        if (visiblePositions && !visiblePositions.has(position)) return null;
+        const renderMode = getDrawingEntityRenderMode(entity.id, hidden, hitOnly);
+        if (renderMode === 'hidden' || isDrawingObjectHidden(content, entity.id)) return null;
+        const visualHidden = renderMode === 'hit-only';
+        const layer = layerMap.get(entity.layerId);
+        if (!isDrawingLayerVisible(layer) || hiddenLayers.has(entity.layerId)) return null;
+        const editable = canEditEntity(content, entity);
+        if (bare && !visualHidden && (isSelected(entity.id) || highlighted.has(entity.id) || (editable && gripsFor(entity)))) {
+            decorated.push({ entity, editable });
+        }
+        return (
+            <MemoDrawingEntity
+                key={entity.id}
+                entity={entity}
+                sources={entityMap}
+                asset={entity.assetId ? assetMap.get(entity.assetId) : null}
+                appearance={getEntityAppearance(content, entity)}
+                selected={!bare && isSelected(entity.id)}
+                highlighted={!bare && highlighted.has(entity.id)}
+                editable={editable}
+                interactive={interactive}
+                hitShape={interactive && hitShapes}
+                bare={bare}
+                symbolId={symbols.references.get(entity.id)}
+                dimensionTextSize={dimensionTextSize}
+                showGrips={!bare && gripsFor(entity)}
+                gripSize={gripSize}
+                locale={locale}
+                t={t}
+                viewBox={viewBox}
+                circleGeometryCache={circleGeometryCache}
+                block={entity.blockId ? blockMap.get(entity.blockId) : null}
+                blockMap={blockMap}
+                assetMap={assetMap}
+                layerMap={layerMap}
+                hiddenLayers={hiddenLayers}
+                visualHidden={visualHidden}
+                textStyles={content.textStyles}
+                attributeDisplay={content.settings?.attributeDisplay}
+            />
+        );
+    });
+    // Rendered model entity count, readable without per-entity wrapper elements.
+    const renderedEntities = entityElements.reduce((count, element) => count + (element ? 1 : 0), 0);
+    const entityChunks = chunkDrawingEntities(content.entities)
+        .map(chunk => ({ key: chunk.key, elements: chunk.positions.map(position => entityElements[position]).filter(Boolean) }))
+        .filter(chunk => chunk.elements.length);
+
     return (
         <>
         {symbols.definitions.length > 0 && <defs>{symbols.definitions.map(({ id, reference, block }) => (
@@ -121,47 +181,8 @@ function DrawingScene({
                 locale={locale} t={t} viewBox={null} visitedBlockIds={new Set()} textStyles={content.textStyles}
                 attributeDisplay={content.settings?.attributeDisplay} /></g>
         ))}</defs>}
-        <g className="drawing-scene">
-            {content.entities.map((entity, position) => {
-                if (visiblePositions && !visiblePositions.has(position)) return null;
-                const renderMode = getDrawingEntityRenderMode(entity.id, hidden, hitOnly);
-                if (renderMode === 'hidden' || isDrawingObjectHidden(content, entity.id)) return null;
-                const visualHidden = renderMode === 'hit-only';
-                const layer = layerMap.get(entity.layerId);
-                if (!isDrawingLayerVisible(layer) || hiddenLayers.has(entity.layerId)) return null;
-                return (
-                    <MemoDrawingEntity
-                        key={entity.id}
-                        entity={entity}
-                        sources={entityMap}
-                        asset={entity.assetId ? assetMap.get(entity.assetId) : null}
-                        appearance={getEntityAppearance(content, entity)}
-                        selected={previewSelected ? previewSelected.has(entity.id) : selected.has(entity.id)}
-                        highlighted={highlighted.has(entity.id)}
-                        editable={canEditEntity(content, entity)}
-                        interactive={interactive}
-                        symbolId={symbols.references.get(entity.id)}
-                        dimensionTextSize={dimensionTextSize}
-                        showGrips={gripsEnabled && (
-                            selected.has(entity.id)
-                            || selectedQdimGripSeries.has(entity.seriesId)
-                        )}
-                        gripSize={gripSize}
-                        locale={locale}
-                        t={t}
-                        viewBox={viewBox}
-                        circleGeometryCache={circleGeometryCache}
-                        block={entity.blockId ? blockMap.get(entity.blockId) : null}
-                        blockMap={blockMap}
-                        assetMap={assetMap}
-                        layerMap={layerMap}
-                        hiddenLayers={hiddenLayers}
-                        visualHidden={visualHidden}
-                        textStyles={content.textStyles}
-                        attributeDisplay={content.settings?.attributeDisplay}
-                    />
-                );
-            })}
+        <g className="drawing-scene" data-rendered-entities={renderedEntities}>
+            {entityChunks.map(chunk => <g key={chunk.key}>{chunk.elements}</g>)}
             {draftList.map((entity, index) => (
                 <DrawingEntity
                     key={entity.id || `draft-${index}`}
@@ -187,6 +208,25 @@ function DrawingScene({
                 />
             ))}
         </g>
+        {decorated.length > 0 && (
+            <g className="drawing-scene-decorations">
+                {decorated.map(({ entity, editable }) => (
+                    <EntityDecoration
+                        key={entity.id}
+                        entity={entity}
+                        sources={entityMap}
+                        selected={isSelected(entity.id)}
+                        highlighted={highlighted.has(entity.id)}
+                        grips={editable && gripsFor(entity)}
+                        gripSize={gripSize}
+                        t={t}
+                        viewBox={viewBox}
+                        blockMap={blockMap}
+                        circleGeometryCache={circleGeometryCache}
+                    />
+                ))}
+            </g>
+        )}
         </>
     );
 }
@@ -200,6 +240,8 @@ function DrawingEntity({
     highlighted = false,
     editable = false,
     interactive,
+    hitShape = false,
+    bare = false,
     symbolId,
     draft = false,
     dimensionTextSize,
@@ -317,10 +359,11 @@ function DrawingEntity({
     }
 
     if (!shape) return null;
+    if (bare) return visualHidden ? null : shape;
     return (
         <g {...groupProps}>
             {!visualHidden && shape}
-            {interactive && <HitShape entity={entity} sources={sources} viewBox={viewBox} circleGeometryCache={circleGeometryCache} />}
+            {hitShape && <HitShape entity={entity} sources={sources} viewBox={viewBox} circleGeometryCache={circleGeometryCache} />}
             {!visualHidden && selected && <SelectionShape entity={entity} sources={sources} viewBox={viewBox} circleGeometryCache={circleGeometryCache} />}
             {!visualHidden && highlighted && <SelectionShape entity={entity} sources={sources} viewBox={viewBox} circleGeometryCache={circleGeometryCache} preview />}
             {!visualHidden && editable && showGrips && <GripHandles entity={entity} sources={sources} size={gripSize} t={t} />}
@@ -347,7 +390,7 @@ export const DrawingHighlightLayer = React.memo(function DrawingHighlightLayer({
     );
 });
 
-const VISUAL_PROPS = ['entity', 'asset', 'selected', 'highlighted', 'editable', 'interactive', 'draft', 'showGrips', 'visualHidden',
+const VISUAL_PROPS = ['entity', 'asset', 'selected', 'highlighted', 'editable', 'interactive', 'hitShape', 'bare', 'draft', 'showGrips', 'visualHidden',
     'symbolId', 'nested', 'block', 'blockMap', 'assetMap', 'layerMap', 'hiddenLayers', 'textStyles', 'attributeDisplay', 'locale', 't', 'visitedBlockIds'];
 const APPEARANCE_FIELDS = ['color', 'lineWeight', 'lineType', 'transparency'];
 
@@ -368,6 +411,21 @@ function sameDrawingEntityProps(previous, next) {
 }
 
 const MemoDrawingEntity = React.memo(DrawingEntity, sameDrawingEntityProps);
+
+
+/** Selection outline, hover preview and grips of one model entity, drawn above every shape. */
+const EntityDecoration = React.memo(function EntityDecoration({ entity, sources, selected, highlighted, grips, gripSize, t, viewBox, circleGeometryCache }) {
+    return (
+        <g data-entity-id={entity.id} className={['drawing-entity-decoration', selected && 'is-selected', highlighted && 'is-highlighted'].filter(Boolean).join(' ')}>
+            {selected && <SelectionShape entity={entity} sources={sources} viewBox={viewBox} circleGeometryCache={circleGeometryCache} />}
+            {highlighted && <SelectionShape entity={entity} sources={sources} viewBox={viewBox} circleGeometryCache={circleGeometryCache} preview />}
+            {grips && <GripHandles entity={entity} sources={sources} size={gripSize} t={t} />}
+        </g>
+    );
+}, (previous, next) => ['entity', 'selected', 'highlighted', 'grips', 't'].every(key => previous[key] === next[key])
+    && (!next.grips || previous.gripSize === next.gripSize)
+    && (previous.sources === next.sources || !(isDrawingDimensionEntity(next.entity) || getDrawingEntityDependencyIds(next.entity).length))
+    && !drawingEntityViewportChanged(next.entity, previous.viewBox, next.viewBox, next.blockMap));
 
 function BlockReferenceGeometry({
     reference,
@@ -584,15 +642,39 @@ function PolylineGeometry({
 function DrawingTextShape({ entity, color, opacity, textStyles }) {
     const clipId = `drawing-text-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
     const layout = getDrawingTextLayout(entity, { color, styles: textStyles });
+    // Single-line text is never clipped, so it needs no clip path elements.
+    const clipped = layout.textMode !== 'singleLine';
+    // A run styled exactly like the text element inherits everything: no nested tspan needed.
+    const inheritsBase = span => (span.style.color || color) === color
+        && span.style.cssFontFamily === layout.baseStyle.cssFontFamily && span.style.fontSize === layout.fontSize
+        && span.style.fontWeight === layout.baseStyle.fontWeight && span.style.fontStyle === layout.baseStyle.fontStyle
+        && (!span.style.textDecoration || span.style.textDecoration === 'none');
+    const lineContent = line => {
+        if (!line.spans.length) return '\u00a0';
+        if (line.spans.length === 1 && inheritsBase(line.spans[0])) return line.spans[0].text || '\u00a0';
+        return line.spans.map((span, spanIndex) => (
+            <tspan
+                key={`${spanIndex}-${span.text}`}
+                fill={span.style.color || color}
+                fontFamily={span.style.cssFontFamily}
+                fontSize={span.style.fontSize}
+                fontWeight={span.style.fontWeight}
+                fontStyle={span.style.fontStyle}
+                textDecoration={span.style.textDecoration}
+            >
+                {span.text || '\u00a0'}
+            </tspan>
+        ));
+    };
     return (
         <g transform={rectTransform(entity)} opacity={opacity} pointerEvents="none">
-            <defs>
+            {clipped && <defs>
                 <clipPath id={clipId}>
                     <rect x={layout.x} y={layout.y} width={layout.width} height={layout.height} />
                 </clipPath>
-            </defs>
+            </defs>}
             <text
-                clipPath={layout.textMode === 'singleLine' ? undefined : `url(#${clipId})`}
+                clipPath={clipped ? `url(#${clipId})` : undefined}
                 x={layout.textX}
                 fill={color}
                 fontFamily={layout.baseStyle.cssFontFamily}
@@ -609,19 +691,7 @@ function DrawingTextShape({ entity, color, opacity, textStyles }) {
                         textLength={layout.fitWidth ? layout.availableWidth : undefined}
                         lengthAdjust={layout.fitWidth ? 'spacingAndGlyphs' : undefined}
                     >
-                        {line.spans.length ? line.spans.map((span, spanIndex) => (
-                            <tspan
-                                key={`${spanIndex}-${span.text}`}
-                                fill={span.style.color || color}
-                                fontFamily={span.style.cssFontFamily}
-                                fontSize={span.style.fontSize}
-                                fontWeight={span.style.fontWeight}
-                                fontStyle={span.style.fontStyle}
-                                textDecoration={span.style.textDecoration}
-                            >
-                                {span.text || '\u00a0'}
-                            </tspan>
-                        )) : '\u00a0'}
+                        {lineContent(line)}
                     </tspan>
                 ))}
             </text>

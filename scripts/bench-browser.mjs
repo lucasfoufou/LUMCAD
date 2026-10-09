@@ -3,11 +3,12 @@
 // serves it locally and replays the src/dev/benchmarkHarness.js scenarios in a
 // headless Chrome driven through the DevTools protocol (no extra dependency).
 // Usage: npm run bench:browser -- [S M L XL] [--json file] [--chrome path]
-//        [--scenarios hoverSelect,wheelZoom] [--profile file.cpuprofile]
-// --profile builds without minification, records a CPU profile of the whole run
+//        [--scenarios hoverSelect,wheelZoom] [--profile file.cpuprofile] [--trace]
+// --profile builds without minification and records one CPU profile per
+// scenario (file-<size>-<scenario>.cpuprofile), excluding fixture loading;
 // and prints the functions with the highest self time.
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,13 +19,18 @@ const option = name => {
     const index = args.indexOf(name);
     return index >= 0 ? args[index + 1] : null;
 };
-const optionValues = new Set(['--json', '--chrome', '--scenarios', '--profile'].map(option).filter(Boolean));
+const optionValues = new Set(['--json', '--chrome', '--scenarios', '--profile', '--file'].map(option).filter(Boolean));
 const sizes = args.filter(arg => !arg.startsWith('--') && !optionValues.has(arg));
-const selectedSizes = sizes.length ? sizes : ['S', 'M', 'L'];
+const selectedSizes = sizes.length ? sizes : option('--file') ? ['FILE'] : ['S', 'M', 'L'];
 const chromePath = option('--chrome') || process.env.CHROME_PATH || defaultChromePath();
 const jsonPath = option('--json');
 const scenarios = option('--scenarios');
 const profilePath = option('--profile');
+// --trace sums main-thread timeline work (style, layout, paint, hit testing,
+// scripting) inside each scenario, which a CPU profile reports as "(program)".
+const trace = args.includes('--trace');
+// --file drawing.lcad benchmarks a real drawing (size FILE) instead of the fixtures.
+const filePath = option('--file');
 const timeoutMs = 20 * 60 * 1000;
 
 if (!chromePath || !existsSync(chromePath)) fail('Chrome was not found. Pass --chrome <path> or set CHROME_PATH.');
@@ -37,10 +43,11 @@ try {
     const { build, preview } = await import('vite');
     const outDir = join(workDir, 'dist');
     await build({ root, logLevel: 'warn', build: { outDir, emptyOutDir: true, minify: !profilePath } });
+    if (filePath) copyFileSync(resolve(filePath), join(outDir, 'bench-file.lcad'));
     server = await preview({ root, logLevel: 'warn', build: { outDir }, preview: { port: 4173, strictPort: false, open: false } });
     const appUrl = server.resolvedUrls.local[0];
     chrome = await launchChrome(join(workDir, 'profile'));
-    const query = `bench=${selectedSizes.join(',')}${scenarios ? `&scenarios=${scenarios}` : ''}`;
+    const query = `bench=${selectedSizes.join(',')}${scenarios ? `&scenarios=${scenarios}` : ''}${profilePath ? '&profile=1' : ''}${trace ? '&trace=1' : ''}${filePath ? '&file=bench-file.lcad' : ''}`;
     const results = await runInChrome(chrome.port, `${appUrl}?${query}`);
     printResults(results);
     if (jsonPath) writeFileSync(jsonPath, `${JSON.stringify(results, null, 2)}\n`);
@@ -95,8 +102,24 @@ async function runInChrome(port, url) {
     });
     let nextId = 1;
     const pending = new Map();
+    const traceEvents = [];
+    let traceDone = null;
     socket.addEventListener('message', event => {
         const message = JSON.parse(event.data);
+        if (message.method === 'Tracing.dataCollected') {
+            traceEvents.push(...message.params.value);
+            return;
+        }
+        if (message.method === 'Tracing.tracingComplete') {
+            traceDone?.();
+            return;
+        }
+        if (message.method === 'Profiler.consoleProfileFinished') {
+            const file = profilePath.replace(/(\.cpuprofile)?$/, `-${message.params.title}.cpuprofile`);
+            writeFileSync(file, JSON.stringify(message.params.profile));
+            printProfileSummary(message.params.profile, `${message.params.title} → ${file}`);
+            return;
+        }
         pending.get(message.id)?.(message);
         pending.delete(message.id);
     });
@@ -109,8 +132,8 @@ async function runInChrome(port, url) {
     if (profilePath) {
         await send('Profiler.enable');
         await send('Profiler.setSamplingInterval', { interval: 200 });
-        await send('Profiler.start');
     }
+    if (trace) await send('Tracing.start', { categories: 'devtools.timeline,disabled-by-default-devtools.timeline', transferMode: 'ReportEvents' });
     await send('Page.navigate', { url });
     const started = Date.now();
     try {
@@ -119,10 +142,11 @@ async function runInChrome(port, url) {
             const parsed = value ? JSON.parse(value) : null;
             if (parsed?.error) throw new Error(parsed.error);
             if (parsed) {
-                if (profilePath) {
-                    const { result } = await send('Profiler.stop');
-                    writeFileSync(profilePath, JSON.stringify(result.profile));
-                    printProfileSummary(result.profile);
+                if (trace) {
+                    const complete = new Promise(resolveTrace => { traceDone = resolveTrace; });
+                    await send('Tracing.end');
+                    await complete;
+                    printTraceSummary(traceEvents);
                 }
                 return parsed;
             }
@@ -147,7 +171,7 @@ function printResults(results) {
     console.table(rows);
 }
 
-function printProfileSummary(profile) {
+function printProfileSummary(profile, title) {
     const interval = (profile.endTime - profile.startTime) / Math.max(1, profile.samples.length) / 1000;
     const counts = new Map();
     for (const id of profile.samples) counts.set(id, (counts.get(id) || 0) + 1);
@@ -158,10 +182,30 @@ function printProfileSummary(profile) {
         const key = `${functionName || '(anonymous)'} ${file}${file ? `:${lineNumber + 1}` : ''}`;
         totals.set(key, (totals.get(key) || 0) + (counts.get(node.id) || 0) * interval);
     }
-    const rows = [...totals].sort((left, right) => right[1] - left[1]).slice(0, 30)
+    const rows = [...totals].sort((left, right) => right[1] - left[1]).slice(0, 20)
         .map(([name, ms]) => ({ function: name, 'self ms': Math.round(ms) }));
-    console.log(`\nCPU profile written to ${profilePath}; highest self time:`);
+    console.log(`\nCPU profile ${title}; highest self time:`);
     console.table(rows);
+}
+
+/** Main-thread timeline time per event name between the harness scenario markers. */
+function printTraceSummary(events) {
+    const markers = events.filter(event => event.name === 'TimeStamp' && /^lumcad-bench:/.test(event.args?.data?.message || ''));
+    const main = events.find(event => event.name === 'thread_name' && event.args?.name === 'CrRendererMain');
+    for (const start of markers.filter(marker => marker.args.data.message.includes(':start:'))) {
+        const title = start.args.data.message.split(':start:')[1];
+        const end = markers.find(marker => marker.args.data.message === `lumcad-bench:end:${title}`);
+        if (!end) continue;
+        const totals = new Map();
+        for (const event of events) {
+            if (event.ph !== 'X' || event.ts < start.ts || event.ts > end.ts || (main && event.tid !== main.tid)) continue;
+            totals.set(event.name, (totals.get(event.name) || 0) + (event.dur || 0) / 1000);
+        }
+        const rows = [...totals].sort((left, right) => right[1] - left[1]).slice(0, 12)
+            .map(([name, ms]) => ({ event: name, ms: Math.round(ms) }));
+        console.log(`\nTimeline ${title} (${Math.round((end.ts - start.ts) / 1000)} ms, nested events overlap):`);
+        console.table(rows);
+    }
 }
 
 function fail(message) {

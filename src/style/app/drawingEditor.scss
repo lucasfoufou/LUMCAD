@@ -69,18 +69,19 @@
 
 .drawing-canvas.has-snap-marker .drawing-canvas-svg { cursor: none; }
 
-.drawing-canvas.is-tool-select .drawing-entity { cursor: pointer; }
-.drawing-canvas.is-tool-offset .drawing-entity,
-.drawing-canvas.is-tool-trim .drawing-entity,
-.drawing-canvas.is-tool-extend .drawing-entity,
-.drawing-canvas.is-tool-break .drawing-entity,
-.drawing-canvas.is-tool-stretch .drawing-entity,
-.drawing-canvas.is-tool-lengthen .drawing-entity,
-.drawing-canvas.is-tool-fillet .drawing-entity,
-.drawing-canvas.is-tool-chamfer .drawing-entity,
-.drawing-canvas.is-tool-blend .drawing-entity {
-  cursor: crosshair;
+// Entities are picked through the spatial index (pickDrawingEntity), so the
+// scene takes no pointer events and keeps its own cursor value: cursor changes
+// on the SVG then restyle one element instead of every drawn shape.
+.drawing-canvas-svg > defs,
+.drawing-canvas-svg .drawing-scene,
+.drawing-canvas-svg .drawing-scene-decorations {
+  pointer-events: none;
+  cursor: auto;
 }
+
+.drawing-canvas-svg .drawing-scene-decorations .drawing-grips { pointer-events: visiblePainted; }
+
+.drawing-canvas.is-tool-select.is-entity-hovered .drawing-canvas-svg { cursor: pointer; }
 
 .drawing-entity.is-draft {
   pointer-events: none;

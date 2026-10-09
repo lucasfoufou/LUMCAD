@@ -75,6 +75,19 @@ export function entityMatchesSelectionWindow(entity, selectionWindow, entityMap 
 }
 
 /**
+ * Pointer hit test: the entity passes within `tolerance` of `point`, or the
+ * point lies inside an area that is filled on screen (hatches and regions of
+ * any pattern, text, images, wipeouts, block reference extents).
+ */
+export function entityHitsPoint(entity, point, tolerance, entityMap = new Map()) {
+    if (!entity || !Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return false;
+    const bounds = normalizeBounds(point.x - tolerance, point.y - tolerance, point.x + tolerance, point.y + tolerance);
+    if (entityCrossesBounds(entity, bounds, entityMap)) return true;
+    if (!['hatch', 'region'].includes(entity.type)) return false;
+    return pointIsInsideHatch(point, hatchBoundarySegments(entity), entity.fillRule);
+}
+
+/**
  * Control points exposed by the selection tool. Rectangle grips are based on
  * normalized corners so negatively drawn rectangles behave identically.
  */
@@ -524,8 +537,7 @@ function entityCrossesBounds(entity, bounds, entityMap) {
         return getEntitySegments(entity).some(segment => segmentIntersectsBounds(segment[0], segment[1], bounds));
     }
     if (['hatch', 'region'].includes(entity.type)) {
-        const boundaries = getHatchBoundaryEntities(entity);
-        const segments = boundaries.map(getClosedBoundarySegments);
+        const segments = hatchBoundarySegments(entity);
         if (segments.some(loop => loop.some(segment => segmentIntersectsBounds(segment[0], segment[1], bounds)))) return true;
         if (!['solid', 'gradient', 'radial'].includes(entity.pattern?.name || 'solid')) return false;
         const corners = boundsCorners(bounds);
@@ -543,8 +555,36 @@ function entityCrossesBounds(entity, bounds, entityMap) {
     }
     if (entity.type === 'image' || entity.type === 'text') return boundsOverlap(getEntityBounds(entity, entityMap), bounds);
     if (entity.type === 'circle') return isFiniteBoundedCircle(entity) && circleIntersectsBounds(entity, bounds);
-    return dimensionSegments(entity, entityMap)
+    return cachedDimensionSegments(entity, entityMap)
         .some(segment => segmentIntersectsBounds(segment[0], segment[1], bounds));
+}
+
+// Entities are immutable between commits: repeated pointer and window tests
+// reuse their boundary segments instead of renormalizing curves each time.
+const hatchSegmentCache = new WeakMap();
+const dimensionSegmentCache = new WeakMap();
+
+function hatchBoundarySegments(entity) {
+    if (!hatchSegmentCache.has(entity)) hatchSegmentCache.set(entity, getHatchBoundaryEntities(entity).map(getClosedBoundarySegments));
+    return hatchSegmentCache.get(entity);
+}
+
+/** Dimension segments depend on their sources, so the cache is per source map. */
+function cachedDimensionSegments(entity, sources) {
+    let segments = dimensionSegmentCache.get(sources);
+    if (!segments) dimensionSegmentCache.set(sources, segments = new WeakMap());
+    if (!segments.has(entity)) segments.set(entity, dimensionSegments(entity, sources));
+    return segments.get(entity);
+}
+
+/** Extent of everything a dimension can be hit or selected by: lines, arcs, markers and text frame. */
+export function getDrawingDimensionSelectionBounds(entity, sources = new Map()) {
+    const points = cachedDimensionSegments(entity, sources).flat();
+    if (!points.length) return null;
+    return points.reduce((bounds, point) => ({
+        minX: Math.min(bounds.minX, point.x), minY: Math.min(bounds.minY, point.y),
+        maxX: Math.max(bounds.maxX, point.x), maxY: Math.max(bounds.maxY, point.y),
+    }), { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity });
 }
 
 function pointIsInBounds(point, bounds) {

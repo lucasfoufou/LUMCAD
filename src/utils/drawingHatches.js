@@ -86,11 +86,23 @@ function geometry(boundaries) {
 
 export function refreshDrawingHatches(content, previous = null) {
     if (!Array.isArray(content?.entities)) return content;
-    const sourceMap = new Map(content.entities.map(entity => [entity.id, entity]));
-    const oldMap = new Map((previous?.entities || []).map(entity => [entity.id, entity]));
+    // Index only associative hatches and their sources, not every entity.
+    const wanted = new Set();
+    for (const entity of content.entities) {
+        if (entity.type !== 'hatch' || !Array.isArray(entity.sourceIds) || !entity.sourceIds.length) continue;
+        wanted.add(entity.id);
+        entity.sourceIds.forEach(id => wanted.add(id));
+    }
+    if (!wanted.size) return content;
+    const indexWanted = entities => new Map((entities || []).filter(entity => wanted.has(entity.id)).map(entity => [entity.id, entity]));
+    const sourceMap = indexWanted(content.entities);
+    const oldMap = indexWanted(previous?.entities);
     let changed = false;
     const entities = content.entities.map(entity => {
         if (entity.type !== 'hatch' || !Array.isArray(entity.sourceIds) || !entity.sourceIds.length) return entity;
+        // Entities are immutable: an untouched hatch whose sources are untouched was
+        // already refreshed by the previous commit, so recomputing it cannot change it.
+        if (oldMap.get(entity.id) === entity && entity.sourceIds.every(id => sourceMap.get(id) === oldMap.get(id))) return entity;
         const sources = entity.sourceIds.map(id => sourceMap.get(id));
         const boundaries = sources.every(Boolean) ? entity.boundaryPick
             ? detectDrawingBoundary(sources, entity.boundaryPick)?.boundaries : buildHatchBoundaries(sources) : null;

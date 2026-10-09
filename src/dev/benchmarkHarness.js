@@ -1,4 +1,8 @@
 import { createDrawingBenchmarkDocument, DRAWING_BENCHMARK_FIXTURES } from '~utils/drawingBenchmarkFixtures';
+import { readLcadArchive } from '~utils/lcadArchive';
+
+// `FILE` benchmarks the .lcad served at ?file=<name> (see bench:browser --file).
+const FILE_FIXTURE = 'FILE';
 
 /**
  * Development-only interaction benchmark. It loads a synthetic fixture into a
@@ -38,7 +42,7 @@ export function installBenchmarkHarness({ loadDocument }) {
 
 function requestedAutorun() {
     const value = new URLSearchParams(window.location.search).get('bench') || import.meta.env.VITE_LUMCAD_BENCH_AUTORUN || '';
-    return value.split(',').map(size => size.trim()).filter(size => size in DRAWING_BENCHMARK_FIXTURES);
+    return value.split(',').map(size => size.trim()).filter(size => size in DRAWING_BENCHMARK_FIXTURES || size === FILE_FIXTURE);
 }
 
 async function runBenchmark(loadDocument, sizes) {
@@ -52,7 +56,12 @@ async function runBenchmark(loadDocument, sizes) {
         },
         fixtures: {},
     };
-    const selected = new URLSearchParams(window.location.search).get('scenarios')?.split(',') || null;
+    const query = new URLSearchParams(window.location.search);
+    const selected = query.get('scenarios')?.split(',') || null;
+    // With ?profile=1 each scenario is recorded as its own console profile (collected over CDP).
+    const profileScenarios = query.get('profile') === '1';
+    // With ?trace=1 scenario boundaries are marked in the DevTools timeline.
+    const traceScenarios = query.get('trace') === '1';
     const restorePointerCapture = tolerateSyntheticPointerCapture();
     try {
         for (const size of sizes) {
@@ -66,7 +75,11 @@ async function runBenchmark(loadDocument, sizes) {
                 const loadedDomNodes = document.getElementsByTagName('*').length;
                 const scenarios = {};
                 for (const [name, scenario] of Object.entries(SCENARIOS).filter(([name]) => !selected || selected.includes(name))) {
+                    if (profileScenarios) console.profile(`${size}-${name}`);
+                    if (traceScenarios) console.timeStamp(`lumcad-bench:start:${size}-${name}`);
                     scenarios[name] = await observeLongTasks(() => scenario(canvasSvg()));
+                    if (traceScenarios) console.timeStamp(`lumcad-bench:end:${size}-${name}`);
+                    if (profileScenarios) console.profileEnd(`${size}-${name}`);
                     await settle();
                     sampleMemory();
                 }
@@ -81,14 +94,19 @@ async function runBenchmark(loadDocument, sizes) {
     return results;
 }
 
+async function fixtureDocument(size) {
+    if (size !== FILE_FIXTURE) return createDrawingBenchmarkDocument(size);
+    const name = new URLSearchParams(window.location.search).get('file');
+    const response = await fetch(`./${encodeURIComponent(name || '')}`);
+    if (!response.ok) throw new Error(`Benchmark file ${name} could not be read.`);
+    return readLcadArchive(new Uint8Array(await response.arrayBuffer())).document;
+}
+
 async function loadFixture(loadDocument, size) {
-    const document = createDrawingBenchmarkDocument(size);
+    const document = await fixtureDocument(size);
     const start = performance.now();
     loadDocument(document);
-    await waitFor(() => {
-        const scene = canvasSvg()?.querySelector(':scope > .drawing-scene');
-        return scene && scene.childElementCount >= Math.min(document.content.entities.length, 50) && scene;
-    }, 120_000);
+    await waitFor(() => entityCount() >= Math.min(document.content.entities.length, 50), 120_000);
     await nextFrame();
     return { entities: document.content.entities.length, loadMs: round(performance.now() - start) };
 }
@@ -159,6 +177,20 @@ const SCENARIOS = {
         timings.push(await timed(() => key('Escape')));
         return { timings, checks: counts };
     },
+    lineClicks: async svg => {
+        // Rapid LINE vertices: each click must add its segment within the next frame.
+        clickTool('line');
+        await settle();
+        const before = entityCount();
+        const points = path(svg, 20);
+        const timings = await timeSequence(points, point => click(svg, point));
+        key('Escape');
+        await settle();
+        const added = entityCount() - before;
+        // Undo removes the last segment (one history entry per committed vertex).
+        timings.push(await timed(() => key('z', { ctrlKey: true }), () => entityCount() < before + added));
+        return { timings, checks: { added } };
+    },
     zoomedIn: async svg => {
         // Typical work happens zoomed into part of a plan: hover and pan there.
         const center = relativePoint(svg, 0.3, 0.45);
@@ -218,6 +250,8 @@ function statistics(timings) {
         median: round(sorted[Math.floor(sorted.length / 2)]),
         p95: round(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))]),
         max: round(sorted.at(-1)),
+        // Input order, so slow steps can be traced back to what the scenario did.
+        timings: timings.map(round),
     };
 }
 
@@ -262,11 +296,11 @@ function tolerateSyntheticPointerCapture() {
 }
 
 function entityCount() {
-    return canvasSvg()?.querySelector(':scope > .drawing-scene')?.childElementCount || 0;
+    return Number(canvasSvg()?.querySelector(':scope > .drawing-scene')?.dataset.renderedEntities) || 0;
 }
 
 function selectedCount() {
-    return canvasSvg()?.querySelectorAll(':scope > .drawing-scene > .is-selected').length || 0;
+    return canvasSvg()?.querySelectorAll(':scope > .drawing-scene-decorations > .is-selected').length || 0;
 }
 
 function canvasSvg() {

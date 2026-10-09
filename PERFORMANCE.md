@@ -1,6 +1,6 @@
 # Performance and reliability baseline
 
-- Last measured: 2026-10-09
+- Last measured: 2026-10-09 (overview and bulk-edit pass)
 - Scope: editor responsiveness, memory, and document size limits for large 2D drawings
 
 This document defines how LUMCAD performance is measured, the budgets that changes must respect, and the current baseline. Re-run the benchmarks and update the baseline when a change targets performance or alters rendering, snapping, selection, history, or persistence.
@@ -33,7 +33,7 @@ Fixtures are audit-clean and round-trip through `.lcad` (see `drawingBenchmarkFi
 | Command | What it measures |
 | --- | --- |
 | `npm run bench -- [S M L XL] [--json file]` | Headless document pipeline in Node: open/save archive, document serialization, history commit, snapping (including the first query after an edit), window selection, document heap. |
-| `npm run bench:browser -- [S M L XL] [--json file] [--chrome path] [--scenarios a,b] [--profile file.cpuprofile]` | Builds a benchmark-enabled production bundle, serves it, and replays real editor input in headless Chrome through the DevTools protocol. Requires a local Chrome (`CHROME_PATH` overrides the default location). `--profile` builds without minification, records a CPU profile and prints the functions with the highest self time. |
+| `npm run bench:browser -- [S M L XL] [--file drawing.lcad] [--json file] [--chrome path] [--scenarios a,b] [--profile file.cpuprofile] [--trace]` | Builds a benchmark-enabled production bundle, serves it, and replays real editor input in headless Chrome through the DevTools protocol. Requires a local Chrome (`CHROME_PATH` overrides the default location). `--profile` builds without minification, records one CPU profile per scenario (`file-<size>-<scenario>.cpuprofile`, fixture loading excluded) and prints the functions with the highest self time. `--trace` adds the main-thread timeline per scenario (style recalculation, layout, layerization, paint, hit testing), which a CPU profile only reports as `(program)`. JSON results include every step's duration in input order (`timings`). `--file` replays the scenarios on a real `.lcad` drawing (reported as size `FILE`). |
 
 The interactive harness (`src/dev/benchmarkHarness.js`) is installed only in development builds or when the bundle is built with `VITE_LUMCAD_BENCH=1`; production builds exclude it. It exposes `window.__LUMCAD_BENCH__.load(size)` and `window.__LUMCAD_BENCH__.run(['S', 'M'])` in the developer console. Fixtures load into a **sandboxed session**: autosave never writes the recovery file, so a benchmark never replaces the user's recovery draft.
 
@@ -47,6 +47,7 @@ Scenarios, all timed from the dispatched input to the next painted frame:
 | `pan` | Middle-button drag, 30 moves | — |
 | `windowSelect` | Click, 10 moves, click (CAD selection window) | Selected entity count |
 | `deleteUndoRedo` | Delete, undo, redo, undo | Entity counts before/after each step |
+| `lineClicks` | LINE active, 20 rapid vertex clicks, Escape, then undo of the last segment | Segments added |
 | `zoomedIn` | Zoom in 16 steps, 30 pointer moves and a 20-move pan, zoom back out | DOM nodes while zoomed in |
 
 On a 60 Hz display one frame is 16.7 ms, so a value close to 16.7 ms means the input was handled within the next frame; 33 ms means one dropped frame. Headless Chrome composites in software, so native compositing in the desktop app is cheaper than these figures.
@@ -209,3 +210,50 @@ After adding unattended file APIs and the E2E state probe, the document benchmar
 ### DXF/DWG regression check — 2026-10-09
 
 The [document pipeline](./benchmarks/cad-interchange-2026-10-09/document.json) completed for S/M/L/XL (XL archive open p95 275 ms, save p95 300 ms). The [browser S/M run](./benchmarks/cad-interchange-2026-10-09/browser-S-M.json) restored the full scene after bulk edits: M loads in 204 ms, hover p95 18.6 ms, snapping p95 20.7 ms, pan p95 29.5 ms and wheel zoom p95 51.3 ms. M bulk edit/undo/redo peaks at 151 ms. These results still exceed several interaction budgets; they do not establish that the overview/memory work is complete. Validation ran concurrently, so this is a regression check, not an isolated before/after performance claim. It does not measure large DXF/DWG conversion latency or native converter RAM.
+
+## Overview and bulk-edit pass — 2026-10-09
+
+### Changes
+
+- **Pointer picking uses the spatial index.** `pickDrawingEntity` finds the topmost rendered entity within 6 px (the former 12 px stroke hit area), including filled hatches of any pattern, text and image frames and block extents. The model scene takes no pointer events and renders no transparent hit shapes, so the browser no longer hit-tests every shape. The layout canvas keeps DOM hit shapes for its few paper annotations.
+- **One element per plain entity.** Model entities render their shape without a wrapper group. Selection outlines, hover previews and grips are drawn in a decoration layer above the scene, so selecting thousands of objects never remounts their shapes. Selection outlines are now always visible above other objects.
+- **Linear bulk restores.** Entities are grouped into contiguous chunks whose boundaries depend only on entity IDs (`drawingSceneChunks.js`). This avoids React 18's quadratic sibling search when thousands of shapes are re-inserted (undo of a bulk delete), while an ordinary edit still touches one chunk.
+- **Lighter text markup.** Single-line text renders no unused clip path, and a line made of one run styled like its text element renders without a nested `tspan`.
+- **No forced layout per pointer move.** Pointer coordinates come from a cached canvas rectangle instead of `getScreenCTM()`, which forced a synchronous layout of the whole scene on every move. The scene and symbol definitions keep their own cursor value, so cursor changes restyle one element instead of every shape.
+- **Selection hover without object snap.** With the select tool and no command, hover no longer computes object snaps (as in other CAD tools, snap markers belong to drawing commands). Intersection snapping caches each entity's normalized curve paths.
+- **Cached hit geometry.** Hatch boundary segments and dimension parts are cached per entity. Dimensions now have bounds in the selection index instead of being tested on every query.
+- **Cheaper history commits.** The associative hatch and arc-text refresh passes skip pairs whose entity and sources are unchanged, index only what they need, and new-dimension styling stops early when no unstyled dimension exists.
+
+- **Publication pages on demand.** AUTOPUBLISH and MCP `export_pdf` render every layout offscreen. These pages were mounted permanently and re-rendered all layouts and viewports on every edit, pan and zoom, even in model space. They are now mounted only while a PDF is produced (`useOnDemandPublishPages`). On a real 188-object drawing with 14 layouts and 21 viewports, DOM nodes fell from 16,625 to 968, a LINE vertex click from 51 ms (3 frames) to 17 ms, and pan/zoom medians from 23 to 17 ms (`npm run bench:browser -- --file drawing.lcad`).
+
+### Measurement notes
+
+The synthetic fixture's text labels used an invalid text mode and no frame, so each label wrapped one character per line inside a zero-width clip: about 13 invisible SVG elements per label. They now use single-line text with a frame. The before column below was re-measured on the previous commit with this corrected fixture, so both columns are comparable.
+
+The harness dispatches synthetic pointer events on the SVG element. With DOM picking their target was always the SVG, so hover highlighting never ran during the benchmark. Coordinate picking now exercises it: changing the hovered object costs about one extra frame at XL, and `hoverSelect` p95 includes that real work.
+
+### Before / after, same corrected fixture
+
+Headless Chrome 154, 1440 × 813, production bundles. Raw results: [before](./benchmarks/perf-pass-2026-10-09/before-L-XL.json), [after](./benchmarks/perf-pass-2026-10-09/after-L-XL.json), [document pipeline](./benchmarks/perf-pass-2026-10-09/document.json). Values are median / p95 / max in milliseconds.
+
+| Measure | L before | L after | XL before | XL after |
+| --- | ---: | ---: | ---: | ---: |
+| Load | 853 | 678 | 1,858 | 1,232 |
+| DOM nodes, overview | 71,816 | 26,660 | 178,203 | 65,657 |
+| Hover, select tool | 17 / 33 / 91 | 17 / 24 / 29 | 17 / 43 / 153 | 17 / 31 / 43 |
+| Hover, LINE with snaps | 17 / 30 / 203 | 17 / 19 / 86 | 17 / 45 / 482 | 17 / 25 / 311 |
+| Wheel zoom | 17 / 159 / 159 | 17 / 139 / 139 | 17 / 423 / 423 | 17 / 310 / 310 |
+| Pan | 17 / 55 / 153 | 17 / 38 / 134 | 18 / 393 / 475 | 17 / 86 / 293 |
+| Window selection | 93 / 123 / 123 | 84 / 108 / 108 | 251 / 421 / 421 | 241 / 348 / 348 |
+| Delete / undo / redo | 103 / 818 / 818 | 82 / 426 / 426 | 230 / 3,999 / 3,999 | 169 / 1,006 / 1,006 |
+| History commit, one entity (`npm run bench`, median) | 12.6 | 3.0 | 35.3 | 7.1 |
+
+The sampled JS-heap peak fell from 608 to 490 MiB at L. At XL it varied between 1,063 and 1,343 MiB across runs, so no XL memory gain is claimed. In a single S → XL document run, garbage collection inflates the XL window-selection query (about 24 ms against 9 ms when XL runs alone); the query itself is unchanged.
+
+### Remaining findings
+
+- The frame that settles a pan or zoom still re-lays out every visible shape when the SVG viewBox changes: about 140 ms at L and 300 ms at XL in a full overview. Further gains need fewer shapes in overview (level of detail for sub-pixel text and dimensions) or a canvas renderer for the static scene.
+- Bulk restore at XL still takes about 1 s, now dominated by DOM creation and style/layout of 50,000 shapes.
+- XL window-selection preview re-renders thousands of decorations per pointer move.
+- Native WKWebView timings and resident memory have not been re-measured; the figures above are headless Chrome.
+

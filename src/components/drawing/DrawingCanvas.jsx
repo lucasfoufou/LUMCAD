@@ -66,7 +66,7 @@ import {
 } from '~utils/drawingGeometry';
 import {
     drawingSelectionCandidates,
-    entityIdFromDrawingEvent,
+    pickDrawingEntity,
     getInteractiveOperationPointMode,
     getTrimExtendPointMode,
     isDimensionableDrawingEntity,
@@ -150,6 +150,9 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const { t } = useI18n();
     const svgRef = useRef(null);
     const wrapperRef = useRef(null);
+    // Client rectangle of the canvas, refreshed on resize/scroll and pointer entry.
+    // Reading it per pointer move would force a synchronous layout of the whole scene.
+    const canvasRectRef = useRef(null);
     const [viewBox, setViewBox] = useState(() => fitViewBox(content));
     // The SVG is re-rendered for `renderedViewBox`; during pan/zoom gestures a
     // composited CSS transform shows the logical `viewBox` until the view settles.
@@ -174,6 +177,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const rememberedCreationConfigsRef = useRef(new Map());
     const pendingCreationRef = useRef(null);
     const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+    const entityById = useMemo(() => new Map(content.entities.map(entity => [entity.id, entity])), [content.entities]);
     const editingText = useMemo(() => (
         content.entities.find(entity => entity.id === editingTextId && entity.type === 'text') || null
     ), [content.entities, editingTextId]);
@@ -188,12 +192,20 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     useEffect(() => {
         const canvas = svgRef.current;
         if (!canvas || typeof ResizeObserver === 'undefined') return undefined;
+        const measure = () => { canvasRectRef.current = (wrapperRef.current || canvas).getBoundingClientRect(); };
         const observer = new ResizeObserver(([entry]) => {
             const { width, height } = entry.contentRect;
             if (width > 0 && height > 0) setCanvasSize({ width, height });
+            measure();
         });
         observer.observe(canvas);
-        return () => observer.disconnect();
+        window.addEventListener('resize', measure);
+        window.addEventListener('scroll', measure, true);
+        return () => {
+            observer.disconnect();
+            window.removeEventListener('resize', measure);
+            window.removeEventListener('scroll', measure, true);
+        };
     }, []);
 
     useEffect(() => {
@@ -871,6 +883,13 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             clientX: Number.isFinite(event.clientX) ? event.clientX : Number(event.pageX) - window.scrollX,
             clientY: Number.isFinite(event.clientY) ? event.clientY : Number(event.pageY) - window.scrollY,
         };
+        // The wrapper is never transformed, so its rectangle maps to the logical
+        // viewBox even while a deferred pan/zoom transforms the rendered SVG.
+        const rect = canvasRectRef.current;
+        if (rect?.width > 0 && rect.height > 0) {
+            const point = clientPointToViewBox(pointer, rect, viewBox);
+            if (Number.isFinite(point.x) && Number.isFinite(point.y)) return point;
+        }
         if (renderedViewBox !== viewBox && wrapperRef.current) {
             const point = clientPointToViewBox(pointer, wrapperRef.current.getBoundingClientRect(), viewBox);
             if (Number.isFinite(point.x) && Number.isFinite(point.y)) return point;
@@ -891,6 +910,9 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     };
 
     const worldUnitsPerPixel = getViewBoxWorldUnitsPerPixel(viewBox, canvasSize);
+    // Hit area of 6 px around the pointer, matching the former 12 px stroke hit shapes.
+    const pickEntityId = event => pickDrawingEntity(sceneContent, worldPoint(event), worldUnitsPerPixel * 6,
+        { hiddenIds: sceneHiddenIds, hitOnlyIds: sceneHitOnlyIds });
     const renderedUnitsPerPixel = getViewBoxWorldUnitsPerPixel(renderedViewBox, canvasSize);
     const viewTransform = drawingViewBoxScreenTransform(renderedViewBox, viewBox, canvasSize);
     const renderedArea = useMemo(() => drawingVisibleViewBox(renderedViewBox, canvasSize), [renderedViewBox, canvasSize]);
@@ -994,7 +1016,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         if (event.button === 2) return;
         const gripTarget = event.target.closest?.('[data-grip-id]');
         const gripId = gripTarget?.dataset?.gripId || null;
-        const targetId = gripTarget?.dataset?.entityId || entityIdFromDrawingEvent(event);
+        const targetId = gripTarget?.dataset?.entityId || pickEntityId(event);
         const targetEntity = content.entities.find(entity => entity.id === targetId);
 
         if (event.button === 1 || activeTool === 'pan' || spacePressed) {
@@ -1165,7 +1187,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             return;
         }
         if (gesture?.kind === 'pan') {
-            const rect = (wrapperRef.current || svgRef.current).getBoundingClientRect();
+            const rect = canvasRectRef.current || (wrapperRef.current || svgRef.current).getBoundingClientRect();
             const dx = (event.clientX - gesture.clientX) / rect.width * gesture.viewBox.width;
             const dy = (event.clientY - gesture.clientY) / rect.height * gesture.viewBox.height;
             deferViewRenderRef.current = true;
@@ -1193,7 +1215,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         }
         if (interactiveOperation && interactiveOperation.stage !== 'select') {
             if (trimExtendTypes.has(interactiveOperation.type)) {
-                const targetId = entityIdFromDrawingEvent(event);
+                const targetId = pickEntityId(event);
                 const pointMode = getTrimExtendPointMode(interactiveOperation.type, {
                     shift: event.shiftKey,
                     targetId,
@@ -1208,7 +1230,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             }
             if (cornerOperationTypes.has(interactiveOperation.type)) {
                 const point = worldPoint(event);
-                const targetId = entityIdFromDrawingEvent(event);
+                const targetId = pickEntityId(event);
                 setHoveredEntityId(targetId || null);
                 setOperationPoint(point);
                 setHoverSnap(null);
@@ -1216,7 +1238,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             }
             if (breakStretchLengthenTypes.has(interactiveOperation.type)) {
                 const point = interactivePoint(event);
-                const targetId = entityIdFromDrawingEvent(event);
+                const targetId = pickEntityId(event);
                 const targetStage = ['break-first', 'break-at-point', 'lengthen-pick'].includes(interactiveOperation.stage);
                 setHoveredEntityId(targetStage ? targetId || null : null);
                 setOperationPoint(point);
@@ -1253,11 +1275,13 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             showPointerFeedback(snapped);
             return;
         }
-        const snapped = snapPoint(event);
+        // Without a command, selection hover needs no object snap: as in other CAD
+        // tools, snap markers and tracking acquisition belong to drawing commands.
+        const snapped = activeTool === 'select' ? worldPoint(event) : snapPoint(event);
         setOperationPoint(snapped);
         showPointerFeedback(snapped);
-        const targetId = entityIdFromDrawingEvent(event);
-        const target = content.entities.find(entity => entity.id === targetId);
+        const targetId = pickEntityId(event);
+        const target = targetId ? entityById.get(targetId) : null;
         const selectionHover = activeTool === 'select' && target && canSelectEntity(content, target);
         const dimensionHover = activeTool === 'dimension' && isDimensionableDrawingEntity(target) && !isDimensionPointSnap(snapped);
         setHoveredEntityId(selectionHover || dimensionHover ? targetId : null);
@@ -1620,7 +1644,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
 
     const beginTextEditingFromEvent = event => {
         if (activeTool !== 'select' || interactiveOperation) return;
-        const entityId = entityIdFromDrawingEvent(event);
+        const entityId = pickEntityId(event);
         const entity = content.entities.find(candidate => candidate.id === entityId);
         if (entity?.type !== 'text' || !canEditEntity(content, entity)) return;
         event.preventDefault();
@@ -1641,7 +1665,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     return (
         <div
             ref={wrapperRef}
-            className={`drawing-canvas is-tool-${activeTool}${hoverSnap ? ' has-snap-marker' : ''}`}
+            className={`drawing-canvas is-tool-${activeTool}${hoverSnap ? ' has-snap-marker' : ''}${hoveredEntityId ? ' is-entity-hovered' : ''}`}
             onPointerDownCapture={blurCreationControlBeforeDrawing}
         >
             <svg
@@ -1655,6 +1679,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 onPointerUp={handlePointerUp}
                 onDoubleClick={beginTextEditingFromEvent}
                 onPointerCancel={() => setGesture(null)}
+                onPointerEnter={() => { canvasRectRef.current = (wrapperRef.current || svgRef.current).getBoundingClientRect(); }}
                 onPointerLeave={() => {
                     if (interactiveOperation && !gesture) setOperationPoint(null);
                     setHoveredEntityId(null);
@@ -1678,6 +1703,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                     previewSelectedIds={previewSelectedIds}
                     highlightedIds={sceneHighlightedIds}
                     interactive
+                    hitShapes={false}
                     dimensionTextSize={Math.max(0.18, renderedViewBox.width / 85)}
                     draftEntities={sceneDraftEntities}
                     showGrips={activeTool === 'select' && !interactiveOperation}

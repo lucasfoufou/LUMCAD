@@ -56,6 +56,7 @@ import useDrawingTableFiles from '~hooks/useDrawingTableFiles';
 import useDrawingWmf from '~hooks/useDrawingWmf';
 import useDrawingDgn from '~hooks/useDrawingDgn';
 import useDrawingCad from '~hooks/useDrawingCad';
+import useOnDemandPublishPages from '~hooks/useOnDemandPublishPages';
 import useDrawingDataExtraction from '~hooks/useDrawingDataExtraction';
 import { manageDrawingAttributes, parseDrawingAttributeManagerInput } from '~utils/drawingAttributeManager';
 import { defineDrawingAttribute, editDrawingAttribute, syncDrawingAttributes } from '~utils/drawingAttributeOperations';
@@ -205,7 +206,7 @@ export default function DrawingEditorWorkspace({
     const imageInputRef = useRef(null);
     const blockSelectionRef = useRef([]);
     const blockViewContextRef = useRef(null);
-    const publishRendererRef = useRef(null);
+    const publishPages = useOnDemandPublishPages();
     const inputVariablesRef = useRef({});
     const previousLocaleRef = useRef(locale);
     const hasAppliedRotationRef = useRef(false);
@@ -320,7 +321,7 @@ export default function DrawingEditorWorkspace({
         filePath,
         recovered,
         onReplaceSession,
-        publishRendererRef,
+        withPublishPages: publishPages.withPublishPages,
         setMessage,
         blockEditing: Boolean(blockEditor.session),
     });
@@ -2815,7 +2816,7 @@ export default function DrawingEditorWorkspace({
     };
 
     const mcpFiles = useMcpFiles({ document, blockEditing: Boolean(blockEditor.session), onReplaceSession,
-        setFilePath: handlePathChange, rendererRef: publishRendererRef, protectedPaths: recoverySourcePaths });
+        setFilePath: handlePathChange, withPublishPages: publishPages.withPublishPages, protectedPaths: recoverySourcePaths });
     useLumcadMcpBridge({
         ...mcpFiles,
         getState: () => ({
@@ -3130,7 +3131,7 @@ export default function DrawingEditorWorkspace({
                 <Input ref={imageInputRef} type="file" accept="image/*" hidden onChange={handleImageFile} disabled={isUploading} />
                 {isUploading && <div className="drawing-upload-indicator">{t('messages.importingImage')}</div>}
             </div>
-            <DrawingPublishRenderer ref={publishRendererRef} drawing={document} layouts={layouts} />
+            {publishPages.active && <DrawingPublishRenderer ref={publishPages.rendererRef} drawing={document} layouts={layouts} />}
             <DrawingModelExportRenderer request={wmf.renderRequest} />
             <DrawingModelExportRenderer request={imageExport.request} />
             {sheetSet.publication.request && <DrawingPublishRenderer
