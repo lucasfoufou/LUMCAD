@@ -21,7 +21,7 @@ const LCAD_MIN_READABLE_FORMAT_VERSION: u64 = 1;
 const LCAD_MANIFEST_PATH: &str = "manifest.json";
 const LCAD_ASSET_DIRECTORY: &str = "assets/";
 const RECOVERY_FILENAME: &str = "recovery.lcad";
-const MAX_MANIFEST_BYTES: usize = 8 * 1024 * 1024;
+const MAX_MANIFEST_BYTES: usize = 64 * 1024 * 1024;
 const MAX_ASSET_BYTES: usize = 25 * 1024 * 1024;
 const MAX_TOTAL_ASSET_BYTES: usize = 200 * 1024 * 1024;
 const MAX_ASSET_COUNT: usize = 512;
@@ -338,7 +338,7 @@ fn write_archive<W: Write + Seek>(
     manifest: &Value,
     assets: &[(String, Vec<u8>)],
 ) -> Result<W, String> {
-    let mut manifest_bytes = serde_json::to_vec_pretty(manifest)
+    let mut manifest_bytes = serde_json::to_vec(manifest)
         .map_err(|error| storage_error("serialize_drawing", None, Some(error.to_string()), None))?;
     manifest_bytes.push(b'\n');
     if manifest_bytes.len() > MAX_MANIFEST_BYTES {
@@ -1792,5 +1792,36 @@ mod tests {
             .file_name()
             .to_string_lossy()
             .ends_with(".tmp")));
+    }
+
+    #[test]
+    fn writes_compact_manifests_for_drawings_beyond_the_former_limit() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("large.lcad");
+        let entities: Vec<Value> = (0..150_000)
+            .map(|index| json!({ "id": format!("line-{index}"), "type": "line", "layerId": "geometry", "x1": index, "y1": 0, "x2": index, "y2": 1 }))
+            .collect();
+        let mut envelope = valid_envelope("Large");
+        envelope["document"]["content"]["entities"] = Value::Array(entities);
+        assert!(serde_json::to_vec_pretty(&envelope).unwrap().len() > 8 * 1024 * 1024);
+        atomic_write(&path, &envelope).unwrap();
+
+        let mut archive = ZipArchive::new(std::io::Cursor::new(fs::read(&path).unwrap())).unwrap();
+        let mut manifest = String::new();
+        archive.by_name(LCAD_MANIFEST_PATH).unwrap().read_to_string(&mut manifest).unwrap();
+        assert!(!manifest.contains("\n "));
+        let loaded = read_envelope(&path).unwrap();
+        assert_eq!(loaded["document"]["content"]["entities"].as_array().unwrap().len(), 150_000);
+    }
+
+    #[test]
+    fn refuses_to_write_manifests_above_the_safety_limit() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("oversized.lcad");
+        let mut envelope = valid_envelope("Oversized");
+        envelope["document"]["content"]["note"] = Value::String("x".repeat(MAX_MANIFEST_BYTES));
+        let error = atomic_write(&path, &envelope).unwrap_err();
+        assert!(error.contains("manifest_too_large"));
+        assert!(!path.exists());
     }
 }

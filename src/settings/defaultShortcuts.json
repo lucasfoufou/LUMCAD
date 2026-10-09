@@ -8,6 +8,7 @@
     {"shortcut":"MOD+C","command":"@copy"},
     {"shortcut":"MOD+X","command":"@cut"},
     {"shortcut":"MOD+V","command":"@paste"},
+    {"shortcut":"MOD+K","command":"@searchCommand"},
     {"shortcut":"DELETE","command":"@delete"},
     {"shortcut":"BACKSPACE","command":"@delete"},
     {"shortcut":"F3","command":"@toggleSnaps"},

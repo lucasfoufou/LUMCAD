@@ -1,6 +1,8 @@
 import { commitDrawingHistoryState, undoDrawingHistoryState, redoDrawingHistoryState, updateDrawingHistoryMetadata } from '~utils/drawingHistory';
 import { useCallback, useState } from 'react';
 
+const NO_PAGE_SETUPS = Object.freeze([]);
+
 export default function useDrawingHistory(initialContent) {
     const documentMode = isDocumentHistoryState(initialContent);
     const [history, setHistory] = useState({ past: [], present: initialContent, future: [], coalesceKey: null });
@@ -73,7 +75,7 @@ export default function useDrawingHistory(initialContent) {
         updateMetadata,
         content: documentMode ? history.present.content : history.present,
         layouts: documentMode ? history.present.layouts : null,
-        pageSetups: documentMode ? history.present.pageSetups || [] : null,
+        pageSetups: documentMode ? history.present.pageSetups || NO_PAGE_SETUPS : null,
         documentState: documentMode ? history.present : null,
         commit,
         commitDocument: commitPresent,

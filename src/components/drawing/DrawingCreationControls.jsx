@@ -9,6 +9,7 @@ import { rebuildDrawingLinework, normalizeDrawingMultilineStyles } from '~utils/
 import { DRAWING_POINT_STYLES, normalizeDrawingPointStyle } from '~utils/drawingPoints';
 import { getDrawingOperationOptionSuggestions } from '~utils/drawingOperationOptions';
 import { getDrawingCreationOptionSuggestions } from '~utils/drawingCreation';
+import { getDrawingCommandDefinition } from '~utils/drawingCommands';
 import { getEntityBounds } from '~utils/drawingGeometry';
 import { translateEntity } from '~utils/drawingPrimitives';
 import { normalizeImageAdjustments } from '~utils/drawingImageAdjustments';
@@ -56,7 +57,8 @@ export default function DrawingCreationControls({
     const contextual = !editMode && (operation || activeTool !== 'select');
     if (!supportsDrawingCreationPanel(panelTool) && !contextual) return null;
 
-    const toolLabel = operation ? t('creation.context') : editEntity?.arcText ? t('commands.arcText') : editEntity?.tolerance ? t('commands.tolerance') : editEntity?.table ? t('commands.table') : t(`${editMode ? 'entity' : 'commands'}.${panelTool}`);
+    const operationLabelKey = operation ? getDrawingCommandDefinition(operation.type)?.labelKey : null;
+    const toolLabel = operation ? t(operationLabelKey || 'creation.context') : editEntity?.arcText ? t('commands.arcText') : editEntity?.tolerance ? t('commands.tolerance') : editEntity?.table ? t('commands.table') : t(`${editMode ? 'entity' : 'commands'}.${panelTool}`);
     const updateOptions = patch => onChange({
         mode,
         options: patchCreationOptions(options, patch),
@@ -78,7 +80,7 @@ export default function DrawingCreationControls({
         >
             <header>
                 <strong>{editMode ? t('creation.editSelected', { tool: toolLabel }) : toolLabel}</strong>
-                {!editMode && (
+                {!editMode && !operation && (
                     <button type="button" onClick={() => onChange(createDefaultDrawingCreationConfig(activeTool))}>
                         {t('creation.reset')}
                     </button>
@@ -112,24 +114,17 @@ export default function DrawingCreationControls({
     );
 }
 
+// Command options as chips: choosing one starts it in the command line, where
+// its value is typed. The command line remains the single text input.
 function ContextFields({ operation, activeTool, input, onCancel, t }) {
     const suggestions = operation ? getDrawingOperationOptionSuggestions(operation, '')
         : getDrawingCreationOptionSuggestions(activeTool, '');
-    return <form className="drawing-creation-context" onSubmit={event => { event.preventDefault(); input.onSubmit?.(input.value); }}>
-        {suggestions.length > 0 && <label className="drawing-creation-field">
-            <span>{t('creation.contextOption')}</span>
-            <select value="" onChange={event => input.onChange(`${event.target.value} `)}>
-                <option value="">{t('creation.contextOption')}</option>
-                {suggestions.map(option => <option key={option.command || option.name} value={option.completion}>{t(option.labelKey)}</option>)}
-            </select>
-        </label>}
-        <label className="drawing-creation-field"><span>{t('creation.contextInput')}</span>
-            <input value={input.value || ''} onChange={event => input.onChange(event.target.value)} /></label>
-        <div className="drawing-layout-sidebar-actions">
-            <button type="submit">{t('commandBar.enter')}</button>
-            {onCancel && <button type="button" onClick={onCancel}>{t('settings.cancel')}</button>}
-        </div>
-    </form>;
+    const choose = option => (input.focus ? input.focus(`${option.completion} `) : input.onChange(`${option.completion} `));
+    return <div className="drawing-creation-context" role="group" aria-label={t('creation.contextOption')}>
+        {suggestions.map(option => <button type="button" className="ui-button is-small" key={option.command || option.name}
+            onClick={() => choose(option)}>{t(option.labelKey)}</button>)}
+        {onCancel && <button type="button" className="ui-button is-small is-ghost" onClick={onCancel}>{t('settings.cancel')}<kbd>Esc</kbd></button>}
+    </div>;
 }
 
 function CreationFields({ activeTool, mode, options, textStyles, t, onModeChange, onChange }) {

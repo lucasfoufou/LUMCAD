@@ -18,7 +18,7 @@ The current writer creates exactly one `manifest.json` entry and one `assets/…
 
 ## `manifest.json`
 
-The manifest is UTF-8 JSON. Its top-level structure is:
+The manifest is UTF-8 JSON. Writers emit compact JSON (no indentation) followed by a newline; readers accept any valid JSON whitespace, so earlier indented manifests remain readable. Its top-level structure is:
 
 ```json
 {
@@ -372,7 +372,7 @@ decoder resources are bundled locally; no remote resource service is used.
 
 The desktop and browser readers apply the same limits:
 
-- manifest: 8 MiB maximum;
+- manifest: 64 MiB maximum (8 MiB before 2026-10-08; LUMCAD builds from before that date refuse larger manifests);
 - one asset: 25 MiB maximum;
 - all assets: 200 MiB maximum;
 - embedded assets: 512 maximum;

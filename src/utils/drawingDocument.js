@@ -350,8 +350,9 @@ export function updateSelectedEntities(content, selectedIds, updater) {
 
 export function transformSelectedEntities(content, selectedIds, updater, { copy = false } = {}) {
     const sources = getTransformSelectionEntities(content, selectedIds);
+    const requestedIds = new Set(selectedIds || []);
     const editableSourceIds = new Set(sources
-        .filter(entity => (selectedIds || []).includes(entity.id))
+        .filter(entity => requestedIds.has(entity.id))
         .map(entity => entity.id));
     if (!sources.length) return { changed: false, content, selectedIds: selectedIds || [], entities: [] };
     const originalById = new Map(sources.map(entity => [entity.id, entity]));

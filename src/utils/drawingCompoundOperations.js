@@ -192,6 +192,7 @@ export function mirrorDrawingEntities(content, entityIds, axisFirst, axisSecond,
     if (!originals.length) return { changed: false, content, selectedIds: entityIds || [], reason: 'empty' };
     if (replace) {
         const selected = new Set(originals.map(entity => entity.id));
+        const requested = new Set(entityIds || []);
         return {
             changed: true,
             content: {
@@ -200,7 +201,7 @@ export function mirrorDrawingEntities(content, entityIds, axisFirst, axisSecond,
                     ? mirrorEntity(entity, axisFirst, axisSecond, { mirrorTextGlyphs })
                     : entity),
             },
-            selectedIds: originals.filter(entity => (entityIds || []).includes(entity.id)).map(entity => entity.id),
+            selectedIds: originals.filter(entity => requested.has(entity.id)).map(entity => entity.id),
         };
     }
 

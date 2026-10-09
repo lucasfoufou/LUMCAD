@@ -26,6 +26,7 @@ const fr = {
     'commandPreferences.action.cut': 'Couper',
     'commandPreferences.action.paste': 'Coller',
     'commandPreferences.action.delete': 'Supprimer la sélection',
+    'commandPreferences.action.searchCommand': 'Rechercher une commande',
     'commandPreferences.action.toggleSnaps': 'Basculer les accrochages',
     'commandPreferences.action.toggleOrtho': 'Basculer le mode orthogonal',
     'commandPreferences.action.togglePolar': 'Basculer le suivi polaire',
@@ -1100,6 +1101,7 @@ const fr = {
 
     'commands.blockSearch': 'Rechercher des blocs',
     'block.palette': 'Blocs',
+    'block.libraries': 'Bibliothèques de blocs',
     'block.search': 'Rechercher un bloc',
     'block.name': 'Nom du nouveau bloc',
     'block.keepSources': 'Conserver les objets sources',
@@ -1212,6 +1214,7 @@ const fr = {
 
     'header.drawingName': 'Nom du dessin',
     'header.noFile': 'Aucun fichier',
+    'header.editActions': 'Édition',
     'header.fileActions': 'Fichier',
     'header.new': 'Nouveau',
     'header.open': 'Ouvrir',
@@ -1275,6 +1278,7 @@ const fr = {
     'toolbar.zoomOut': 'Zoom arrière',
     'toolbar.fit': 'Afficher tout',
     'toolbar.importImage': 'Importer une image',
+    'toolbar.moreTools': 'Autres outils de la famille {{tool}}',
 
     'creation.controls': 'Options de création — {{tool}}',
     'creation.editSelected': 'Modifier la sélection — {{tool}}',
@@ -2023,6 +2027,12 @@ const fr = {
     'operations.explode': 'DÉCOMPOSER',
     'operations.xplode': 'XPLODE',
 
+    'status.snap': 'Accrochage',
+    'status.grid': 'Grille',
+    'status.ortho': 'Ortho',
+    'status.polar': 'Polaire',
+    'status.tracking': 'Repérage',
+    'status.view': 'Vue',
     'snap.controls': 'Magnétismes',
     'snap.grid': 'Grille',
     'snap.endpoint': 'Extrémité',
@@ -2071,6 +2081,11 @@ const fr = {
     'arrayControls.xSpacing': 'Pas X',
     'arrayControls.ySpacing': 'Pas Y',
 
+    'sidebar.properties': 'Propriétés',
+    'sidebar.library': 'Bibliothèque',
+    'sidebar.manage': 'Gérer',
+    'sidebar.closeManager': 'Fermer',
+    'sidebar.layerDetails': 'Détails du calque',
     'sidebar.layers': 'Calques',
     'sidebar.selection': 'Sélection',
     'sidebar.textStyles': 'Styles de texte',

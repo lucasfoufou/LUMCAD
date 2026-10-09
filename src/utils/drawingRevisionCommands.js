@@ -14,7 +14,8 @@ export function createDrawingRevision(content, definition, sourceId = null) {
 }
 
 export function editDrawingRevision(content, ids, patch) {
-    const selected = content.entities.filter(entity => ids.includes(entity.id));
+    const idSet = new Set(ids);
+    const selected = content.entities.filter(entity => idSet.has(entity.id));
     if (!selected.length || selected.some(entity => entity.revisionSymbol?.kind !== 'cloud' || !canEditEntity(content, entity))) return { error: 'selection' };
     const replacements = new Map();
     for (const entity of selected) {

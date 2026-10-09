@@ -34,8 +34,11 @@ import { DRAWING_QDIM_GRIP_IDS } from '~utils/drawingDimensions';
 import { getDrawingTextLayout } from '~utils/drawingText';
 import { affineMatrixToSvg, getDrawingBlockReferenceBounds, inverseAffineViewBox, resolveDrawingBlockChild } from '~utils/drawingBlocks';
 import { getDrawingEntityRenderMode } from '~utils/drawingInteraction';
+import { drawingEntityRenderBounds, drawingEntityViewportChanged } from '~utils/drawingViewportDependence';
+import { createDrawingIndexCache, createDrawingSpatialIndex } from '~utils/drawingSpatialIndex';
+import useStableArray from '~hooks/useStableArray';
 
-export default function DrawingScene({
+function DrawingScene({
     content,
     assets = [],
     selectedIds = [],
@@ -51,13 +54,19 @@ export default function DrawingScene({
     hitOnlyIds = [],
     hiddenLayerIds = [],
     viewBox = null,
+    cullArea = null,
 }) {
     const { locale, t } = useI18n();
-    const draftList = useMemo(() => applyCurrentStyleToNewDimensions({ ...content, entities: [...(draftEntity ? [draftEntity] : []), ...draftEntities] }, content).entities, [content, draftEntities, draftEntity]);
+    const stableDraftEntities = useStableArray(draftEntities);
+    const draftList = useMemo(() => (draftEntity || stableDraftEntities.length
+        ? applyCurrentStyleToNewDimensions({ ...content, entities: [...(draftEntity ? [draftEntity] : []), ...stableDraftEntities] }, content).entities
+        : []), [content, stableDraftEntities, draftEntity]);
     const layerMap = useMemo(() => new Map(content.layers.map(layer => [layer.id, layer])), [content.layers]);
     const entityMap = useMemo(() => createDimensionSourceMap(content.entities, content.blocks, content), [content.entities, content.blocks, content.layers, content.textStyles]);
     const blockMap = useMemo(() => new Map((content.blocks || []).map(block => [block.id, block])), [content.blocks]);
-    const renderEntityMap = useMemo(() => createDimensionSourceMap([...new Map([...entityMap, ...draftList.map(entity => [entity.id, entity])]).values()], content.blocks, content), [draftList, entityMap, content.blocks, content.layers, content.textStyles]);
+    const renderEntityMap = useMemo(() => (draftList.length
+        ? createDimensionSourceMap([...new Map([...entityMap, ...draftList.map(entity => [entity.id, entity])]).values()], content.blocks, content)
+        : entityMap), [draftList, entityMap, content.blocks, content.layers, content.textStyles]);
     const assetMap = useMemo(() => new Map(assets.map(asset => [asset.id, asset])), [assets]);
     const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
     const selectedQdimGripSeries = useMemo(() => {
@@ -84,16 +93,25 @@ export default function DrawingScene({
         viewBox?.height,
     ]);
 
+    const visiblePositions = useMemo(() => {
+        if (!cullArea) return null;
+        const index = cullIndexCache([content.entities], () => createDrawingSpatialIndex(content.entities, drawingEntityRenderBounds));
+        const marginX = cullArea.width * CULL_MARGIN_RATIO;
+        const marginY = cullArea.height * CULL_MARGIN_RATIO;
+        return new Set(index.query({ minX: cullArea.x - marginX, minY: cullArea.y - marginY, maxX: cullArea.x + cullArea.width + marginX, maxY: cullArea.y + cullArea.height + marginY }));
+    }, [cullArea, content.entities]);
+
     return (
         <g className="drawing-scene">
-            {content.entities.map(entity => {
+            {content.entities.map((entity, position) => {
+                if (visiblePositions && !visiblePositions.has(position)) return null;
                 const renderMode = getDrawingEntityRenderMode(entity.id, hidden, hitOnly);
                 if (renderMode === 'hidden' || isDrawingObjectHidden(content, entity.id)) return null;
                 const visualHidden = renderMode === 'hit-only';
                 const layer = layerMap.get(entity.layerId);
                 if (!isDrawingLayerVisible(layer) || hiddenLayers.has(entity.layerId)) return null;
                 return (
-                    <DrawingEntity
+                    <MemoDrawingEntity
                         key={entity.id}
                         entity={entity}
                         sources={entityMap}
@@ -287,6 +305,47 @@ function DrawingEntity({
         </g>
     );
 }
+
+export default React.memo(DrawingScene);
+
+// Interactive scenes skip entities outside the visible area (plus a margin).
+const CULL_MARGIN_RATIO = 0.1;
+const cullIndexCache = createDrawingIndexCache();
+
+/** Pointer-hover outline drawn above the scene, independent of its memoized entities. */
+export const DrawingHighlightLayer = React.memo(function DrawingHighlightLayer({ content, entityId, viewBox }) {
+    const entityMap = useMemo(() => createDimensionSourceMap(content.entities, content.blocks, content), [content.entities, content.blocks, content.layers, content.textStyles]);
+    const entity = entityId ? content.entities.find(item => item.id === entityId) : null;
+    if (!entity) return null;
+    return (
+        <g className="drawing-highlight-layer" pointerEvents="none">
+            <SelectionShape entity={resolveDrawingPlotEntityDetails(entity, content.layers.find(layer => layer.id === entity.layerId))}
+                sources={entityMap} viewBox={viewBox} preview />
+        </g>
+    );
+});
+
+const VISUAL_PROPS = ['entity', 'asset', 'selected', 'highlighted', 'editable', 'interactive', 'draft', 'showGrips', 'visualHidden',
+    'nested', 'block', 'blockMap', 'assetMap', 'layerMap', 'hiddenLayers', 'textStyles', 'attributeDisplay', 'locale', 't', 'visitedBlockIds'];
+const APPEARANCE_FIELDS = ['color', 'lineWeight', 'lineType', 'transparency'];
+
+/**
+ * Model entities re-render only when something they draw changes. Viewport,
+ * source-map and zoom-dependent props are compared only for the entities whose
+ * output depends on them, so hover, pan and zoom touch a small subset.
+ */
+function sameDrawingEntityProps(previous, next) {
+    if (VISUAL_PROPS.some(key => previous[key] !== next[key])) return false;
+    if (APPEARANCE_FIELDS.some(key => previous.appearance?.[key] !== next.appearance?.[key])) return false;
+    if (next.showGrips && previous.gripSize !== next.gripSize) return false;
+    const { entity } = next;
+    const dimension = isDrawingDimensionEntity(entity);
+    if (previous.sources !== next.sources && (dimension || getDrawingEntityDependencyIds(entity).length)) return false;
+    if (previous.dimensionTextSize !== next.dimensionTextSize && (dimension || entity.type === 'blockReference')) return false;
+    return !drawingEntityViewportChanged(entity, previous.viewBox, next.viewBox, next.blockMap);
+}
+
+const MemoDrawingEntity = React.memo(DrawingEntity, sameDrawingEntityProps);
 
 function BlockReferenceGeometry({
     reference,

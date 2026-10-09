@@ -15,11 +15,11 @@
   width: min(780px, 100%);
   max-height: min(820px, calc(100vh - 4rem));
   overflow: hidden;
-  border: 1px solid rgba(#fff, 0.13);
+  border: 1px solid var(--line);
   border-radius: 14px;
-  background: #f5f7f8;
-  box-shadow: 0 30px 80px rgba(#000, 0.42);
-  color: #172033;
+  background: var(--field);
+  box-shadow: var(--shadow-pop);
+  color: var(--ink);
   -webkit-user-select: none;
   user-select: none;
 
@@ -42,14 +42,14 @@
   justify-content: space-between;
   min-height: 76px;
   padding: 1rem 1.25rem;
-  background: #172033;
-  color: #fff;
+  background: var(--panel);
+  color: var(--ink);
 
   h1 { margin: 0.1rem 0 0; font-size: 1.35rem; }
 }
 
 .lumcad-settings-kicker {
-  color: $lum_orange;
+  color: var(--accent);
   font-size: 0.7rem;
   font-weight: 800;
   letter-spacing: 0.12em;
@@ -62,8 +62,8 @@
   place-items: center;
   border: 0;
   border-radius: 8px;
-  background: rgba(#fff, 0.08);
-  color: #fff;
+  background: var(--field);
+  color: var(--ink);
   font-size: 1.5rem;
   line-height: 1;
 
@@ -81,12 +81,12 @@
   grid-template-columns: minmax(170px, 0.75fr) minmax(300px, 1.6fr);
   gap: 1.5rem;
   padding: 1.25rem 0;
-  border-bottom: 1px solid #d9e0e4;
+  border-bottom: 1px solid var(--line);
 }
 
 .lumcad-settings-section-heading {
-  h2 { margin: 0; color: #172033; font-size: 1rem; }
-  p { margin: 0.4rem 0 0; color: #647681; font-size: 0.77rem; line-height: 1.45; }
+  h2 { margin: 0; color: var(--ink); font-size: 1rem; }
+  p { margin: 0.4rem 0 0; color: var(--muted); font-size: 0.77rem; line-height: 1.45; }
 }
 
 .lumcad-settings-fields { display: grid; gap: 0.85rem; }
@@ -100,7 +100,7 @@
 
   > span:first-child { display: grid; gap: 0.14rem; }
   strong { font-size: 0.82rem; }
-  small { max-width: 330px; color: #71818b; font-size: 0.68rem; line-height: 1.3; }
+  small { max-width: 330px; color: var(--muted); font-size: 0.68rem; line-height: 1.3; }
 }
 
 .lumcad-settings-control {
@@ -115,13 +115,13 @@
 .lumcad-settings-field select {
   min-height: 36px;
   padding: 0.4rem 0.55rem;
-  border: 1px solid #bbc8cf;
+  border: 1px solid var(--line);
   border-radius: 7px;
-  background: #fff;
-  color: #172033;
+  background: var(--panel);
+  color: var(--ink);
 
   &:focus { border-color: $lum_orange; outline: 2px solid rgba($lum_orange, 0.18); }
-  &:disabled { background: #e9edef; color: #82919a; }
+  &:disabled { background: var(--field); color: var(--faint); }
 }
 
 .lumcad-settings-input-unit {
@@ -129,12 +129,12 @@
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   overflow: hidden;
-  border: 1px solid #bbc8cf;
+  border: 1px solid var(--line);
   border-radius: 7px;
-  background: #fff;
+  background: var(--panel);
 
   input { min-width: 0; border: 0 !important; outline: 0 !important; }
-  span { padding: 0 0.65rem; color: #647681; font-size: 0.75rem; }
+  span { padding: 0 0.65rem; color: var(--muted); font-size: 0.75rem; }
   &:focus-within { border-color: $lum_orange; outline: 2px solid rgba($lum_orange, 0.18); }
 }
 
@@ -143,7 +143,7 @@
   height: 22px;
   appearance: none;
   border-radius: 999px;
-  background: #b7c1c7;
+  background: var(--line-strong);
   transition: background 120ms ease;
 
   &::after {
@@ -153,8 +153,8 @@
     height: 18px;
     margin: 2px;
     border-radius: 50%;
-    background: #fff;
-    box-shadow: 0 1px 3px rgba(#000, 0.28);
+    background: var(--panel);
+    box-shadow: var(--shadow-pop);
     transition: transform 120ms ease;
   }
 
@@ -167,18 +167,18 @@
   display: grid;
   gap: 0.55rem;
   padding: 0.75rem;
-  border: 1px solid #d6dee2;
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--panel);
 
-  p { margin: 0; color: #687983; font-size: 0.7rem; line-height: 1.4; }
-  &.is-running .lumcad-mcp-status-dot { background: #22a06b; }
+  p { margin: 0; color: var(--muted); font-size: 0.7rem; line-height: 1.4; }
+  &.is-running .lumcad-mcp-status-dot { background: var(--success); }
   &.is-fallback .lumcad-mcp-status-dot { background: $lum_orange; }
-  &.is-error .lumcad-mcp-status-dot { background: #d64545; }
+  &.is-error .lumcad-mcp-status-dot { background: var(--danger); }
 }
 
 .lumcad-mcp-status-heading { display: flex; align-items: center; gap: 0.45rem; font-size: 0.78rem; }
-.lumcad-mcp-status-dot { width: 8px; height: 8px; border-radius: 50%; background: #8999a2; }
+.lumcad-mcp-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
 
 .lumcad-mcp-endpoint {
   display: flex;
@@ -188,14 +188,14 @@
   code {
     min-width: 0;
     overflow: hidden;
-    color: #334750;
+    color: var(--ink);
     font-size: 0.7rem;
     text-overflow: ellipsis;
     white-space: nowrap;
     -webkit-user-select: text;
     user-select: text;
   }
-  button { margin-left: auto; border: 0; background: transparent; color: #b95f00; font-size: 0.7rem; font-weight: 700; }
+  button { margin-left: auto; border: 0; background: transparent; color: var(--accent); font-size: 0.7rem; font-weight: 700; }
 }
 
 .lumcad-settings-footer {
@@ -205,24 +205,24 @@
   gap: 1rem;
   min-height: 66px;
   padding: 0.85rem 1.25rem;
-  border-top: 1px solid #d7dfe3;
-  background: #eef2f4;
+  border-top: 1px solid var(--line);
+  background: var(--field);
 
   > div { display: flex; gap: 0.55rem; }
 }
 
-.lumcad-settings-error { color: #bd3030; font-size: 0.75rem; }
+.lumcad-settings-error { color: var(--danger); font-size: 0.75rem; }
 
 .lumcad-settings-button {
   min-width: 88px;
   min-height: 36px;
   padding: 0.4rem 0.75rem;
-  border: 1px solid #b7c3c9;
+  border: 1px solid var(--line);
   border-radius: 7px;
-  background: #fff;
-  color: #243541;
+  background: var(--panel);
+  color: var(--ink);
 
-  &.is-primary { border-color: #cf700c; background: $lum_orange; color: #172033; font-weight: 750; }
+  &.is-primary { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); font-weight: 600; }
   &:disabled { cursor: wait; opacity: 0.6; }
 }
 

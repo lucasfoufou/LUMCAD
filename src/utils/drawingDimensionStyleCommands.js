@@ -11,7 +11,8 @@ export function runDimensionStyleCommand(content, selectedIds, input) {
     const action = rawAction.toUpperCase();
     if (action === 'SAVE' && tokens.length === 2) {
         if (findDimensionStyle(content, name)) return { error: 'duplicate' };
-        const selected = content.entities.filter(entity => selectedIds.includes(entity.id));
+        const selectedIdSet = new Set(selectedIds);
+        const selected = content.entities.filter(entity => selectedIdSet.has(entity.id));
         const source = selected.length === 1 && isDrawingDimensionEntity(selected[0]) ? selected[0]
             : findDimensionStyle(content, content.activeDimensionStyleId);
         return saveDimensionStyle(content, { id: createDrawingId('dimension-style'), name, values: source || {} });

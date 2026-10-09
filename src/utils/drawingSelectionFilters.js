@@ -69,7 +69,8 @@ export function filterDrawingSelection(content, criteria) {
 
 export function selectSimilarDrawingEntities(content, selectedIds, fields = ['TYPE', 'LAYER', 'BLOCK']) {
     if (!fields.length || fields.some(field => !DRAWING_FILTER_FIELDS.includes(field))) return null;
-    const selected = content.entities.filter(entity => selectedIds.includes(entity.id) && canSelectEntity(content, entity));
+    const selectedIdSet = new Set(selectedIds);
+    const selected = content.entities.filter(entity => selectedIdSet.has(entity.id) && canSelectEntity(content, entity));
     if (!selected.length) return null;
     const signatures = new Set(selected.map(entity => JSON.stringify(fields.map(field => propertyValue(content, entity, field)))));
     return content.entities.filter(entity => canSelectEntity(content, entity)

@@ -46,7 +46,8 @@ export default function useDrawingLayers({ history, selectedIds, setMessage, set
                 if (!isolation.current) { invalid(); return true; }
                 finish(restoreDrawingLayerState(content, isolation.current)); isolation.current = null;
             } else {
-                const ids = tokens.length ? tokens.map(name => layer(name)?.id) : [...new Set(content.entities.filter(entity => selectedIds.includes(entity.id)).map(entity => entity.layerId))];
+                const selectedIdSet = new Set(selectedIds);
+                const ids = tokens.length ? tokens.map(name => layer(name)?.id) : [...new Set(content.entities.filter(entity => selectedIdSet.has(entity.id)).map(entity => entity.layerId))];
                 if (!ids.length || ids.some(id => !id)) { invalid(); return true; }
                 if (!isolation.current) isolation.current = { name: 'Isolation', activeLayerId: content.activeLayerId, layers: content.layers.map(drawingLayerSnapshot) };
                 finish({ content: { ...content, layers: content.layers.map(item => ({ ...item, visible: ids.includes(item.id), frozen: ids.includes(item.id) ? false : item.frozen })) } });

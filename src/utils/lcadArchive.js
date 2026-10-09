@@ -13,7 +13,10 @@ import {
 export const LCAD_MANIFEST_PATH = 'manifest.json';
 export const LCAD_ASSET_DIRECTORY = 'assets/';
 
-const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
+// Compact JSON keeps large drawings well below this bound (about 190 bytes per
+// typical entity); the bound itself protects readers from oversized archives.
+export const LCAD_MAX_MANIFEST_BYTES = 64 * 1024 * 1024;
+const MAX_MANIFEST_BYTES = LCAD_MAX_MANIFEST_BYTES;
 const MAX_ASSET_BYTES = 25 * 1024 * 1024;
 const MAX_TOTAL_ASSET_BYTES = 200 * 1024 * 1024;
 const MAX_ASSET_COUNT = 512;
@@ -49,7 +52,7 @@ export function createLcadArchive(envelope) {
         return { ...metadata, mimeType, path };
     });
 
-    const manifestBytes = strToU8(`${JSON.stringify(manifest, null, 2)}\n`);
+    const manifestBytes = strToU8(`${JSON.stringify(manifest)}\n`);
     if (manifestBytes.length > MAX_MANIFEST_BYTES) {
         throw createI18nError('storage.manifestTooLarge');
     }

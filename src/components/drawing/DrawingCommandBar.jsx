@@ -8,7 +8,7 @@ import { getDrawingCreationOptionSuggestions } from '~utils/drawingCreation';
 import { getDrawingOperationOptionSuggestions } from '~utils/drawingOperationOptions';
 
 const DrawingCommandBar = forwardRef(function DrawingCommandBar({
-    value = '', onChange, onSubmit, message, operation = null, activeTool = 'select',
+    value = '', onChange, onSubmit, message, operation = null, activeTool = 'select', optionsRef = null,
 }, forwardedRef) {
     const { t } = useI18n();
     const { settings } = useAppSettings();
@@ -100,7 +100,10 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
     };
 
     return (
-        <div className="drawing-command-area">
+        // Command line of the window header: the prompt shows the current message
+        // before the input; suggestions, history and the options of the active
+        // command open below it.
+        <div className={`drawing-command-area${(focused && suggestions.length > 0) || historyOpen ? ' is-listing' : ''}`}>
             <form
                 className="drawing-command-bar"
                 onSubmit={submit}
@@ -126,6 +129,7 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
                 >
                     <span aria-hidden="true">{historyOpen ? '^' : '>'}</span>
                 </button>
+                {message && <span className="drawing-command-message" title={message} aria-live="polite">{message}</span>}
                 <input
                     ref={inputRef}
                     value={value}
@@ -140,7 +144,7 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
                     aria-label={t('commandBar.inputLabel')}
                     autoComplete="off"
                     spellCheck="false"
-                    placeholder={t('commandBar.placeholder')}
+                    placeholder={message ? '' : t('commandBar.placeholder')}
                 />
                 <button type="submit">{t('commandBar.enter')}</button>
                 {focused && suggestions.length > 0 && !historyOpen && (
@@ -185,7 +189,12 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
                     </div>
                 )}
             </form>
-            {message && !(focused && suggestions.length) && !historyOpen && <div className="drawing-command-message" aria-live="polite">{message}</div>}
+            {optionsRef && (
+                <div className="ui-popover drawing-command-panel">
+                    {message && <p className="drawing-command-panel-message">{message}</p>}
+                    <div className="drawing-options-slot" ref={optionsRef} />
+                </div>
+            )}
         </div>
     );
 });

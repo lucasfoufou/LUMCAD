@@ -5,7 +5,8 @@ import { canEditEntity } from '~utils/drawingDocument';
 export default function DrawingAnnotationFields({ content, selectedIds, onCommand, t }) {
     const current = currentAnnotationScale(content);
     const catalog = normalizeAnnotationScales([...(content.annotationScales || normalizeAnnotationScales()), current]);
-    const selected = content.entities.filter(entity => selectedIds.includes(entity.id));
+    const selectedIdSet = new Set(selectedIds);
+    const selected = content.entities.filter(entity => selectedIdSet.has(entity.id));
     const editable = selected.length > 0 && selected.every(entity => supportsDrawingAnnotation(entity) && canEditEntity(content, entity));
     const annotation = selected.length === 1 ? normalizeDrawingAnnotation(selected[0].annotation) : null;
     return <details className="drawing-annotation-fields">

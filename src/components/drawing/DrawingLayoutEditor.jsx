@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 
-import DrawingCommandBar from '~components/drawing/DrawingCommandBar';
 import DrawingLayoutCanvas from '~components/drawing/DrawingLayoutCanvas';
 import DrawingLayoutSidebar from '~components/drawing/DrawingLayoutSidebar';
 import DrawingLayoutToolbar from '~components/drawing/DrawingLayoutToolbar';
@@ -13,14 +12,11 @@ export default function DrawingLayoutEditor({
     activeTool,
     assets,
     canvasRef,
-    command,
-    commandBarRef,
     content,
     currentModelViewport,
     layout,
     layoutCount,
     maximizedViewportId = null,
-    message,
     onChange,
     onClipViewport,
     onCreatePageSetup,
@@ -113,7 +109,6 @@ export default function DrawingLayoutEditor({
                     selectedPaperEntityId={selectedPaperEntityId}
                     selectedViewportId={selectedViewportId}
                 />
-                <DrawingCommandBar ref={commandBarRef} {...command} message={message} />
             </main>
             <DrawingLayoutSidebar
                 content={content}

@@ -444,12 +444,15 @@ export function layoutDrawingTextRuns(runs, availableWidth, baseStyle = DEFAULT_
     return lines.map(unitsForLine => drawingTextLineFromUnits(unitsForLine, baseStyle));
 }
 
+let graphemeSegmenter = null;
+
 export function segmentDrawingText(value) {
     const text = normalizeLineEndings(String(value ?? ''));
     if (!text) return [];
     if (typeof Intl?.Segmenter === 'function') {
-        const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-        return [...segmenter.segment(text)].map(segment => segment.segment);
+        // Constructing a segmenter resolves locale data; reuse one instance.
+        graphemeSegmenter ||= new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+        return [...graphemeSegmenter.segment(text)].map(segment => segment.segment);
     }
     return Array.from(text);
 }

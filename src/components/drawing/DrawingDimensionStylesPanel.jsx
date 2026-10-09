@@ -11,7 +11,8 @@ export default function DrawingDimensionStylesPanel({ content, selectedIds, onCo
     const [newName, setNewName] = useState('');
     const selected = styles.find(style => style.id === selectedId) || styles[0];
     const name = JSON.stringify(selected.name);
-    const selectedEntities = content.entities.filter(entity => selectedIds.includes(entity.id));
+    const selectedIdSet = new Set(selectedIds);
+    const selectedEntities = content.entities.filter(entity => selectedIdSet.has(entity.id));
     const canApply = selectedEntities.length > 0 && selectedEntities.every(entity => isDrawingDimensionEntity(entity) && canEditEntity(content, entity));
     const editFormat = patch => {
         const fields = {

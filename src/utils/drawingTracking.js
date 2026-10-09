@@ -2,7 +2,8 @@ import { normalizeDrawingUcs, drawingWorldToUcs, drawingUcsToWorld } from './dra
 import { isDrawingLayerVisible } from './drawingLayers.js';
 import { isConstructionLine, intersectConstructionLine } from './drawingConstructionLines.js';
 import { getEntitySegments, pointDistance } from './drawingPrimitives.js';
-import { snapDrawingPoint } from './drawingGeometry.js';
+import { getEntityBounds, snapDrawingPoint } from './drawingGeometry.js';
+import { createDrawingIndexCache, createDrawingSpatialIndex } from './drawingSpatialIndex.js';
 import {
     getPolarTrackingAngles,
     isOrthoTrackingEnabled,
@@ -16,6 +17,7 @@ export const MAX_TRACKING_ANCHORS = 7;
 export const MAX_TRACKING_GUIDES_PER_ANCHOR = 8;
 export const MAX_ACTIVE_TRACKING_GUIDES = 48;
 export const MAX_GUIDE_ENTITY_CHECKS = 20_000;
+const trackingIndexCache = createDrawingIndexCache();
 export const MAX_GUIDE_ENTITY_INTERSECTIONS = 64;
 export const MAX_GUIDE_ENTITY_SEGMENT_CHECKS = 128;
 export const MAX_TRACKING_INTERSECTION_CANDIDATES = 512;
@@ -136,7 +138,12 @@ export function resolveTrackingPoint(
     if (!guides.length) return null;
     const excluded = new Set(excludeIds);
     const visibleLayers = new Set(content.layers.filter(layer => isDrawingLayerVisible(layer)).map(layer => layer.id));
-    const entities = content.entities.filter(entity => visibleLayers.has(entity.layerId) && !excluded.has(entity.id));
+    // Accepted guide/entity intersections lie within the threshold of the
+    // pointer, so only entities whose bounds reach that box are tested.
+    const index = trackingIndexCache([content.entities], () => createDrawingSpatialIndex(content.entities, trackingEntityBounds));
+    const entities = index.query({ minX: point.x - threshold, minY: point.y - threshold, maxX: point.x + threshold, maxY: point.y + threshold })
+        .map(position => content.entities[position])
+        .filter(entity => visibleLayers.has(entity.layerId) && !excluded.has(entity.id));
     const guideIntersections = [];
     guides.forEach((first, index) => guides.slice(index + 1).forEach(second => {
         if (first.anchorIndex === second.anchorIndex) return;
@@ -194,6 +201,13 @@ export function resolveTrackingPoint(
         };
     });
     return closestWithin(projections, threshold);
+}
+
+function trackingEntityBounds(entity) {
+    if (isConstructionLine(entity)) return null;
+    // Oversized paths keep their budgeted scan instead of a full bounds pass.
+    if (entity.parts?.length > MAX_GUIDE_ENTITY_SEGMENT_CHECKS || entity.points?.length > MAX_GUIDE_ENTITY_SEGMENT_CHECKS) return null;
+    return getEntityBounds(entity);
 }
 
 export function selectTrackingGuidesNearPoint(guides, point, threshold, maximum = MAX_ACTIVE_TRACKING_GUIDES) {

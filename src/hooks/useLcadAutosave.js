@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useI18n } from '~i18n/I18nProvider';
 import { createLcadEnvelope } from '~utils/lcadDocument';
 import { autosaveLcadDocument, saveLcadDocumentAs, writeLcadDocument } from '~utils/lcadStorage';
 
-export default function useLcadAutosave({ document, filePath, onPathChange, protectedPath = null, protectedPaths = null, delayMs = 900 }) {
+export default function useLcadAutosave({ document, filePath, onPathChange, protectedPath = null, protectedPaths = null, delayMs = 900, enabled = true }) {
     const { t } = useI18n();
-    const signature = useMemo(() => JSON.stringify(document), [document]);
+    // Documents are immutable snapshots: a new identity means a committed change,
+    // so comparing identities avoids serializing the whole drawing on every edit.
+    const signature = document;
     const latestRef = useRef({ document, signature });
     const pathRef = useRef(filePath || null);
     const lastSavedSignatureRef = useRef(signature);
@@ -126,14 +128,17 @@ export default function useLcadAutosave({ document, filePath, onPathChange, prot
 
     const flushAutosave = useCallback(async () => {
         if (timerRef.current) window.clearTimeout(timerRef.current);
+        if (!enabled) return null;
         const snapshot = latestRef.current;
         // Always enqueue the visible snapshot. A previous save may still be queued
         // with a different document (for example after an undo), so merely waiting
         // for the queue could leave that intermediate state as the last disk write.
         return persistAutosave(snapshot);
-    }, [persistAutosave]);
+    }, [enabled, persistAutosave]);
 
     useEffect(() => {
+        // Sandboxed sessions (benchmarks) never write.
+        if (!enabled) return undefined;
         if (signature === lastSavedSignatureRef.current) {
             if (status === 'dirty') setStatus('saved');
             return undefined;
@@ -147,7 +152,7 @@ export default function useLcadAutosave({ document, filePath, onPathChange, prot
             persistAutosave(snapshot).catch(() => {});
         }, Math.max(300, Number(delayMs) || 900));
         return () => window.clearTimeout(timerRef.current);
-    }, [delayMs, persistAutosave, signature, status]);
+    }, [delayMs, enabled, persistAutosave, signature, status]);
 
     return { status, error, lastSavedAt, isRecovery, flushAutosave, saveNow, saveAs };
 }

@@ -21,7 +21,7 @@ import DrawingInteractionOverlay from '~components/drawing/DrawingInteractionOve
 import DrawingCreationControls from '~components/drawing/DrawingCreationControls';
 import DrawingDynamicInput from '~components/drawing/DrawingDynamicInput';
 import DrawingGrid from '~components/drawing/DrawingGrid';
-import DrawingScene from '~components/drawing/DrawingScene';
+import DrawingScene, { DrawingHighlightLayer } from '~components/drawing/DrawingScene';
 import { DrawingTextEditor } from '~components/drawing/DrawingTextEditor';
 import { useI18n } from '~i18n/I18nProvider';
 import { createArrayDraftEntities, createMirrorDraftEntities } from '~utils/drawingCompoundOperations';
@@ -112,8 +112,12 @@ import { createExtendPreviewEntities, createTrimPreviewEntities } from '~utils/d
 import { getOperationOrthogonalOrigin } from '~utils/drawingOperationOptions';
 import { drawingDynamicInputAnchor } from '~utils/drawingPrecisionInput';
 import { createStretchPreviewEntities } from '~utils/drawingStretchOperations';
-import { scaleDrawingViewBox, zoomDrawingViewBox } from '~utils/drawingViewport';
+import { drawingViewBoxScreenTransform, drawingVisibleViewBox, scaleDrawingViewBox, zoomDrawingViewBox } from '~utils/drawingViewport';
 import { drawingTextFontSizeToPixels, resolveDrawingTextStyle, normalizeDrawingTextEntity } from '~utils/drawingText';
+import useStableArray from '~hooks/useStableArray';
+
+const VIEW_RENDER_SETTLE_MS = 120;
+const VIEW_RENDER_MAX_WAIT_MS = 300;
 
 const drawingTools = new Set(['point', 'line', 'xline', 'ray', 'ellipse', 'spline', 'rectangle', 'circle', 'polygon', 'arc', 'text']);
 const cornerOperationTypes = new Set(['fillet', 'chamfer', 'blend']);
@@ -134,7 +138,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     dimensionMode = 'auto',
     editEntity = null,
     onEditEntityChange = null,
-    creationControlsTarget = null,
+    optionsTarget = null,
+    propertiesTarget = null,
     onCancelCommand = null,
     onImageSource = null,
     imageSourceBusy = false,
@@ -146,6 +151,11 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const svgRef = useRef(null);
     const wrapperRef = useRef(null);
     const [viewBox, setViewBox] = useState(() => fitViewBox(content));
+    // The SVG is re-rendered for `renderedViewBox`; during pan/zoom gestures a
+    // composited CSS transform shows the logical `viewBox` until the view settles.
+    const [renderedViewBox, setRenderedViewBox] = useState(viewBox);
+    const deferViewRenderRef = useRef(false);
+    const viewSettleRef = useRef({ timer: null, since: 0 });
     const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
     const previousCanvasSizeRef = useRef({ width: 0, height: 0 });
     const [gesture, setGesture] = useState(null);
@@ -861,6 +871,10 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             clientX: Number.isFinite(event.clientX) ? event.clientX : Number(event.pageX) - window.scrollX,
             clientY: Number.isFinite(event.clientY) ? event.clientY : Number(event.pageY) - window.scrollY,
         };
+        if (renderedViewBox !== viewBox && wrapperRef.current) {
+            const point = clientPointToViewBox(pointer, wrapperRef.current.getBoundingClientRect(), viewBox);
+            if (Number.isFinite(point.x) && Number.isFinite(point.y)) return point;
+        }
         const matrix = svg?.getScreenCTM?.();
         if (matrix && svg?.createSVGPoint) {
             const point = svg.createSVGPoint();
@@ -877,6 +891,31 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     };
 
     const worldUnitsPerPixel = getViewBoxWorldUnitsPerPixel(viewBox, canvasSize);
+    const renderedUnitsPerPixel = getViewBoxWorldUnitsPerPixel(renderedViewBox, canvasSize);
+    const viewTransform = drawingViewBoxScreenTransform(renderedViewBox, viewBox, canvasSize);
+    const renderedArea = useMemo(() => drawingVisibleViewBox(renderedViewBox, canvasSize), [renderedViewBox, canvasSize]);
+
+    useEffect(() => {
+        const settle = viewSettleRef.current;
+        const commit = () => {
+            window.clearTimeout(settle.timer);
+            settle.timer = null;
+            settle.since = 0;
+            setRenderedViewBox(viewBox);
+        };
+        if (!deferViewRenderRef.current) {
+            commit();
+            return;
+        }
+        deferViewRenderRef.current = false;
+        const now = performance.now();
+        settle.since ||= now;
+        window.clearTimeout(settle.timer);
+        if (now - settle.since >= VIEW_RENDER_MAX_WAIT_MS) commit();
+        else settle.timer = window.setTimeout(commit, VIEW_RENDER_SETTLE_MS);
+    }, [viewBox]);
+
+    useEffect(() => () => window.clearTimeout(viewSettleRef.current.timer), []);
 
     const snapPoint = (event, excludeIds = [], orthogonalOrigin = null) => {
         const point = worldPoint(event);
@@ -1126,9 +1165,10 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             return;
         }
         if (gesture?.kind === 'pan') {
-            const rect = svgRef.current.getBoundingClientRect();
+            const rect = (wrapperRef.current || svgRef.current).getBoundingClientRect();
             const dx = (event.clientX - gesture.clientX) / rect.width * gesture.viewBox.width;
             const dy = (event.clientY - gesture.clientY) / rect.height * gesture.viewBox.height;
+            deferViewRenderRef.current = true;
             setViewBox({ ...gesture.viewBox, x: gesture.viewBox.x - dx, y: gesture.viewBox.y - dy });
             return;
         }
@@ -1275,6 +1315,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const handleWheel = event => {
         event.preventDefault();
         const focus = worldPoint(event);
+        deferViewRenderRef.current = true;
         setViewBox(current => zoomDrawingViewBox(current, event.deltaY > 0 ? 1.12 : 0.88, focus, canvasSize));
     };
 
@@ -1497,7 +1538,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         ...(clipboardPreview?.entities || []), ...offsetPreview,
         ...copyPreview, ...transformCopyPreview, ...trimPreviewEntities, ...extendPreviewEntities].filter(Boolean);
     const markerSize = worldUnitsPerPixel * 12;
-    const gripSize = worldUnitsPerPixel * 9;
+    const gripSize = renderedUnitsPerPixel * 9;
     const stretchSelectionWindow = interactiveOperation?.type === 'stretch'
         && interactiveOperation.stage === 'stretch-window-second'
         && interactiveOperation.windowStart && operationPoint
@@ -1526,8 +1567,11 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             ...tangentTargetIds,
             ...(gesture?.kind === 'dimension' ? gesture.sourceIds || [] : []),
             ...(interactiveOperation?.firstId ? [interactiveOperation.firstId] : []),
-            ...(hoveredEntityId ? [hoveredEntityId] : []),
         ])];
+    // Hover feedback is drawn in its own layer so moving between entities does not re-render the scene.
+    const hoverHighlightId = !trimExtendTypes.has(interactiveOperation?.type) && hoveredEntityId && !highlightedIds.includes(hoveredEntityId)
+        ? hoveredEntityId
+        : null;
     const cornerHiddenIds = cornerDrafts.length && !interactiveOperation?.keepSources
         && ['fillet', 'chamfer'].includes(interactiveOperation?.type)
         ? interactiveOperation.pathMode
@@ -1548,6 +1592,14 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         ...cornerHiddenIds,
         ...modificationHiddenIds,
     ])];
+    // Stable identities let the memoized scene skip renders caused only by hover feedback.
+    const sceneDraftEntities = useStableArray(draftEntities);
+    const sceneHighlightedIds = useStableArray(highlightedIds);
+    const sceneHitOnlyIds = useStableArray(cornerHiddenIds);
+    const sceneHiddenIds = useStableArray([...previewHiddenIds, ...(editingText ? [editingText.id] : [])]);
+    const sceneContent = useMemo(() => (clipboardPreview
+        ? { ...previewContent, layers: clipboardPreview.content.layers, blocks: clipboardPreview.content.blocks }
+        : previewContent), [clipboardPreview, previewContent]);
     const dynamicInputVisible = Boolean(content.settings?.dynamicInput && dynamicInput && (
         drawingTools.has(activeTool)
         || activeTool === 'dimension'
@@ -1561,7 +1613,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const blurCreationControlBeforeDrawing = event => {
         if (!svgRef.current?.contains(event.target)) return;
         const focused = document.activeElement;
-        if (focused && (wrapperRef.current?.contains(focused) || creationControlsTarget?.contains(focused)) && /^(?:INPUT|SELECT|TEXTAREA|BUTTON)$/.test(focused.tagName)) {
+        if (focused && (wrapperRef.current?.contains(focused) || optionsTarget?.contains(focused) || propertiesTarget?.contains(focused)) && /^(?:INPUT|SELECT|TEXTAREA|BUTTON)$/.test(focused.tagName)) {
             focused.blur();
         }
     };
@@ -1580,6 +1632,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         onStatus?.(t('textEditor.opened'));
     };
 
+    // Editing a selected object belongs to the Properties panel; tool options to the options bar.
+    const creationControlsTarget = editEntity ? propertiesTarget : optionsTarget;
     const textEditorStyle = editingText
         ? getTextEditorOverlayStyle(editingText, viewBox, canvasSize, content.textStyles)
         : null;
@@ -1593,7 +1647,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             <svg
                 ref={svgRef}
                 className="drawing-canvas-svg"
-                viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
+                viewBox={`${renderedViewBox.x} ${renderedViewBox.y} ${renderedViewBox.width} ${renderedViewBox.height}`}
+                style={viewTransform ? { transform: `translate(${viewTransform.x}px, ${viewTransform.y}px) scale(${viewTransform.scale})` } : undefined}
                 preserveAspectRatio="xMidYMid meet"
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
@@ -1610,27 +1665,37 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 role="application"
                 aria-label={t('canvas.area')}
             >
-                <DrawingGrid content={content} viewBox={viewBox} worldUnitsPerPixel={worldUnitsPerPixel} />
-                <DrawingCoordinateOverlay settings={content.settings} viewBox={viewBox} worldUnitsPerPixel={worldUnitsPerPixel} t={t} />
+                <DrawingGrid content={content} viewBox={renderedViewBox} worldUnitsPerPixel={renderedUnitsPerPixel} />
+                <DrawingCoordinateOverlay settings={content.settings} viewBox={renderedViewBox} worldUnitsPerPixel={renderedUnitsPerPixel} t={t} />
                 {backgroundContext && <g opacity="0.25" pointerEvents="none" aria-hidden="true" transform={affineMatrixToSvg(backgroundContext.transform)}>
                     <DrawingScene content={backgroundContext.content} assets={backgroundContext.assets}
-                        viewBox={inverseAffineViewBox(viewBox, backgroundContext.transform)} />
+                        viewBox={inverseAffineViewBox(renderedViewBox, backgroundContext.transform)} />
                 </g>}
                 <DrawingScene
-                    content={clipboardPreview ? { ...previewContent, layers: clipboardPreview.content.layers, blocks: clipboardPreview.content.blocks } : previewContent}
+                    content={sceneContent}
                     assets={clipboardPreview?.assets || assets}
                     selectedIds={selectedIds}
                     previewSelectedIds={previewSelectedIds}
-                    highlightedIds={highlightedIds}
+                    highlightedIds={sceneHighlightedIds}
                     interactive
-                    dimensionTextSize={Math.max(0.18, viewBox.width / 85)}
-                    draftEntities={draftEntities}
+                    dimensionTextSize={Math.max(0.18, renderedViewBox.width / 85)}
+                    draftEntities={sceneDraftEntities}
                     showGrips={activeTool === 'select' && !interactiveOperation}
                     gripSize={gripSize}
-                    hiddenIds={[...previewHiddenIds, ...(editingText ? [editingText.id] : [])]}
-                    hitOnlyIds={cornerHiddenIds}
-                    viewBox={viewBox}
+                    hiddenIds={sceneHiddenIds}
+                    hitOnlyIds={sceneHitOnlyIds}
+                    viewBox={renderedViewBox}
+                    cullArea={renderedArea}
                 />
+            </svg>
+            {/* Pointer feedback lives in its own SVG so hover changes never repaint the drawing. */}
+            <svg
+                className="drawing-canvas-overlay"
+                viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
+                preserveAspectRatio="xMidYMid meet"
+                aria-hidden="true"
+            >
+                <DrawingHighlightLayer content={sceneContent} entityId={hoverHighlightId} viewBox={viewBox} />
                 <DrawingInteractionOverlay
                     selectionWindow={selectionWindow}
                     hoverSnap={hoverSnap}

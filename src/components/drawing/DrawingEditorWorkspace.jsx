@@ -71,7 +71,10 @@ import { parseDrawingOrderInput, reorderDrawingEntities, drawingAnnotationIds } 
 import { createDrawingWipeout, drawingWipeoutFromSources, isDrawingWipeout } from '~utils/drawingWipeout';
 import { getEllipseAxisSegments } from '~utils/drawingEllipseGeometry';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import DrawingCommandBar from '~components/drawing/DrawingCommandBar';
 import DrawingEditorBody from '~components/drawing/DrawingEditorBody';
+import DrawingSnapControls from '~components/drawing/DrawingSnapControls';
+import DrawingStatusBar from '~components/drawing/DrawingStatusBar';
 import DrawingEditorHeader from '~components/drawing/DrawingEditorHeader';
 import DrawingLayoutEditor from '~components/drawing/DrawingLayoutEditor';
 import DrawingPrintPage from '~components/drawing/DrawingPrintPage';
@@ -185,6 +188,7 @@ export default function DrawingEditorWorkspace({
     initialRecoveryGraph = null,
     initialTemplateSourcePath = null,
     initialMessage = '',
+    sandbox = false,
     onReplaceSession,
     onOpenSettings,
 }) {
@@ -193,6 +197,7 @@ export default function DrawingEditorWorkspace({
     const canvasRef = useRef(null);
     const layoutCanvasRef = useRef(null);
     const commandBarRef = useRef(null);
+    const [commandOptionsTarget, setCommandOptionsTarget] = useState(null);
     const imageInputRef = useRef(null);
     const blockSelectionRef = useRef([]);
     const blockViewContextRef = useRef(null);
@@ -233,13 +238,15 @@ export default function DrawingEditorWorkspace({
     const [blockSearch, setBlockSearch] = useState('');
     const [draftingSettingsOpen, setDraftingSettingsOpen] = useState(false);
     const [calculatorMode, setCalculatorMode] = useState(false);
-    const modelHistory = useDrawingHistory({
+    // Normalize once: an inline argument would re-normalize the whole drawing on every render.
+    const [initialHistoryState] = useState(() => ({
         ...initialDocument,
         assets: initialDocument.assets || [],
         content: normalizeDrawingContent(initialDocument.content),
         layouts: initialDocument.layouts || [],
         pageSetups: initialDocument.pageSetups || [],
-    });
+    }));
+    const modelHistory = useDrawingHistory(initialHistoryState);
     const name = modelHistory.documentState.name;
     const modelAssets = modelHistory.documentState.assets;
     const setName = useCallback(value => modelHistory.updateMetadata('name', value), [modelHistory.updateMetadata]);
@@ -278,6 +285,7 @@ export default function DrawingEditorWorkspace({
         protectedPath: initialRecoveryReport?.path || initialTemplateSourcePath || null,
         protectedPaths: recoverySourcePaths,
         delayMs: settings.autosaveDelayMs,
+        enabled: !sandbox,
     });
     const updater = useAppUpdater({ beforeInstall: autosave.flushAutosave });
     const installAvailableUpdate = useCallback(async () => {
@@ -391,7 +399,10 @@ export default function DrawingEditorWorkspace({
         setOperation: setInteractiveOperation, setActiveTool, setMessage, enabled: workspaceMode === 'model', t });
     const linework = useDrawingLinework({ history, selectedIds, setSelectedIds, operation: interactiveOperation,
         setOperation: setInteractiveOperation, setActiveTool, setMessage, enabled: workspaceMode === 'model', t });
-    const selectedEntities = useMemo(() => history.content.entities.filter(entity => selectedIds.includes(entity.id)), [history.content.entities, selectedIds]);
+    const selectedEntities = useMemo(() => {
+        const selectedIdSet = new Set(selectedIds);
+        return history.content.entities.filter(entity => selectedIdSet.has(entity.id));
+    }, [history.content.entities, selectedIds]);
     const creationPanelEntity = useMemo(() => (
         activeTool === 'select' && !interactiveOperation
             ? history.content.entities.find(entity => entity.id === creationPanelEntityId)
@@ -1126,8 +1137,9 @@ export default function DrawingEditorWorkspace({
         if (handleModificationPoint(interactiveOperation, point, targetId)) return;
         if (interactiveOperation?.type === 'offset') {
             if (interactiveOperation.stage !== 'side') return;
+            const operationIds = new Set(interactiveOperation.entityIds);
             const sources = history.content.entities.filter(entity => (
-                interactiveOperation.entityIds.includes(entity.id) && canEditEntity(history.content, entity)
+                operationIds.has(entity.id) && canEditEntity(history.content, entity)
             ));
             if (!sources.length) {
                 setInteractiveOperation(null);
@@ -1233,7 +1245,8 @@ export default function DrawingEditorWorkspace({
                 finishInteractiveOperation(interactiveOperation.entityIds, t('messages.moveApplied', { delta: formatOperationDelta(delta, locale) }));
             } else if (interactiveOperation.type === 'copy') {
                 const delta = operationDelta(interactiveOperation.basePoint, point);
-                const originals = history.content.entities.filter(entity => interactiveOperation.entityIds.includes(entity.id));
+                const operationIds = new Set(interactiveOperation.entityIds);
+                const originals = history.content.entities.filter(entity => operationIds.has(entity.id));
                 const result = pasteDrawingEntities(history.content, originals, delta);
                 if (result.error) { setMessage(t(`constraints.${result.error}`)); return; }
                 history.commit(result.content);
@@ -1745,7 +1758,8 @@ export default function DrawingEditorWorkspace({
                     setSidebarPanel('selection');
                     setMessage(t('hyperlink.editHint'));
                 } else if (parsed.action === 'open') {
-                    const selected = history.content.entities.filter(entity => selectedIds.includes(entity.id));
+                    const selectedIdSet = new Set(selectedIds);
+                    const selected = history.content.entities.filter(entity => selectedIdSet.has(entity.id));
                     if (selected.length !== 1 || !selected[0].hyperlink) throw new Error('selection');
                     await openDrawingHyperlink(selected[0].hyperlink);
                     setMessage(t('hyperlink.opened'));
@@ -2738,6 +2752,7 @@ export default function DrawingEditorWorkspace({
         open: openDrawing,
         delete: () => workspaceMode === 'layout' ? deleteSelectedViewport() : deleteSelection(),
         toggleSnaps: toggleAllSnaps,
+        searchCommand: () => commandBarRef.current?.focus(),
         toggleOrtho: () => setOrthoMode(!history.content.settings.ortho),
         togglePolar: () => setPolarMode(!history.content.settings.polarTracking),
         toggleObjectTracking: () => setObjectTrackingMode(!history.content.settings.tracking),
@@ -2927,6 +2942,23 @@ export default function DrawingEditorWorkspace({
                     onPlot={() => exportPdf(activeLayout ? [activeLayout.id] : layouts.map(layout => layout.id)).catch(() => {})}
                     onSaveAs={() => saveDrawingAs().catch(() => {})}
                     onOpenSettings={onOpenSettings}
+                    commandLine={(
+                        <DrawingCommandBar
+                            ref={commandBarRef}
+                            value={commandValue}
+                            onChange={setCommandValue}
+                            onSubmit={value => submitCommand(value).catch(() => {})}
+                            message={message}
+                            operation={interactiveOperation}
+                            activeTool={workspaceMode === 'model' ? activeTool : 'select'}
+                            optionsRef={setCommandOptionsTarget}
+                        />
+                    )}
+                    editActions={{
+                        undo: history.undo, redo: history.redo, canUndo: history.canUndo, canRedo: history.canRedo,
+                        copy: toolbarActions.copy, cut: toolbarActions.cut, paste: toolbarActions.paste,
+                        canCopy: workspaceMode === 'model' && selectedIds.length > 0,
+                    }}
                     updateState={updater}
                     onInstallUpdate={() => installAvailableUpdate().catch(() => setMessage(t('updater.installFailed')))}
                 />
@@ -2941,7 +2973,7 @@ export default function DrawingEditorWorkspace({
                 {workspaceMode === 'model' ? (
                     <DrawingEditorBody
                         toolbar={{ activeTool, activeOperation: interactiveOperation?.arrayKind === 'path' ? 'arrayPath' : interactiveOperation?.arrayKind === 'polar' ? 'arrayPolar' : interactiveOperation?.type || null, actions: toolbarActions,
-                            selectionCount: selectedIds.length, canUndo: history.canUndo, canRedo: history.canRedo }}
+                            selectionCount: selectedIds.length }}
                         onToolChange={tool => {
                             if (tool === 'hatch') { submitCommand('HATCH').catch(() => {}); return; }
                             canvasRef.current?.cancel();
@@ -2958,7 +2990,7 @@ export default function DrawingEditorWorkspace({
                             onSelectionChange: setSelectedIds, onCommit: history.commit, onViewportChange: setViewport,
                             onEndCoalescing: history.endCoalescing, onCancelCommand: cancelCommand,
                             onStatus: setMessage, onInteractiveOperation: handleInteractiveOperation,
-                            dynamicInput: { value: commandValue, onChange: setCommandValue,
+                            dynamicInput: { value: commandValue, onChange: setCommandValue, focus: value => commandBarRef.current?.focus(value),
                                 onSubmit: value => submitCommand(value).catch(() => {}) },
                             onEntityCreated: entity => {
                                 if (!supportsDrawingCreationPanel(entity) || ['text', 'line'].includes(entity.type)) return;
@@ -2979,16 +3011,7 @@ export default function DrawingEditorWorkspace({
                                     entity => patch.id === entity.id ? patch : ({ ...entity, ...patch }),
                                 ), { coalesceKey: `creation-panel-${creationPanelEntity.id}` })
                                 : null }}
-                        snap={{ content: history.content, onChange: history.commit,
-                            scaleRatio: getScreenScaleRatio(viewport.worldUnitsPerPixel),
-                            onScaleChange: ratio => canvasRef.current?.setScaleRatio(ratio),
-                            draftingSettingsOpen,
-                            onDraftingSettingsOpenChange: setDraftingSettingsOpen,
-                            onTemporaryTrackingPoint: () => canvasRef.current?.beginTemporaryTrackingPoint() }}
-                        commandBarRef={commandBarRef}
-                        command={{ value: commandValue, onChange: setCommandValue,
-                            onSubmit: value => submitCommand(value).catch(() => {}), message,
-                            operation: interactiveOperation, activeTool }}
+                        optionsTarget={workspaceMode === 'model' ? commandOptionsTarget : null}
                         sidebar={{ content: history.content, selectedIds, parametersEnabled: !blockEditor.session?.referenceSource, onSelectConstraintObjects: setSelectedIds, onSmartBlockCommand: smartBlocks.run, smartBlockDetection: smartBlocks.detection, dynamicBlockEditing: Boolean(blockEditor.session && !blockEditor.session.referenceSource), onCommit: history.commit, onAnnotationCommand: annotations.run,
                             inquiryResult: inquiry.result, comparisonPreview: comparison.preview, onCopyInquiry: inquiry.copy, onInspectTransmittal: () => sheetSet.run('sheetSet', 'INVENTORY'), onSelectDuplicateGroup: selectionQueries.selectDuplicateGroup, onSelectCountOccurrence: selectionQueries.selectCountOccurrence,
                             onOpenRecovery: recovery.open, canOpenRecovery: recovery.canOpen,
@@ -3005,18 +3028,10 @@ export default function DrawingEditorWorkspace({
                         activeTool={layoutTool}
                         assets={assets}
                         canvasRef={layoutCanvasRef}
-                        command={{
-                            value: commandValue,
-                            onChange: setCommandValue,
-                            onSubmit: value => submitCommand(value).catch(() => {}),
-                            operation: interactiveOperation,
-                        }}
-                        commandBarRef={commandBarRef}
                         content={history.content}
                         currentModelViewport={viewport}
                         layout={activeLayout}
                         layoutCount={layouts.length}
-                        message={message}
                         onChange={commitActiveLayout}
                         onCreatePageSetup={createPageSetup}
                         onDeleteLayout={() => deleteLayout(activeLayout.id)}
@@ -3056,21 +3071,39 @@ export default function DrawingEditorWorkspace({
                         onOperationPoint={point => handleInteractiveOperation({ point })}
                     />
                 )}
-                {!blockEditor.session && <DrawingWorkspaceTabs
-                    activeLayoutId={activeLayout?.id || null}
-                    layouts={layouts}
-                    mode={workspaceMode}
-                    onAddLayout={addLayout}
-                    onAddLayoutFromTemplate={addLayout}
-                    onDeleteLayout={deleteLayout}
-                    onDuplicateLayout={duplicateLayout}
-                    onMoveLayout={moveLayout}
-                    onOpenLayout={openLayoutWorkspace}
-                    onOpenModel={openModelWorkspace}
-                    onRenameLayout={renameLayout}
-                    onSelectedLayoutsChange={setSelectedLayoutIds}
-                    selectedLayoutIds={selectedLayoutIds}
-                />}
+                <DrawingStatusBar
+                    tabs={!blockEditor.session && (
+                        <DrawingWorkspaceTabs
+                            activeLayoutId={activeLayout?.id || null}
+                            layouts={layouts}
+                            mode={workspaceMode}
+                            onAddLayout={addLayout}
+                            onAddLayoutFromTemplate={addLayout}
+                            onDeleteLayout={deleteLayout}
+                            onDuplicateLayout={duplicateLayout}
+                            onMoveLayout={moveLayout}
+                            onOpenLayout={openLayoutWorkspace}
+                            onOpenModel={openModelWorkspace}
+                            onRenameLayout={renameLayout}
+                            onSelectedLayoutsChange={setSelectedLayoutIds}
+                            selectedLayoutIds={selectedLayoutIds}
+                        />
+                    )}
+                    aids={workspaceMode === 'model' && (
+                        <DrawingSnapControls
+                            content={history.content}
+                            onChange={history.commit}
+                            scaleRatio={getScreenScaleRatio(viewport.worldUnitsPerPixel)}
+                            onScaleChange={ratio => canvasRef.current?.setScaleRatio(ratio)}
+                            draftingSettingsOpen={draftingSettingsOpen}
+                            onDraftingSettingsOpenChange={setDraftingSettingsOpen}
+                            onTemporaryTrackingPoint={() => canvasRef.current?.beginTemporaryTrackingPoint()}
+                        />
+                    )}
+                    onZoomIn={workspaceMode === 'model' ? toolbarActions.zoomIn : undefined}
+                    onZoomOut={workspaceMode === 'model' ? toolbarActions.zoomOut : undefined}
+                    onFit={workspaceMode === 'model' ? toolbarActions.fit : undefined}
+                />
                 <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={handleImageFile} disabled={isUploading} />
                 {isUploading && <div className="drawing-upload-indicator">{t('messages.importingImage')}</div>}
             </div>

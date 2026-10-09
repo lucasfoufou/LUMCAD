@@ -6,7 +6,7 @@
   min-width: 2rem;
   min-height: 1.5rem;
   pointer-events: auto;
-  color: #172033;
+  color: var(--ink);
 
   &.is-disabled {
     opacity: 0.7;
@@ -23,11 +23,11 @@
   align-items: end;
   gap: 0.28rem;
   padding: 0.35rem;
-  border: 1px solid rgba(#fff, 0.14);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(#132f4f, 0.98);
-  box-shadow: 0 7px 24px rgba(#071625, 0.35);
-  color: #e8eef3;
+  background: var(--raised);
+  box-shadow: var(--shadow-pop);
+  color: var(--ink);
   overflow-x: auto;
   overscroll-behavior: contain;
 
@@ -38,10 +38,10 @@
     height: 30px;
     min-height: 30px;
     max-height: 30px;
-    border: 1px solid rgba(#fff, 0.16);
+    border: 1px solid var(--line);
     border-radius: 5px;
-    background: #223750;
-    color: #fff;
+    background: var(--field);
+    color: var(--ink);
   }
 
   button {
@@ -53,14 +53,14 @@
 
     &[aria-pressed="true"],
     &[data-mixed="true"] {
-      border-color: rgba($lum_orange, 0.75);
-      background: rgba($lum_orange, 0.2);
-      color: #ffc477;
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      color: var(--accent);
     }
 
     &:focus-visible,
     &:hover:not(:disabled) {
-      border-color: rgba($lum_orange, 0.72);
+      border-color: var(--accent);
       outline: none;
     }
   }
@@ -80,7 +80,7 @@
 .drawing-text-editor__color {
   display: grid;
   gap: 0.12rem;
-  color: #aebbc5;
+  color: var(--muted);
   font-size: 0.68rem;
   white-space: nowrap;
 
@@ -118,7 +118,7 @@
 
 .drawing-text-editor__actions {
   padding-left: 0.22rem;
-  border-left: 1px solid rgba(#fff, 0.12);
+  border-left: 1px solid var(--line);
 }
 
 .drawing-text-editor__toolbar .drawing-text-editor__done {
@@ -126,9 +126,9 @@
   min-width: 32px;
   max-width: 32px;
   padding: 0;
-  border-color: rgba($lum_orange, 0.68);
-  background: rgba($lum_orange, 0.2);
-  color: #ffc477;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
   font-size: 1.08rem;
   font-weight: 650;
 }
@@ -139,19 +139,19 @@
   height: 100%;
   min-height: 1.5rem;
   padding: 0.12rem 0.18rem;
-  border: 1px solid rgba($lum_orange, 0.9);
+  border: 1px solid var(--accent);
   border-radius: 3px;
-  background: rgba(#fff, 0.94);
-  box-shadow: 0 0 0 2px rgba($lum_orange, 0.2);
-  color: #172033;
-  caret-color: #172033;
+  background: var(--panel);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+  color: var(--ink);
+  caret-color: var(--ink);
   outline: none;
   overflow: hidden;
   -webkit-user-select: text;
   user-select: text;
 
   &:focus {
-    box-shadow: 0 0 0 3px rgba($lum_orange, 0.3);
+    box-shadow: 0 0 0 2px var(--accent-soft);
   }
 }
 

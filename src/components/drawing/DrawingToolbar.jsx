@@ -1,93 +1,199 @@
 import useDrawingShortcutLabel from '~hooks/useDrawingShortcutLabel';
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
+import Icon from '~components/ui/Icon';
 import { useI18n } from '~i18n/I18nProvider';
 
-const toolGroups = [
+const tool = (id, labelKey, alias, icon = id) => ({ id, kind: 'tool', labelKey, alias, icon });
+// Operation labels already carry their command alias, e.g. "Move (M)".
+const operation = (id, labelKey, action = id, icon = id) => ({ id, kind: 'operation', labelKey, action, icon });
+const family = (id, members) => ({ id, family: true, members });
+
+// Tool rail: one slot per tool or family. A family shows its active or last
+// used member; its other members open in a flyout.
+const sections = [
+    [tool('select', 'toolbar.select', 'V'), tool('pan', 'toolbar.pan', 'P')],
     [
-        { id: 'select', glyph: '↖', labelKey: 'toolbar.select', alias: 'V' },
-        { id: 'pan', glyph: '✥', labelKey: 'toolbar.pan', alias: 'P' },
+        family('line', [tool('line', 'toolbar.line', 'L'), tool('xline', 'toolbar.xline', 'XL'), tool('ray', 'toolbar.ray', 'RAY')]),
+        family('rectangle', [tool('rectangle', 'toolbar.rectangle', 'REC'), tool('polygon', 'toolbar.polygon', 'POL')]),
+        tool('circle', 'toolbar.circle', 'C'),
+        tool('arc', 'toolbar.arc', 'A'),
+        tool('ellipse', 'toolbar.ellipse', 'EL'),
+        tool('spline', 'toolbar.spline', 'SPL'),
+        tool('point', 'toolbar.point', 'POINT'),
+        tool('hatch', 'toolbar.hatch', 'H'),
+        tool('text', 'toolbar.text', 'T'),
     ],
     [
-        { id: 'point', glyph: '⊙', labelKey: 'toolbar.point', alias: 'POINT' },
-        { id: 'xline', glyph: '↔', labelKey: 'toolbar.xline', alias: 'XL' },
-        { id: 'ray', glyph: '↗', labelKey: 'toolbar.ray', alias: 'RAY' },
-        { id: 'line', glyph: '╱', labelKey: 'toolbar.line', alias: 'L' },
-        { id: 'rectangle', glyph: '▭', labelKey: 'toolbar.rectangle', alias: 'REC' },
-        { id: 'hatch', glyph: '▨', labelKey: 'toolbar.hatch', alias: 'H' },
-        { id: 'spline', glyph: '∿', labelKey: 'toolbar.spline', alias: 'SPL' },
-        { id: 'ellipse', glyph: '⬭', labelKey: 'toolbar.ellipse', alias: 'EL' },
-        { id: 'circle', glyph: '○', labelKey: 'toolbar.circle', alias: 'C' },
-        { id: 'polygon', glyph: '⬡', labelKey: 'toolbar.polygon', alias: 'POL' },
-        { id: 'arc', glyph: '⌒', labelKey: 'toolbar.arc', alias: 'A' },
-        { id: 'text', glyph: 'T', labelKey: 'toolbar.text', alias: 'T' },
+        tool('dimension', 'toolbar.dimension', 'DIM'),
+        { id: 'importImage', kind: 'action', labelKey: 'toolbar.importImage', action: 'importImage', icon: 'image' },
     ],
     [
-        { id: 'dimension', glyph: '↔', labelKey: 'toolbar.dimension', alias: 'DIM' },
+        operation('move', 'toolbar.move'),
+        operation('copy', 'toolbar.copyFromBase', 'copyCommand'),
+        family('rotate', [operation('rotate', 'toolbar.rotate'), operation('align', 'toolbar.align')]),
+        operation('scale', 'toolbar.scale'),
+        operation('mirror', 'toolbar.mirror'),
+        operation('offset', 'toolbar.offset'),
+        family('trim', [operation('trim', 'toolbar.trim'), operation('extend', 'toolbar.extend')]),
+        family('fillet', [operation('fillet', 'toolbar.fillet'), operation('chamfer', 'toolbar.chamfer'), operation('blend', 'toolbar.blend')]),
+        family('array', [
+            operation('array', 'toolbar.array'),
+            operation('arrayPolar', 'toolbar.arrayPolar'),
+            operation('arrayPath', 'toolbar.arrayPath'),
+            { id: 'arrayEdit', kind: 'action', labelKey: 'toolbar.arrayEdit', action: 'arrayEdit', icon: 'arrayEdit', needsSingleSelection: true },
+        ]),
+        family('break', [
+            operation('break', 'toolbar.break'),
+            operation('breakAtPoint', 'toolbar.breakAtPoint'),
+            operation('stretch', 'toolbar.stretch'),
+            operation('lengthen', 'toolbar.lengthen'),
+        ]),
+        operation('join', 'toolbar.join'),
+        operation('explode', 'toolbar.explode'),
+        { id: 'delete', kind: 'action', action: 'delete', icon: 'erase', shortcut: 'delete', needsSelection: true, danger: true },
     ],
 ];
 
-export default function DrawingToolbar({ activeTool, activeOperation, onToolChange, actions, selectionCount, canUndo, canRedo }) {
+const LONG_PRESS_MS = 400;
+
+export default function DrawingToolbar({ activeTool, activeOperation, onToolChange, actions, selectionCount }) {
     const { t } = useI18n();
     const shortcutLabel = useDrawingShortcutLabel();
+    const [choices, setChoices] = useState({});
+    const [tooltip, setTooltip] = useState(null);
+    const [flyout, setFlyout] = useState(null);
+    const flyoutRef = useRef(null);
+
+    const label = item => (item.shortcut ? shortcutLabel(item.shortcut) : t(item.labelKey));
+    const isActive = item => (item.kind === 'tool' ? activeTool === item.id : item.kind === 'operation' && activeOperation === item.id);
+    const isDisabled = item => (item.needsSelection && !selectionCount) || (item.needsSingleSelection && selectionCount !== 1);
+    const shown = slot => (slot.family
+        ? slot.members.find(isActive) || slot.members.find(member => member.id === choices[slot.id]) || slot.members[0]
+        : slot);
+    const run = (item, slot = null) => {
+        if (slot) setChoices(current => ({ ...current, [slot.id]: item.id }));
+        setFlyout(null);
+        if (item.kind === 'tool') onToolChange(item.id);
+        else actions[item.action]?.();
+    };
+    const showTooltip = (event, item) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        setTooltip({ text: label(item), alias: item.alias, top: rect.top + rect.height / 2, left: rect.right + 8 });
+    };
+    const openFlyout = (event, slot) => {
+        const rect = event.currentTarget.closest('.drawing-tool-slot').getBoundingClientRect();
+        setTooltip(null);
+        setFlyout({ slot, top: rect.top, left: rect.right + 6 });
+    };
+
+    useEffect(() => {
+        if (!flyout) return undefined;
+        flyoutRef.current?.querySelector('button:not(:disabled)')?.focus();
+        const close = event => {
+            if (event.type === 'keydown' ? event.key === 'Escape' : !flyoutRef.current?.contains(event.target)) setFlyout(null);
+        };
+        window.addEventListener('pointerdown', close, true);
+        window.addEventListener('keydown', close, true);
+        return () => {
+            window.removeEventListener('pointerdown', close, true);
+            window.removeEventListener('keydown', close, true);
+        };
+    }, [flyout]);
+
     return (
-        <aside className="drawing-toolbar" aria-label={t('toolbar.label')}>
-            {toolGroups.map((group, groupIndex) => (
-                <div className="drawing-toolbar-group" key={groupIndex}>
-                    {group.map(tool => (
-                        <ToolButton
-                            key={tool.id}
-                            active={activeTool === tool.id}
-                            glyph={tool.glyph}
-                            label={`${t(tool.labelKey)} (${tool.alias})`}
-                            onClick={() => onToolChange(tool.id)}
-                        />
-                    ))}
+        <aside className="drawing-toolbar" aria-label={t('toolbar.label')} onScroll={() => setTooltip(null)}>
+            {sections.map((section, sectionIndex) => (
+                <div className="drawing-toolbar-group" key={sectionIndex}>
+                    {section.map(slot => {
+                        const item = shown(slot);
+                        return (
+                            <ToolSlot
+                                key={slot.id}
+                                item={item}
+                                label={label(item)}
+                                active={isActive(item)}
+                                disabled={isDisabled(item)}
+                                hasMembers={Boolean(slot.family)}
+                                moreLabel={slot.family ? t('toolbar.moreTools', { tool: label(item) }) : null}
+                                onRun={() => run(item, slot.family ? slot : null)}
+                                onOpenMembers={event => openFlyout(event, slot)}
+                                onHover={event => showTooltip(event, item)}
+                                onLeave={() => setTooltip(null)}
+                            />
+                        );
+                    })}
                 </div>
             ))}
-            <div className="drawing-toolbar-group">
-                <ToolButton glyph="↶" label={shortcutLabel('undo')} disabled={!canUndo} onClick={actions.undo} />
-                <ToolButton glyph="↷" label={shortcutLabel('redo')} disabled={!canRedo} onClick={actions.redo} />
-                <ToolButton glyph="⧉" label={shortcutLabel('copy')} disabled={!selectionCount} onClick={actions.copy} />
-                <ToolButton glyph="✂" label={shortcutLabel('cut')} disabled={!selectionCount} onClick={actions.cut} />
-                <ToolButton glyph="▣" label={shortcutLabel('paste')} onClick={actions.paste} />
-            </div>
-            <div className="drawing-toolbar-group">
-                <ToolButton glyph="⇱" label={t('toolbar.move')} active={activeOperation === 'move'} onClick={actions.move} />
-                <ToolButton glyph="⧉" label={t('toolbar.copyFromBase')} active={activeOperation === 'copy'} onClick={actions.copyCommand} />
-                <ToolButton glyph="↻" label={t('toolbar.rotate')} active={activeOperation === 'rotate'} onClick={actions.rotate} />
-                <ToolButton glyph="⇥" label={t('toolbar.align')} active={activeOperation === 'align'} onClick={actions.align} />
-                <ToolButton glyph="⌒" label={t('toolbar.fillet')} active={activeOperation === 'fillet'} onClick={actions.fillet} />
-                <ToolButton glyph="◿" label={t('toolbar.chamfer')} active={activeOperation === 'chamfer'} onClick={actions.chamfer} />
-                <ToolButton glyph="∿" label={t('toolbar.blend')} active={activeOperation === 'blend'} onClick={actions.blend} />
-                <ToolButton glyph="◩" label={t('toolbar.mirror')} active={activeOperation === 'mirror'} onClick={actions.mirror} />
-                <ToolButton glyph="⠿" label={t('toolbar.array')} active={activeOperation === 'array'} onClick={actions.array} />
-                <ToolButton glyph="⟳" label={t('toolbar.arrayPolar')} active={activeOperation === 'arrayPolar'} onClick={actions.arrayPolar} />
-                <ToolButton glyph="∿⠿" label={t('toolbar.arrayPath')} active={activeOperation === 'arrayPath'} onClick={actions.arrayPath} />
-                <ToolButton glyph="⠿✎" label={t('toolbar.arrayEdit')} disabled={selectionCount !== 1} onClick={actions.arrayEdit} />
-                <ToolButton glyph="⌁" label={t('toolbar.join')} active={activeOperation === 'join'} onClick={actions.join} />
-                <ToolButton glyph="⌘" label={t('toolbar.explode')} active={activeOperation === 'explode'} onClick={actions.explode} />
-                <ToolButton glyph="⇲" label={t('toolbar.offset')} active={activeOperation === 'offset'} onClick={actions.offset} />
-                <ToolButton glyph="✂" label={t('toolbar.trim')} active={activeOperation === 'trim'} onClick={actions.trim} />
-                <ToolButton glyph="⇢" label={t('toolbar.extend')} active={activeOperation === 'extend'} onClick={actions.extend} />
-                <ToolButton glyph="⌇" label={t('toolbar.break')} active={activeOperation === 'break'} onClick={actions.break} />
-                <ToolButton glyph="⋮" label={t('toolbar.breakAtPoint')} active={activeOperation === 'breakAtPoint'} onClick={actions.breakAtPoint} />
-                <ToolButton glyph="↔" label={t('toolbar.stretch')} active={activeOperation === 'stretch'} onClick={actions.stretch} />
-                <ToolButton glyph="⇔" label={t('toolbar.lengthen')} active={activeOperation === 'lengthen'} onClick={actions.lengthen} />
-                <ToolButton glyph="×" label={t('toolbar.scale')} active={activeOperation === 'scale'} onClick={actions.scale} />
-                <ToolButton glyph="⌫" label={shortcutLabel('delete')} disabled={!selectionCount} onClick={actions.delete} danger />
-            </div>
-            <div className="drawing-toolbar-group">
-                <ToolButton glyph="＋" label={t('toolbar.zoomIn')} onClick={actions.zoomIn} />
-                <ToolButton glyph="−" label={t('toolbar.zoomOut')} onClick={actions.zoomOut} />
-                <ToolButton glyph="□" label={t('toolbar.fit')} onClick={actions.fit} />
-                <ToolButton glyph="▧" label={t('toolbar.importImage')} onClick={actions.importImage} />
-            </div>
+            {tooltip && (
+                <div className="ui-tooltip drawing-toolbar-tooltip" role="tooltip" style={{ top: tooltip.top, left: tooltip.left }}>
+                    {tooltip.text}{tooltip.alias && <kbd>{tooltip.alias}</kbd>}
+                </div>
+            )}
+            {flyout && (
+                <div ref={flyoutRef} className="ui-popover drawing-toolbar-flyout" role="menu" style={{ top: flyout.top, left: flyout.left }}>
+                    {flyout.slot.members.map(member => (
+                        <button
+                            type="button"
+                            role="menuitemradio"
+                            key={member.id}
+                            aria-checked={isActive(member)}
+                            disabled={isDisabled(member)}
+                            onClick={() => run(member, flyout.slot)}
+                        >
+                            <Icon name={member.icon} />
+                            <span>{label(member)}</span>
+                            {member.alias && <kbd>{member.alias}</kbd>}
+                        </button>
+                    ))}
+                </div>
+            )}
         </aside>
     );
 }
 
-export function DrawingToolButton({ glyph, label, onClick, active = false, disabled = false, danger = false }) {
+function ToolSlot({ item, label, active, disabled, hasMembers, moreLabel, onRun, onOpenMembers, onHover, onLeave }) {
+    const pressRef = useRef(null);
+    const longPressedRef = useRef(false);
+    const cancelPress = () => window.clearTimeout(pressRef.current);
+    return (
+        <div className="drawing-tool-slot">
+            <DrawingToolButton
+                icon={item.icon}
+                label={label}
+                toolId={item.kind === 'tool' ? item.id : undefined}
+                nativeTitle={false}
+                active={active}
+                disabled={disabled}
+                danger={item.danger}
+                onClick={() => {
+                    // A long press opens the family instead of running the shown tool.
+                    if (longPressedRef.current) longPressedRef.current = false;
+                    else onRun();
+                }}
+                onPointerEnter={onHover}
+                onPointerLeave={() => { cancelPress(); onLeave(); }}
+                onFocus={onHover}
+                onBlur={onLeave}
+                onContextMenu={hasMembers ? event => { event.preventDefault(); onOpenMembers(event); } : undefined}
+                onPointerDown={hasMembers ? event => {
+                    const target = event.currentTarget;
+                    longPressedRef.current = false;
+                    pressRef.current = window.setTimeout(() => {
+                        longPressedRef.current = true;
+                        onOpenMembers({ currentTarget: target });
+                    }, LONG_PRESS_MS);
+                } : undefined}
+                onPointerUp={cancelPress}
+            />
+            {hasMembers && (
+                <button type="button" className="drawing-tool-more" aria-label={moreLabel} aria-haspopup="menu" onClick={onOpenMembers} />
+            )}
+        </div>
+    );
+}
+
+export function DrawingToolButton({ icon, glyph, label, onClick, active = false, disabled = false, danger = false, toolId = undefined, nativeTitle = true, ...events }) {
     return (
         <button
             type="button"
@@ -95,12 +201,12 @@ export function DrawingToolButton({ glyph, label, onClick, active = false, disab
             onClick={onClick}
             disabled={disabled}
             aria-label={label}
-            title={label}
+            title={nativeTitle ? label : undefined}
             aria-pressed={active || undefined}
+            data-tool={toolId}
+            {...events}
         >
-            {glyph}
+            {icon ? <Icon name={icon} /> : glyph}
         </button>
     );
 }
-
-const ToolButton = DrawingToolButton;

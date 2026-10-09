@@ -4,7 +4,8 @@ import { isDrawingLayerVisible } from './drawingLayers.js';
 import { getDrawingBlockReferenceBounds } from './drawingBlocks.js';
 import { isDrawingObjectHidden } from './drawingObjectVisibility.js';
 import { drawingDimensionPresentationPoints } from './drawingDimensionPresentation.js';
-import { drawingSnapEntities } from './drawingBlockSnapping.js';
+import { drawingSnapEntityEntries } from './drawingBlockSnapping.js';
+import { createDrawingIndexCache, createDrawingSpatialIndex } from './drawingSpatialIndex.js';
 import { getImageClipPoints } from './drawingImageClip.js';
 const EPSILON = 1e-9;
 const MAX_OFFSET_POLYLINE_POINTS = 4096;
@@ -1063,9 +1064,21 @@ export function selectionCenter(content, selectedIds) {
 
 export function snapDrawingPoint(point, content, threshold, { excludeIds = [] } = {}) {
     const excluded = new Set(excludeIds);
-    const entities = drawingSnapEntities(content, excluded).filter(isSafeSnappingEntity);
     const snaps = content.settings?.snaps || {};
     const aperture = Number.isFinite(Number(threshold)) ? Math.max(0, Number(threshold)) : 0;
+    const { entries, index } = snapIndexCache([content.entities, content.blocks, content.settings?.attributeDisplay], () => createSnapIndex(content));
+    const layers = new Map(content.layers.map(layer => [layer.id, layer]));
+    const visibleLayers = new Map();
+    const layerVisible = layerId => {
+        if (!visibleLayers.has(layerId)) visibleLayers.set(layerId, isDrawingLayerVisible(layers.get(layerId)));
+        return visibleLayers.get(layerId);
+    };
+    const area = { minX: point.x - aperture, minY: point.y - aperture, maxX: point.x + aperture, maxY: point.y + aperture };
+    const nearbyEntries = index.query(area)
+        .map(position => entries[position])
+        .filter(({ entity, layerIds }) => !excluded.has(entity.id) && !isDrawingObjectHidden(content, entity.id) && layerIds.every(layerVisible));
+    const entities = nearbyEntries.map(entry => entry.entity);
+    const entityBounds = new Map(nearbyEntries.map(entry => [entry.entity, entry.bounds]));
     const candidates = [];
     entities.forEach(entity => baseSnapCandidates(entity, snaps).forEach(candidate => {
         if (isFinitePoint(candidate) && pointDistance(point, candidate) <= aperture) candidates.push(candidate);
@@ -1074,7 +1087,7 @@ export function snapDrawingPoint(point, content, threshold, { excludeIds = [] } 
         const candidate = nearestSnapCandidate(point, entity);
         if (candidate && isFinitePoint(candidate) && pointDistance(point, candidate) <= aperture) candidates.push(candidate);
     });
-    if (snaps.intersection) candidates.push(...intersectionCandidates(entities, point, aperture));
+    if (snaps.intersection) candidates.push(...intersectionCandidates(entities, point, aperture, { area, entityBounds }));
     const priority = { intersection: 5, endpoint: 4, midpoint: 3, center: 2, nearest: 1 };
     const geometrySnap = candidates.reduce((best, candidate) => {
         const distance = pointDistance(point, candidate);
@@ -1100,7 +1113,7 @@ export function snapDrawingPoint(point, content, threshold, { excludeIds = [] } 
     return { x: point.x, y: point.y, type: null, distance: Infinity };
 }
 
-function intersectionCandidates(entities, point, threshold) {
+function intersectionCandidates(entities, point, threshold, { area = null, entityBounds = new Map() } = {}) {
     const candidates = [];
     const nearby = entities
         .map((entity, index) => ({ entity, index, distance: distanceToSnappableEntity(point, entity) }))
@@ -1115,6 +1128,9 @@ function intersectionCandidates(entities, point, threshold) {
             pairChecks += 1;
             const left = nearby[leftIndex].entity;
             const right = nearby[rightIndex].entity;
+            // An accepted intersection lies in both bounds and within the aperture
+            // box; skipping disjoint pairs still consumes the same check budget.
+            if (area && !boundsShareArea(entityBounds.get(left), entityBounds.get(right), area)) continue;
             const intersections = intersectEntities(left, right);
             intersections.forEach(intersection => {
                 if (candidates.length >= MAX_SNAP_INTERSECTION_CANDIDATES
@@ -1125,6 +1141,56 @@ function intersectionCandidates(entities, point, threshold) {
         }
     }
     return candidates;
+}
+
+// Pointer moves query a cached index of the expanded snap geometry instead of
+// re-expanding blocks and scanning every entity. Every snap result lies within
+// the aperture, so entities whose geometry and base snap points stay outside
+// the aperture box cannot contribute. The index depends on the immutable
+// entity and block collections; layer visibility and hidden objects are
+// applied per query.
+const SNAP_EXPANSION_LIMIT = 200000;
+const INDEXED_BASE_SNAPS = Object.freeze({ endpoint: true, midpoint: true, center: true, quadrant: true, node: true });
+const snapIndexCache = createDrawingIndexCache();
+// Expanded geometry and bounds per document entity, so rebuilding the index
+// after an edit only expands the entities that changed.
+const rootSnapEntries = new WeakMap();
+
+function createSnapIndex(content) {
+    const entries = [];
+    for (const root of content.entities) {
+        for (const entry of snapEntriesForRoot(content, root)) {
+            if (entries.length >= SNAP_EXPANSION_LIMIT) break;
+            entries.push(entry);
+        }
+    }
+    return { entries, index: createDrawingSpatialIndex(entries, entry => entry.bounds) };
+}
+
+function snapEntriesForRoot(content, root) {
+    const attributeDisplay = content.settings?.attributeDisplay;
+    const cached = root && typeof root === 'object' ? rootSnapEntries.get(root) : null;
+    if (cached && cached.blocks === content.blocks && cached.attributeDisplay === attributeDisplay) return cached.entries;
+    const entries = drawingSnapEntityEntries(content, SNAP_EXPANSION_LIMIT, [root])
+        .filter(entry => isSafeSnappingEntity(entry.entity))
+        .map(entry => ({ ...entry, bounds: snapEntityBounds(entry.entity) }));
+    if (root && typeof root === 'object') rootSnapEntries.set(root, { blocks: content.blocks, attributeDisplay, entries });
+    return entries;
+}
+
+function snapEntityBounds(entity) {
+    if (isConstructionLine(entity)) return null;
+    const bounds = getEntityBounds(entity);
+    if (!bounds) return null;
+    return baseSnapCandidates(entity, INDEXED_BASE_SNAPS)
+        .filter(isFinitePoint)
+        .reduce((combined, candidate) => combineBounds(combined, { minX: candidate.x, minY: candidate.y, maxX: candidate.x, maxY: candidate.y }), bounds);
+}
+
+function boundsShareArea(left, right, area) {
+    if (!left || !right) return true;
+    return Math.max(left.minX, right.minX, area.minX) <= Math.min(left.maxX, right.maxX, area.maxX)
+        && Math.max(left.minY, right.minY, area.minY) <= Math.min(left.maxY, right.maxY, area.maxY);
 }
 
 function isSafeSnappingEntity(entity) {

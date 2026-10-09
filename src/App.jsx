@@ -9,6 +9,8 @@ import { localizeError } from '~i18n/translator';
 import { createLcadDocument } from '~utils/lcadDocument';
 import { clearLcadRecovery, isTauriRuntime, loadStartupLcad, openLcadDocument } from '~utils/lcadStorage';
 
+const BENCHMARK_HARNESS_ENABLED = import.meta.env.DEV || import.meta.env.VITE_LUMCAD_BENCH === '1';
+
 export default function App() {
     const { t } = useI18n();
     const { settings } = useAppSettings();
@@ -40,6 +42,22 @@ export default function App() {
                 if (!cancelled) setStartupError(error);
             });
         return () => { cancelled = true; };
+    }, [replaceSession]);
+
+    useEffect(() => {
+        if (!BENCHMARK_HARNESS_ENABLED) return undefined;
+        let disposed = false;
+        let uninstall = null;
+        import('~dev/benchmarkHarness').then(({ installBenchmarkHarness }) => {
+            if (disposed) return;
+            uninstall = installBenchmarkHarness({
+                loadDocument: document => replaceSession({ document, path: null, recovered: false, sandbox: true }),
+            });
+        }).catch(() => {});
+        return () => {
+            disposed = true;
+            uninstall?.();
+        };
     }, [replaceSession]);
 
     useEffect(() => {
@@ -103,6 +121,7 @@ export default function App() {
             initialRecoveryGraph={session.recoveryGraph}
             initialTemplateSourcePath={session.templateSourcePath}
             initialMessage={session.initialMessage}
+            sandbox={Boolean(session.sandbox)}
             onReplaceSession={replaceSession}
             onOpenSettings={() => setSettingsOpen(true)}
         />;

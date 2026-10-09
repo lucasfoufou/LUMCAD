@@ -23,7 +23,11 @@ function validBlockTransform(entity) {
 }
 
 /** Read raw data before normalization can hide defects. Never mutates or repairs input. */
-export function auditDrawingDocument(document, { maxObjects = 100000, maxIssues = 10000 } = {}) {
+// Work bound on examined raw objects (catalog entries, entities and nested
+// geometry parts). It must cover the largest drawings the archive can store.
+export const DRAWING_AUDIT_MAX_OBJECTS = 2_000_000;
+
+export function auditDrawingDocument(document, { maxObjects = DRAWING_AUDIT_MAX_OBJECTS, maxIssues = 10000 } = {}) {
     if (!document?.content || !Number.isInteger(maxObjects) || maxObjects < 1 || !Number.isInteger(maxIssues) || maxIssues < 1) return { error: 'invalid' };
     const issues = []; let examined = 0;
     const issue = (code, path, entityId = null, reference = null) => {

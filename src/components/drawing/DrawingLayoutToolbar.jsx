@@ -27,45 +27,45 @@ export default function DrawingLayoutToolbar({
             <div className="drawing-toolbar-group">
                 <DrawingToolButton
                     active={activeTool === 'select'}
-                    glyph="↖"
+                    icon="select"
                     label={t('layout.selectTool')}
                     onClick={() => onToolChange('select')}
                 />
                 <DrawingToolButton
                     active={activeTool === 'viewport'}
-                    glyph="▣"
+                    icon="viewport"
                     label={t('layout.viewportTool')}
                     onClick={() => onToolChange('viewport')}
                 />
                 <DrawingToolButton
                     active={activeTool === 'pan-paper'}
-                    glyph="✋︎"
+                    icon="pan"
                     label={t('layout.panPaperTool')}
                     onClick={() => onToolChange('pan-paper')}
                 />
                 <DrawingToolButton
                     active={activeTool === 'pan-view'}
-                    glyph="☝︎"
+                    icon="move"
                     label={t('layout.panViewTool')}
                     onClick={() => onToolChange('pan-view')}
                 />
                 <DrawingToolButton
                     active={activeTool === 'scale'}
                     disabled={!hasSelection}
-                    glyph="×"
+                    icon="scale"
                     label={t('layout.scaleViewportTool')}
                     onClick={onScale}
                 />
                 <DrawingToolButton
                     disabled={!hasSelection || !onClip}
-                    glyph="⬡"
+                    icon="polygon"
                     label={t('layout.viewportClipTool')}
                     onClick={onClip}
                 />
                 <DrawingToolButton
                     active={viewportLocked}
                     disabled={!hasSelection || !onToggleLock}
-                    glyph={viewportLocked ? '🔒' : '🔓'}
+                    icon={viewportLocked ? 'lock' : 'unlock'}
                     label={t(viewportLocked ? 'layout.unlockViewport' : 'layout.lockViewport')}
                     onClick={onToggleLock}
                 />
@@ -73,26 +73,26 @@ export default function DrawingLayoutToolbar({
                     <DrawingToolButton
                         active={viewportMaximized}
                         disabled={!hasSelection || (viewportMaximized ? !onMinimize : !onMaximize)}
-                        glyph={viewportMaximized ? '▣' : '⛶'}
+                        icon={viewportMaximized ? 'zoomOut' : 'fit'}
                         label={t(viewportMaximized ? 'layout.minimizeViewport' : 'layout.maximizeViewport')}
                         onClick={viewportMaximized ? onMinimize : onMaximize}
                     />
                 )}
             </div>
             <div className="drawing-toolbar-group">
-                {['text', 'line', 'rectangle'].map(type => <DrawingToolButton key={type} glyph={{ text: 'T', line: '╱', rectangle: '▭' }[type]}
+                {['text', 'line', 'rectangle'].map(type => <DrawingToolButton key={type} icon={type}
                     label={t(`layout.paperAnnotation.${type}`)} onClick={() => onPaperCreate?.(type)} />)}
             </div>
             <div className="drawing-toolbar-group">
-                <DrawingToolButton glyph="＋" label={t('layout.paperZoomIn')} onClick={onZoomIn} />
-                <DrawingToolButton glyph="−" label={t('layout.paperZoomOut')} onClick={onZoomOut} />
-                <DrawingToolButton glyph="□" label={t('layout.fitPaper')} onClick={onFitPaper} />
+                <DrawingToolButton icon="zoomIn" label={t('layout.paperZoomIn')} onClick={onZoomIn} />
+                <DrawingToolButton icon="zoomOut" label={t('layout.paperZoomOut')} onClick={onZoomOut} />
+                <DrawingToolButton icon="fit" label={t('layout.fitPaper')} onClick={onFitPaper} />
             </div>
             <div className="drawing-toolbar-group">
                 <DrawingToolButton
                     danger
                     disabled={!hasSelection && !hasPaperSelection}
-                    glyph="⌫"
+                    icon="erase"
                     label={t(hasPaperSelection ? 'layout.deletePaperAnnotation' : 'layout.deleteViewport')}
                     onClick={onDelete}
                 />

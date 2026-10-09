@@ -22,6 +22,8 @@
     "build": "vite build",
     "test": "node --test src/utils/*.test.js scripts/*.test.mjs",
     "test:release": "node --test scripts/*.test.mjs",
+    "bench": "node --expose-gc scripts/bench.mjs",
+    "bench:browser": "node scripts/bench-browser.mjs",
     "test:mcp": "node --test src/utils/mcpBridge.test.js && cargo test --manifest-path src-tauri/Cargo.toml mcp::",
     "tauri": "tauri",
     "check": "npm test && npm run build && cargo test --manifest-path src-tauri/Cargo.toml"

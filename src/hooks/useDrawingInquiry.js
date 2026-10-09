@@ -23,7 +23,8 @@ export default function useDrawingInquiry({ content, selectedIds, operation, set
         catch { setMessage(t('inquiry.copyFailed')); }
     };
     const measureEntities = (mode, ids, accumulation = null) => {
-        const entities = content.entities.filter(entity => ids.includes(entity.id) && canSelectEntity(content, entity));
+        const idSet = new Set(ids);
+        const entities = content.entities.filter(entity => idSet.has(entity.id) && canSelectEntity(content, entity));
         if (!entities.length || entities.length > 256) { setMessage(t('inquiry.selection')); return; }
         const measurements = entities.map(measureDrawingEntity);
         const field = mode === 'radius' ? 'radius' : mode === 'length' ? 'perimeter' : 'area';
@@ -46,7 +47,8 @@ export default function useDrawingInquiry({ content, selectedIds, operation, set
         let mode = { distanceInquiry: 'distance', areaInquiry: 'area', coordinateInquiry: 'id', massProperties: 'mass' }[command];
         if (command === 'entityList') {
             if (tokens.length && input.toUpperCase() !== 'ALL') { setMessage(t('inquiry.syntax')); return true; }
-            const entities = content.entities.filter(entity => (tokens.length || selectedIds.includes(entity.id)) && canSelectEntity(content, entity));
+            const selectedIdSet = new Set(selectedIds);
+            const entities = content.entities.filter(entity => (tokens.length || selectedIdSet.has(entity.id)) && canSelectEntity(content, entity));
             if (!entities.length || entities.length > 256) setMessage(t('inquiry.selection'));
             else present({ unit: 'm', objects: entities });
             return true;

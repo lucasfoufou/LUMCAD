@@ -4,12 +4,14 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 
 import {
     LCAD_MANIFEST_PATH,
+    LCAD_MAX_MANIFEST_BYTES,
     createLcadArchive,
     isZipArchive,
     readLcadArchive,
     readLcadRecoveryCandidate,
 } from './lcadArchive.js';
 import { createLcadDocument, createLcadEnvelope } from './lcadDocument.js';
+import { createDrawingBenchmarkDocument } from './drawingBenchmarkFixtures.js';
 import { beginRectangularArrayOperation, beginRectangularArrayEdit, commitRectangularArrayOperation } from './drawingCompoundOperations.js';
 import {
     createDrawingLayout,
@@ -357,4 +359,21 @@ test('recovery staging retains strict version, entry-path and malformed-manifest
     assert.throws(() => readLcadRecoveryCandidate(zipSync({ ...entries, [LCAD_MANIFEST_PATH]: strToU8('{broken') })));
     const manifest = JSON.parse(strFromU8(entries[LCAD_MANIFEST_PATH])); manifest.formatVersion = 999;
     assert.throws(() => readLcadRecoveryCandidate(zipSync({ ...entries, [LCAD_MANIFEST_PATH]: strToU8(JSON.stringify(manifest)) })));
+});
+
+test('large drawings save as compact manifests beyond the former 8 MiB pretty-printed limit', () => {
+    const document = createDrawingBenchmarkDocument(25_000);
+    const envelope = createLcadEnvelope(document);
+    assert.ok(JSON.stringify(envelope, null, 2).length > 8 * 1024 * 1024);
+    const archive = createLcadArchive(envelope);
+    const manifest = strFromU8(unzipSync(archive)[LCAD_MANIFEST_PATH]);
+    assert.equal(manifest, `${JSON.stringify(JSON.parse(manifest))}\n`);
+    assert.deepEqual(readLcadArchive(archive).document.content.entities, document.content.entities);
+});
+
+test('readers keep rejecting manifests above the safety limit', () => {
+    const oversized = new Uint8Array(LCAD_MAX_MANIFEST_BYTES + 1).fill(32);
+    oversized[0] = 123;
+    assert.throws(() => readLcadArchive(zipSync({ [LCAD_MANIFEST_PATH]: [oversized, { level: 1 }] })),
+        error => error.translationKey === 'storage.invalidArchiveEntry');
 });

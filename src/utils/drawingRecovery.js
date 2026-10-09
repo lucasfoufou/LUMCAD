@@ -1,5 +1,5 @@
 import { repairDrawingGroupCatalog } from './drawingGroupAudit.js';
-import { auditDrawingDocument, repairDrawingDocument } from './drawingAudit.js';
+import { auditDrawingDocument, DRAWING_AUDIT_MAX_OBJECTS, repairDrawingDocument } from './drawingAudit.js';
 import { normalizeDrawingGeometricConstraints } from './drawingConstraintDefinition.js';
 
 const ENTITY_DEFECTS = new Set(['invalidEntity', 'invalidGeometry', 'unknownEntityType', 'missingBlock', 'missingAsset', 'missingSource', 'missingId', 'duplicateId']);
@@ -11,7 +11,7 @@ function documentScopes(document) {
 }
 
 /** Salvage a copy. Quarantined objects retain their complete raw value in the report. */
-export function salvageDrawingDocument(source, { maxPasses = 64, maxObjects = 100000, maxIssues = 10000, recoveredLayerName } = {}) {
+export function salvageDrawingDocument(source, { maxPasses = 64, maxObjects = DRAWING_AUDIT_MAX_OBJECTS, maxIssues = 10000, recoveredLayerName } = {}) {
     if (!Number.isInteger(maxPasses) || maxPasses < 1 || maxPasses > 256) return { error: 'invalid' };
     const limits = { maxObjects, maxIssues };
     const first = repairDrawingDocument(source, { ...limits, ...(recoveredLayerName ? { recoveredLayerName } : {}) });

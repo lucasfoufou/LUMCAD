@@ -132,6 +132,15 @@ To create a development bundle on macOS:
 npm run tauri build -- --debug
 ```
 
+### Measure performance
+
+```bash
+npm run bench
+npm run bench:browser
+```
+
+The first command benchmarks the document pipeline in Node; the second replays real editor input on generated reference drawings in headless Chrome. See [PERFORMANCE.md](./PERFORMANCE.md) for fixtures, budgets and the current baseline.
+
 ## Releases
 
 Releases are built by [`.github/workflows/release.yml`](./.github/workflows/release.yml) whenever a tag matching `v*` is pushed. The workflow validates and tests the source, builds every supported desktop target sequentially into one draft GitHub release, signs the updater artifacts, verifies every installer, signature, URL, architecture, and `latest.json` entry, and publishes the release only after every platform succeeds.
@@ -209,7 +218,7 @@ Select editable objects and run `BLOCK` (`B`, `-BLOCK`) with `"name" [baseX base
 
 `INSERT` (`I`, `-INSERT`, `CLASSICINSERT`) accepts `"name" [x y [scale [angleDegrees]]]`. Without coordinates, a preview follows the picked insertion point; `SCALE value` and `ROTATION degrees` adjust it before placement. This insertion workflow uses a positive uniform scale. Existing transform commands can transform references afterwards. Each creation, redefinition and insertion is one undoable edit; Escape cancels a pending point.
 
-The **Blocks** sidebar tab and `BSEARCH [text]` show a searchable list of named definitions, start insertion, or create a definition from the current selection. Use the palette’s edit action or `BEDIT [name]` (with no name, select one reference) to edit local child geometry. `BSAVE` applies the draft to every occurrence in one model undo step and keeps the editor open. `BCLOSE SAVE` (the default) saves and closes; `BCLOSE DISCARD` abandons only changes since the last save. The banner exposes the same actions and indicates unapplied changes. Escape cancels the active drawing command. While editing, normal drawing tools and undo/redo operate on the isolated draft; autosave continues to save the model without unpublished draft changes. File replacement, export, layouts and nested block-edit sessions require closing the editor first. New layers, nested definitions and image assets are adopted when saving; existing model-only layers are retained. External block libraries are still in progress.
+The **Library** tab of the properties panel and `BSEARCH [text]` show a searchable list of named definitions, start insertion, or create a definition from the current selection. Use the palette’s edit action or `BEDIT [name]` (with no name, select one reference) to edit local child geometry. `BSAVE` applies the draft to every occurrence in one model undo step and keeps the editor open. `BCLOSE SAVE` (the default) saves and closes; `BCLOSE DISCARD` abandons only changes since the last save. The banner exposes the same actions and indicates unapplied changes. Escape cancels the active drawing command. While editing, normal drawing tools and undo/redo operate on the isolated draft; autosave continues to save the model without unpublished draft changes. File replacement, export, layouts and nested block-edit sessions require closing the editor first. New layers, nested definitions and image assets are adopted when saving; existing model-only layers are retained. External block libraries are still in progress.
 
 `BASE x y` sets the drawing insertion base point in metres without moving objects; `BASE` alone accepts a picked or typed point. Escape cancels and undo restores the previous base point. Close the block editor before changing the document base.
 
@@ -247,19 +256,25 @@ Dimension creation previews use the current style before placement. Styled arrow
 
 ### Shared creation and properties
 
-Creation options and selected-object geometry share the right sidebar. Select one object
-(or run `PROPERTIES`) to edit its supported geometry, layer and appearance; multiple
+The command line sits in the window header (Mod+K focuses it; typing anywhere also starts
+it). It accepts commands, values and coordinates and shows the current prompt. While a tool
+or command is active, a panel below it shows the full prompt, its modes and values, and
+option chips. The **Properties** tab of the right panel edits the selection: select one
+object (or run `PROPERTIES`) to edit its supported geometry, layer and appearance; multiple
 selection exposes common appearance fields. Compound objects use their position fields,
 existing grips and transform commands. Leader text, arrow and landing settings are editable
 there too. Paper annotations reuse these controls with millimetre labels; model values use
-metres. Contextual options and point/value entry use the same draft and parser as the command
-bar. Cancel/Escape discards an unfinished creation; property edits apply live and can be
+metres. An option chip starts the matching command option in the command line, which remains the
+single place to type points and values. Snap, grid, ortho, polar and
+object tracking toggles live in the status bar at the bottom of the window. Text,
+dimension and plot styles, parameters, constraints and measurements open in a floating
+window from command search or the **Manage** section of the Properties tab. Cancel/Escape discards an unfinished creation; property edits apply live and can be
 undone. Continuous LINE entry remains active until cancelled. Rich text uses the shared
 in-place editor with explicit apply/cancel.
 
 ### Annotation scales
 
-The sidebar's annotation-scale section selects the model denominator independently of
+The annotation-scale section of the Properties tab selects the model denominator independently of
 screen zoom. Enable annotation on selected text, dimensions, hatches or blocks/leaders,
 then add the scales needed by your layouts. A viewport shows the object's representation
 only when its actual scale is listed; the model's show-all option helps inspect other
@@ -344,7 +359,7 @@ A frame supports up to four rows, two tolerance values per row and three datum r
 
 ### Driving dimensions and parameters
 
-Use the **Parameters** sidebar in model space or BEDIT to create named distance/angle/number formulas, inspect dependencies, edit their expressions and select the affected objects. `PARAMETERS SET width distance "4m"` defines a parameter; select a line and run `DCALIGNED span "width * 2"` to drive its length. `DCLINEAR span "width" X` drives a projected distance. `DCANGULAR`, `DCRADIUS` and `DCDIAMETER` cover angles and circular sizes. Names share one formula graph; lengths use metres and angles degrees, with explicit unit suffixes supported.
+Use the **Parameters** window in model space or BEDIT to create named distance/angle/number formulas, inspect dependencies, edit their expressions and select the affected objects. `PARAMETERS SET width distance "4m"` defines a parameter; select a line and run `DCALIGNED span "width * 2"` to drive its length. `DCLINEAR span "width" X` drives a projected distance. `DCANGULAR`, `DCRADIUS` and `DCDIAMETER` cover angles and circular sizes. Names share one formula graph; lengths use metres and angles degrees, with explicit unit suffixes supported.
 
 `DCCONVERT` retains selected associative dimension annotations and uses their exact measurement as a driving expression. `DIMCONSTRAINT SET name "expression"` updates a driver; `DELETE SELECTED` removes drivers touching selected source objects or linked annotations while keeping their displayed geometry. Cycles, missing dependencies and conflicting constraints reject the complete edit. Every successful geometry/parameter update is one undo step. Archive loading validates definitions without silently solving stored geometry.
 

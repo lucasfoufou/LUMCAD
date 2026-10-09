@@ -34,7 +34,8 @@ export default function useDrawingAnnotations({ history, enabled, selectedIds, s
             else invalid();
             return true;
         }
-        const selected = source.entities.filter(entity => selectedIds.includes(entity.id));
+        const selectedIdSet = new Set(selectedIds);
+        const selected = source.entities.filter(entity => selectedIdSet.has(entity.id));
         if (!selected.length || selected.some(entity => !canEditEntity(source, entity) || !supportsDrawingAnnotation(entity))) { setMessage(t('annotation.selection')); return true; }
         if (command === 'annotationUpdate' && !input.trim() || command === 'objectScale' && action === 'OFF' && !tokens.length) {
             const next = commitDrawingAnnotationRepresentation(source, selectedIds, scale, { detach: command === 'objectScale' });
@@ -47,7 +48,7 @@ export default function useDrawingAnnotations({ history, enabled, selectedIds, s
         }
         let failed = false;
         const entities = source.entities.map(entity => {
-            if (!selectedIds.includes(entity.id)) return entity;
+            if (!selectedIdSet.has(entity.id)) return entity;
             const annotation = normalizeDrawingAnnotation(entity.annotation);
             if (command === 'annotationReset' && !input.trim() && annotation) return { ...entity, annotation: { ...annotation, scales: annotation.scales.map(item => ({ ...item, offset: { x: 0, y: 0 } })) } };
             if (command === 'objectScale') {

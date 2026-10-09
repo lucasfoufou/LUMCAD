@@ -1,0 +1,693 @@
+// Editor frame: header, tool rail, options bar, drawing, properties panel and
+// status bar. Everything here uses the tokens from tokens.scss.
+
+.drawing-editor-shell {
+  position: relative;
+  display: grid;
+  grid-template-rows: 44px minmax(0, 1fr) 30px;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--chrome);
+  color: var(--ink);
+  -webkit-user-select: none;
+  user-select: none;
+
+  input,
+  textarea,
+  select,
+  [contenteditable="true"] {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  &.is-block-editing { grid-template-rows: 44px auto minmax(0, 1fr) 30px; }
+}
+
+// --- Header -----------------------------------------------------------------
+
+.drawing-editor-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 0 8px 0 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  z-index: 5;
+}
+
+.lumcad-brand { display: flex; flex: none; }
+.lumcad-brand-mark { display: block; width: 24px; height: 24px; }
+
+.drawing-editor-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+
+  input {
+    width: clamp(8rem, 16vw, 15rem);
+    border-color: transparent;
+    background: transparent;
+    font-weight: 600;
+  }
+
+  input:hover:not(:focus) { border-color: transparent; background: var(--field); }
+}
+
+.drawing-save-status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  cursor: default;
+
+  &::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+  &.is-saved::before { background: var(--success); }
+  &.is-dirty::before, &.is-saving::before { background: var(--warning); }
+  &.is-error::before { background: var(--danger); }
+}
+
+.lumcad-file-actions { display: flex; align-items: center; gap: 8px; flex: none; margin-left: auto; }
+
+.lumcad-header-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+
+  & + & { padding-left: 8px; border-left: 1px solid var(--line); }
+  .ui-button.is-ghost { color: var(--ink); }
+}
+
+.lumcad-update-button { color: var(--accent); }
+
+// --- Body and tool rail -----------------------------------------------------
+
+.drawing-editor-body {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) 300px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.drawing-toolbar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-height: 0;
+  padding: 6px 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+
+  &::-webkit-scrollbar { display: none; }
+}
+
+.drawing-toolbar-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+
+  & + & { padding-top: 4px; border-top: 1px solid var(--line); }
+}
+
+.drawing-tool-slot { position: relative; display: flex; }
+
+.drawing-tool-button {
+  width: 34px;
+  height: 32px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+
+  &:hover:not(:disabled) { background: var(--field); }
+  &.is-active, &.is-active:hover:not(:disabled) { background: var(--accent); color: var(--accent-ink); }
+  &.is-danger:hover:not(:disabled) { background: var(--danger-soft); color: var(--danger); }
+  &:disabled { background: transparent; opacity: 0.3; }
+}
+
+.drawing-tool-more {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 11px;
+  height: 11px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+
+  &:hover:not(:disabled) { background: transparent; }
+  &::after {
+    content: "";
+    position: absolute;
+    right: 2px;
+    bottom: 2px;
+    border: 3px solid transparent;
+    border-right-color: var(--muted);
+    border-bottom-color: var(--muted);
+  }
+  &:hover::after { border-right-color: var(--ink); border-bottom-color: var(--ink); }
+}
+
+.drawing-tool-button.is-active + .drawing-tool-more::after { border-right-color: var(--accent-ink); border-bottom-color: var(--accent-ink); }
+
+.drawing-toolbar-tooltip { transform: translateY(-50%); }
+
+.drawing-toolbar-flyout {
+  position: fixed;
+  z-index: 900;
+  display: grid;
+  min-width: 230px;
+  padding: 4px;
+
+  button {
+    justify-content: flex-start;
+    gap: 10px;
+    min-height: 30px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    text-align: left;
+
+    span { flex: 1; }
+    &:hover:not(:disabled) { background: var(--field); }
+    &[aria-checked="true"] { color: var(--accent); }
+  }
+}
+
+// --- Stage -----------------------------------------------------------------------
+
+.drawing-editor-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--paper);
+}
+
+// Creation and editing controls: a wrapping panel below the command line, a
+// stacked form in the Properties panel.
+.drawing-creation-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  min-width: 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+
+  > header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+
+    strong {
+      padding: 3px 7px;
+      border-radius: var(--radius-sm);
+      background: var(--raised);
+      box-shadow: inset 0 0 0 1px var(--line-strong);
+      font: 600 var(--text-xs) var(--font-num);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    button { min-height: 24px; padding: 0 6px; border-color: transparent; background: transparent; color: var(--muted); font-size: var(--text-xs); }
+    button:hover:not(:disabled) { background: var(--field); color: var(--ink); }
+  }
+
+  p { margin: 0; color: var(--muted); }
+}
+
+.drawing-creation-fields,
+.drawing-creation-details,
+.drawing-creation-details-fields,
+.drawing-creation-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.drawing-creation-context kbd { margin-left: 6px; }
+
+.drawing-creation-field {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+
+  > span { color: var(--muted); white-space: nowrap; }
+  input, select { width: 6.5rem; }
+  textarea { width: 12rem; min-height: var(--control-height); resize: vertical; }
+  &.is-wide input, &.is-wide select, &.is-wide textarea { width: 12rem; }
+}
+
+.drawing-creation-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--control-height);
+  padding: 0 8px;
+  border-radius: var(--radius);
+  background: var(--field);
+  white-space: nowrap;
+}
+
+.drawing-creation-details-toggle {
+  min-height: 24px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+
+  span { min-width: 0.75rem; color: var(--accent); font-family: var(--font-num); }
+}
+
+.drawing-creation-action,
+.drawing-creation-select {
+  justify-content: space-between;
+  min-width: 7rem;
+  border-color: transparent;
+  text-align: left;
+
+  span:first-child { overflow: hidden; text-overflow: ellipsis; }
+  span:last-child { color: var(--muted); }
+  &[aria-expanded="true"] { border-color: var(--focus); }
+}
+
+.drawing-creation-select-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  display: grid;
+  min-width: 100%;
+  max-height: min(16rem, 45vh);
+  padding: 4px;
+  overflow-y: auto;
+  border-radius: var(--radius-lg);
+  background: var(--raised);
+  box-shadow: var(--shadow-pop);
+
+  button {
+    justify-content: flex-start;
+    border: 0;
+    background: transparent;
+    text-align: left;
+
+    &:hover:not(:disabled), &.is-selected { background: var(--accent-soft); }
+  }
+}
+
+.drawing-properties-mount {
+  .drawing-creation-controls { display: grid; gap: 8px; }
+  .drawing-creation-controls > header strong { padding: 0; background: none; box-shadow: none; color: var(--muted); }
+  .drawing-creation-fields, .drawing-creation-details, .drawing-creation-details-fields { display: grid; }
+  .drawing-creation-field { display: grid; grid-template-columns: 96px minmax(0, 1fr); }
+  .drawing-creation-field input, .drawing-creation-field select, .drawing-creation-field textarea { width: 100%; }
+}
+
+.drawing-dynamic-input {
+  position: absolute;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  width: 200px;
+  min-height: 30px;
+  overflow: hidden;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--raised);
+  box-shadow: var(--shadow-pop);
+  color: var(--accent);
+  font-family: var(--font-num);
+  z-index: 9;
+
+  > span { padding: 0 6px; }
+
+  input {
+    min-height: 28px;
+    padding-left: 0;
+    border: 0;
+    background: transparent;
+    color: var(--ink);
+    font: inherit;
+  }
+
+  input:focus { outline: none; }
+}
+
+// --- Command line (window header) ------------------------------------------------
+
+// The single command line: type commands, values and coordinates; suggestions,
+// history and the options of the active command open below it.
+.drawing-command-area {
+  position: relative;
+  flex: 1 1 520px;
+  min-width: 0;
+  max-width: 680px;
+  margin-inline: auto;
+}
+
+// Panel of the active command: the full prompt, then its options. It shows only
+// while the command has options and the user is not browsing suggestions.
+.drawing-command-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  display: grid;
+  gap: 8px;
+  min-width: 100%;
+  max-width: min(920px, 80vw);
+  padding: 8px 10px;
+}
+
+.drawing-command-panel:has(.drawing-options-slot:empty),
+.drawing-command-area.is-listing .drawing-command-panel { display: none; }
+
+.drawing-command-panel-message { margin: 0; color: var(--muted); font-size: var(--text-sm); }
+
+// While the panel shows the full prompt, the command line keeps its width for typing.
+.drawing-command-area:has(.drawing-options-slot:not(:empty)):not(.is-listing) .drawing-command-message { display: none; }
+
+.drawing-command-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: var(--field);
+
+  &:focus-within { border-color: var(--focus); }
+
+  input {
+    flex: 1 1 12rem;
+    min-width: 8rem;
+    min-height: 28px;
+    padding-left: 4px;
+    border: 0;
+    background: transparent;
+    font-family: var(--font-num);
+  }
+
+  input:focus { border: 0; }
+
+  > button[type="submit"] {
+    flex: none;
+    min-height: 24px;
+    margin-right: 4px;
+    padding: 0 10px;
+    border-color: transparent;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: var(--text-sm);
+  }
+}
+
+.drawing-command-prompt {
+  flex: none;
+  min-height: 28px;
+  padding: 0 6px 0 10px;
+  border: 0;
+  border-radius: var(--radius) 0 0 var(--radius);
+  background: transparent;
+  color: var(--accent);
+  font-family: var(--font-num);
+
+  &:hover:not(:disabled) { background: var(--accent-soft); }
+}
+
+.drawing-command-message {
+  flex: 0 1 auto;
+  max-width: 55%;
+  min-width: 0;
+  padding-right: 8px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawing-command-suggestions,
+.drawing-command-history {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: min(22rem, 50vh);
+  padding: 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-radius: var(--radius-lg);
+  background: var(--raised);
+  box-shadow: var(--shadow-pop);
+  z-index: 12;
+
+  button {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    justify-content: stretch;
+    align-items: center;
+    column-gap: 10px;
+    width: 100%;
+    min-height: 30px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    text-align: left;
+
+    &:hover:not(:disabled), &.is-active { background: var(--accent-soft); }
+  }
+
+  strong { color: var(--accent); font-family: var(--font-num); white-space: nowrap; }
+  span { min-width: 0; overflow: hidden; color: var(--muted); font-size: var(--text-sm); text-overflow: ellipsis; white-space: nowrap; }
+  span kbd { margin-right: 4px; }
+}
+
+.drawing-command-history {
+  ul { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+  p { margin: 0; padding: 8px; color: var(--muted); text-align: center; }
+  button { display: block; overflow: hidden; font-family: var(--font-num); text-overflow: ellipsis; white-space: nowrap; }
+}
+
+// --- Properties panel frame ---------------------------------------------------
+
+.drawing-sidebar {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.drawing-sidebar-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 6px;
+  border-bottom: 1px solid var(--line);
+
+  button {
+    flex: 1 1 auto;
+    min-height: 26px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--muted);
+    font-weight: 500;
+
+    &:hover:not(:disabled) { background: var(--field); color: var(--ink); }
+    &.is-active { background: var(--field); color: var(--ink); }
+  }
+}
+
+.drawing-sidebar-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 14px;
+  min-height: 0;
+  padding: 10px 12px 16px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.drawing-manage-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+
+  button { justify-content: flex-start; min-height: 30px; padding: 4px 8px; text-align: left; white-space: normal; }
+}
+
+// Floating, non-modal manager window docked beside the properties panel.
+.drawing-manager-window {
+  position: fixed;
+  top: 92px;
+  right: 312px;
+  z-index: 60;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(360px, calc(100vw - 380px));
+  max-height: calc(100vh - 140px);
+
+  > header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 8px 8px 14px;
+    border-bottom: 1px solid var(--line);
+
+    h2 { margin: 0; font-size: var(--text-md); }
+  }
+}
+
+.drawing-manager-body { display: grid; align-content: start; gap: 10px; min-height: 0; padding: 12px 14px 16px; overflow-y: auto; }
+
+// --- Block editing bar -------------------------------------------------------
+
+.drawing-block-edit-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--accent);
+  background: var(--raised);
+  font-size: var(--text-sm);
+
+  strong { overflow-wrap: anywhere; }
+  span { flex: 1; color: var(--muted); }
+}
+
+// --- Status bar --------------------------------------------------------------
+
+.drawing-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 0 6px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  font-size: var(--text-sm);
+}
+
+.drawing-status-tabs { display: flex; align-items: center; flex: 1 1 auto; min-width: 0; }
+.drawing-status-aids { display: flex; align-items: center; gap: 2px; flex: none; }
+.drawing-snap-controls, .drawing-status-view { display: flex; align-items: center; gap: 2px; }
+.drawing-status-view { margin-left: 6px; padding-left: 6px; border-left: 1px solid var(--line); }
+
+.drawing-status-aid {
+  gap: 2px;
+  min-height: 22px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+
+  &:hover:not(:disabled) { background: var(--field); color: var(--ink); }
+  &[aria-pressed="true"] { border: 0; background: var(--accent-soft); color: var(--accent); }
+}
+
+.drawing-status-separator { width: 1px; height: 16px; margin: 0 4px; background: var(--line); }
+
+.drawing-snap-scale {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--muted);
+  font: var(--text-sm) var(--font-num);
+
+  input { width: 4.5rem; min-height: 22px; padding: 0 4px; border-color: transparent; background: transparent; font: inherit; }
+  input:hover:not(:focus) { background: var(--field); }
+}
+
+.drawing-status-popover { position: relative; display: inline-flex; }
+
+.drawing-status-popover-panel {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 40;
+  min-width: 230px;
+  padding: 6px;
+}
+
+.drawing-status-menu {
+  display: grid;
+  gap: 2px;
+
+  > label { display: flex; align-items: center; gap: 8px; min-height: 26px; padding: 0 6px; border-radius: var(--radius-sm); }
+  > label:hover { background: var(--field); }
+}
+
+.drawing-status-menu-actions { display: flex; gap: 6px; padding: 6px 6px 2px; border-top: 1px solid var(--line); }
+
+.drawing-drafting-settings { gap: 8px; width: 260px; }
+
+.drawing-status-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5rem 1.2rem;
+  align-items: center;
+  gap: 6px;
+  min-height: 0;
+  padding: 0 4px;
+
+  > span:first-child { color: var(--muted); }
+  &.is-wide { grid-template-columns: 1fr; }
+}
+
+.drawing-tracking-relations { display: grid; gap: 4px; label { display: flex; align-items: center; gap: 8px; } }
+
+// --- Narrow windows --------------------------------------------------------------
+
+@media (max-width: 1100px) {
+  .drawing-editor-body { grid-template-columns: 46px minmax(0, 1fr) 260px; }
+  .drawing-manager-window { right: 272px; }
+  .drawing-command-message { max-width: 40%; }
+}
+
+@media (max-width: 820px) {
+  .drawing-editor-body { grid-template-columns: 46px minmax(0, 1fr); }
+  .drawing-sidebar { display: none; }
+  .lumcad-header-group[role="group"] { display: none; }
+  .drawing-status-aids .drawing-status-view { display: none; }
+}
+
+// The prompt in the command line already guides the user; tool hints are redundant here.
+.drawing-options-slot .drawing-creation-controls > p { display: none; }

@@ -26,6 +26,7 @@ const en = {
     'commandPreferences.action.cut': 'Cut',
     'commandPreferences.action.paste': 'Paste',
     'commandPreferences.action.delete': 'Delete selection',
+    'commandPreferences.action.searchCommand': 'Search a command',
     'commandPreferences.action.toggleSnaps': 'Toggle object snaps',
     'commandPreferences.action.toggleOrtho': 'Toggle orthogonal mode',
     'commandPreferences.action.togglePolar': 'Toggle polar tracking',
@@ -1100,6 +1101,7 @@ const en = {
 
     'commands.blockSearch': 'Find blocks',
     'block.palette': 'Blocks',
+    'block.libraries': 'Block libraries',
     'block.search': 'Find a block',
     'block.name': 'New block name',
     'block.keepSources': 'Keep source objects',
@@ -1212,6 +1214,7 @@ const en = {
 
     'header.drawingName': 'Drawing name',
     'header.noFile': 'No file',
+    'header.editActions': 'Edit',
     'header.fileActions': 'File',
     'header.new': 'New',
     'header.open': 'Open',
@@ -1275,6 +1278,7 @@ const en = {
     'toolbar.zoomOut': 'Zoom out',
     'toolbar.fit': 'Zoom to extents',
     'toolbar.importImage': 'Import an image',
+    'toolbar.moreTools': 'More tools like {{tool}}',
 
     'creation.controls': '{{tool}} creation options',
     'creation.editSelected': 'Edit selected — {{tool}}',
@@ -2023,6 +2027,12 @@ const en = {
     'operations.explode': 'EXPLODE',
     'operations.xplode': 'XPLODE',
 
+    'status.snap': 'Snap',
+    'status.grid': 'Grid',
+    'status.ortho': 'Ortho',
+    'status.polar': 'Polar',
+    'status.tracking': 'Track',
+    'status.view': 'View',
     'snap.controls': 'Object snaps',
     'snap.grid': 'Grid',
     'snap.endpoint': 'Endpoint',
@@ -2071,6 +2081,11 @@ const en = {
     'arrayControls.xSpacing': 'X spacing',
     'arrayControls.ySpacing': 'Y spacing',
 
+    'sidebar.properties': 'Properties',
+    'sidebar.library': 'Library',
+    'sidebar.manage': 'Manage',
+    'sidebar.closeManager': 'Close',
+    'sidebar.layerDetails': 'Layer details',
     'sidebar.layers': 'Layers',
     'sidebar.selection': 'Selection',
     'sidebar.textStyles': 'Text styles',

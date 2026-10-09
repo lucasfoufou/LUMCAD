@@ -15,6 +15,8 @@ Do not duplicate the project documentation in code or in this file. Use the rele
 - [LCAD_FORMAT.md](./LCAD_FORMAT.md): versioned `.lcad` ZIP structure, manifest semantics, assets, validation limits, and persistence guarantees.
 - [MCP.md](./MCP.md): local MCP architecture, command/action contract, security model, client workflow, and MCP-specific tests.
 - [TRANSLATING.md](./TRANSLATING.md): i18n conventions, locale catalogs, error localization, and translation validation.
+- [PERFORMANCE.md](./PERFORMANCE.md): benchmark fixtures and commands, performance budgets, and the current baseline.
+- [UX_AUDIT.md](./UX_AUDIT.md): current UI/UX inventory and the principles for the interface overhaul.
 - [LICENSE](./LICENSE): GPL-3.0-only licensing terms.
 
 Read only the documents relevant to the task, but treat them as contracts. Update the appropriate document when a change makes it inaccurate.
@@ -24,12 +26,14 @@ Read only the documents relevant to the task, but treat them as contracts. Updat
 - `src/App.jsx`: application startup, document recovery/opening, and top-level settings/session lifecycle.
 - `src/components/drawing/`: reusable editor, canvas, toolbar, sidebar, layout, and print UI.
 - `src/components/settings/`: application settings UI.
+- `src/components/ui/`: shared interface primitives such as the in-repository SVG icon set.
 - `src/hooks/`: stateful editor workflows such as history, autosave, file commands, compound commands, arrays, shortcuts, image import, and the MCP frontend bridge.
+- `src/dev/`: development-only tooling such as the interactive benchmark harness; excluded from production builds.
 - `src/utils/`: framework-independent document normalization, entity creation, geometry, snapping, selection, transforms, trim, layouts, printing, archive, storage, and command logic.
 - `src/mcp/commands.json`: shared authoritative command catalog consumed by the frontend and Rust MCP server.
 - `src/i18n/`: translation provider, locale registry, and catalogs.
 - `src/settings/`: settings defaults, normalization, persistence, and provider.
-- `src/style/`: global Sass and feature-level styles.
+- `src/style/`: global Sass and feature-level styles; `tokens.scss` defines the colour, type and spacing tokens and `app/ui.scss` the shared control styles.
 - `src-tauri/src/`: Rust desktop integration: application setup, native menus, settings, storage, printing, and MCP server.
 - `public/`: static application assets.
 - `.github/workflows/`: release automation.
@@ -71,6 +75,7 @@ Generated or dependency directories such as `node_modules/`, `dist/`, `src-tauri
 ### UI and styling
 
 - Search `src/components/` and `src/style/app/` for an existing pattern before creating a component or style block.
+- Use the tokens from `src/style/tokens.scss` instead of literal colours, and icons from `src/components/ui/Icon.jsx` instead of Unicode glyphs. The interface is dark-only; only content drawn on the sheet keeps sheet colours. Follow the layout decisions recorded in [UX_AUDIT.md](./UX_AUDIT.md).
 - Prefer shared props and feature components over page-specific copies.
 - Keep canvas and layout interactions usable at the minimum supported window size and with both English and French labels.
 - Preserve accessible names, tooltips, focus behavior, and keyboard shortcuts when modifying controls.
@@ -96,6 +101,8 @@ The equivalent project command is:
 ```bash
 npm run check
 ```
+
+For changes to rendering, snapping, selection, history, or persistence, run `npm run bench` (and `npm run bench:browser` for interaction changes) and compare with the budgets in [PERFORMANCE.md](./PERFORMANCE.md).
 
 For MCP-related changes, also run:
 

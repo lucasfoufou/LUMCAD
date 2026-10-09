@@ -3,7 +3,7 @@ import { useState } from 'react';
 export default function DrawingAttributeDefinitionForm({ onDefine, t }) {
     const [values, setValues] = useState({ tag: '', prompt: '', text: '', x: '0', y: '0', height: '0.35', constant: false, invisible: false });
     const update = (key, value) => setValues(current => ({ ...current, [key]: value }));
-    return <details open>
+    return <details>
         <summary>{t('commands.attributeDefine')}</summary>
         <form onSubmit={event => {
             event.preventDefault();

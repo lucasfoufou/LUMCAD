@@ -1,0 +1,51 @@
+// Design tokens for the LUMCAD interface. The interface is dark-only; the
+// drawing sheet (--paper) stays light so entity colours keep their meaning.
+// Components use these custom properties instead of literal colours.
+:root {
+  color-scheme: dark;
+
+  // Surfaces, from the window frame up to floating menus.
+  --chrome: #0f161f;
+  --panel: #151f2b;
+  --raised: #1b2634;
+  --field: #1d2937;
+  --field-hover: #243243;
+  --line: #263546;
+  --line-strong: #34475c;
+
+  // Text.
+  --ink: #e5ecf4;
+  --muted: #92a2b5;
+  --faint: #66788d;
+
+  // Brand orange marks what is active, primary or selected.
+  --accent: #f7941d;
+  --accent-hover: #ffa53b;
+  --accent-soft: rgba(247, 148, 29, 0.16);
+  --accent-ink: #1a1206;
+
+  // Status colours, distinct from the accent.
+  --danger: #f0645a;
+  --danger-soft: rgba(240, 100, 90, 0.14);
+  --success: #3fbf7f;
+  --warning: #e8b339;
+  --info: #7aa2ff;
+  --focus: #7aa2ff;
+
+  // Drawing sheet.
+  --paper: #ffffff;
+  --paper-ink: #172033;
+
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-num: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 15px;
+
+  --radius-sm: 5px;
+  --radius: 7px;
+  --radius-lg: 10px;
+  --control-height: 28px;
+  --shadow-pop: 0 18px 36px -18px rgba(0, 0, 0, 0.75), 0 0 0 1px var(--line);
+}
