@@ -1,3 +1,4 @@
+import { Button } from '~components/ui/Controls';
 import useDrawingShortcutLabel from '~hooks/useDrawingShortcutLabel';
 import React, { useEffect, useRef, useState } from 'react';
 
@@ -133,7 +134,7 @@ export default function DrawingToolbar({ activeTool, activeOperation, onToolChan
             {flyout && (
                 <div ref={flyoutRef} className="ui-popover drawing-toolbar-flyout" role="menu" style={{ top: flyout.top, left: flyout.left }}>
                     {flyout.slot.members.map(member => (
-                        <button
+                        <Button
                             type="button"
                             role="menuitemradio"
                             key={member.id}
@@ -144,7 +145,7 @@ export default function DrawingToolbar({ activeTool, activeOperation, onToolChan
                             <Icon name={member.icon} />
                             <span>{label(member)}</span>
                             {member.alias && <kbd>{member.alias}</kbd>}
-                        </button>
+                        </Button>
                     ))}
                 </div>
             )}
@@ -187,7 +188,7 @@ function ToolSlot({ item, label, active, disabled, hasMembers, moreLabel, onRun,
                 onPointerUp={cancelPress}
             />
             {hasMembers && (
-                <button type="button" className="drawing-tool-more" aria-label={moreLabel} aria-haspopup="menu" onClick={onOpenMembers} />
+                <Button type="button" className="drawing-tool-more" aria-label={moreLabel} aria-haspopup="menu" onClick={onOpenMembers} />
             )}
         </div>
     );
@@ -195,7 +196,7 @@ function ToolSlot({ item, label, active, disabled, hasMembers, moreLabel, onRun,
 
 export function DrawingToolButton({ icon, glyph, label, onClick, active = false, disabled = false, danger = false, toolId = undefined, nativeTitle = true, ...events }) {
     return (
-        <button
+        <Button
             type="button"
             className={['drawing-tool-button', active && 'is-active', danger && 'is-danger'].filter(Boolean).join(' ')}
             onClick={onClick}
@@ -207,6 +208,6 @@ export function DrawingToolButton({ icon, glyph, label, onClick, active = false,
             {...events}
         >
             {icon ? <Icon name={icon} /> : glyph}
-        </button>
+        </Button>
     );
 }

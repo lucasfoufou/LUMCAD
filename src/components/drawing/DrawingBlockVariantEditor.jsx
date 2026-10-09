@@ -1,6 +1,7 @@
+import { Button, Input } from '~components/ui/Controls';
 import { useState } from 'react';
 import DrawingBlockDefinitionEditor from '~components/drawing/DrawingBlockDefinitionEditor';
-import { SelectField } from '~components/drawing/DrawingCreationControls';
+import { SelectField } from '~components/ui/Fields';
 import { DrawingBlockParameterInputs } from '~components/drawing/DrawingBlockParameterFields';
 import { runDrawingDynamicBlockCommand } from '~utils/drawingDynamicBlockCommands';
 
@@ -39,31 +40,31 @@ export default function DrawingBlockVariantEditor({ content, selectedIds, onComm
             <fieldset className="drawing-block-attribute-fields">
                 <legend>{t('commands.blockVisibility')}</legend>
                 <p>{t('dynamicBlock.membership', { count: selectedIds.length })}</p>
-                <button type="button" className="drawing-secondary-button" onClick={() => run('blockVisibility', `SET ${quote(selector.name)} ${quote(choice)}`)}>{t('dynamicBlock.useSelection')}</button>
-                {dynamic.visibility && <button type="button" className="drawing-secondary-button" onClick={() => run('blockVisibility', 'DELETE')}>{t('dynamicBlock.clearVisibility')}</button>}
+                <Button type="button" className="drawing-secondary-button" onClick={() => run('blockVisibility', `SET ${quote(selector.name)} ${quote(choice)}`)}>{t('dynamicBlock.useSelection')}</Button>
+                {dynamic.visibility && <Button type="button" className="drawing-secondary-button" onClick={() => run('blockVisibility', 'DELETE')}>{t('dynamicBlock.clearVisibility')}</Button>}
             </fieldset>
             <fieldset className="drawing-block-attribute-fields">
                 <legend>{t('commands.blockLookupTable')}</legend>
                 <label className="drawing-sidebar-field"><span>{t('dynamicBlock.tableName')}</span>
-                    <input value={tableName} maxLength={64} onChange={event => { setTableName(event.target.value); setDraftValue(undefined); }} /></label>
+                    <Input value={tableName} maxLength={64} onChange={event => { setTableName(event.target.value); setDraftValue(undefined); }} /></label>
                 {output && <>
                     <SelectField label={t('dynamicBlock.output')} value={output.name} options={outputs.map(parameter => [parameter.name, parameter.name])}
                         onChange={value => { setOutputName(value); setDraftValue(undefined); }} />
                     <DrawingBlockParameterInputs key={`${selector.name}:${output.name}`} parameters={[output]} values={{ [output.name]: currentValue }}
                         onChange={(_, value) => setDraftValue(value)} />
-                    <button type="button" disabled={!tableName.trim()} className="drawing-secondary-button" onClick={() => run('blockLookupTable',
-                        `SET ${quote(tableName)} ${quote(selector.name)} ${quote(choice)} ${quote(output.name)} ${valueTokens(output, currentValue)}`)}>{t('dynamicBlock.saveVariant')}</button>
+                    <Button type="button" disabled={!tableName.trim()} className="drawing-secondary-button" onClick={() => run('blockLookupTable',
+                        `SET ${quote(tableName)} ${quote(selector.name)} ${quote(choice)} ${quote(output.name)} ${valueTokens(output, currentValue)}`)}>{t('dynamicBlock.saveVariant')}</Button>
                 </>}
             </fieldset>
         </>}
         {(dynamic.lookups || []).map(table => <fieldset key={table.name} className="drawing-block-attribute-fields">
             <legend>{table.name}</legend>
             {table.rows.map(row => <p key={row.key}>{row.key}: {Object.entries(row.values).map(([name, value]) => `${name} = ${typeof value === 'object' ? `${value.x}, ${value.y}` : value}`).join('; ')}</p>)}
-            <button type="button" className="drawing-secondary-button" onClick={() => {
+            <Button type="button" className="drawing-secondary-button" onClick={() => {
                 setTableName(table.name); setSelectorName(table.parameter); setChoiceName(table.rows[0].key);
                 const name = Object.keys(table.rows[0].values)[0]; setOutputName(name); setDraftValue(undefined);
-            }}>{t('dynamicBlock.editTable')}</button>
-            <button type="button" className="drawing-secondary-button" onClick={() => run('blockLookupTable', `DELETE ${quote(table.name)}`)}>{t('dynamicBlock.deleteTable')}</button>
+            }}>{t('dynamicBlock.editTable')}</Button>
+            <Button type="button" className="drawing-secondary-button" onClick={() => run('blockLookupTable', `DELETE ${quote(table.name)}`)}>{t('dynamicBlock.deleteTable')}</Button>
         </fieldset>)}
         {error && <p role="alert">{t(`dynamicBlock.${error}`)}</p>}
     </section>;

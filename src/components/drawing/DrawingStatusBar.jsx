@@ -1,3 +1,4 @@
+import { Button } from '~components/ui/Controls';
 import React from 'react';
 
 import Icon from '~components/ui/Icon';
@@ -14,9 +15,9 @@ export default function DrawingStatusBar({ tabs, aids, onZoomIn, onZoomOut, onFi
                 {aids}
                 {onFit && (
                     <span className="drawing-status-view" role="group" aria-label={t('status.view')}>
-                        <button type="button" className="ui-icon-button is-small" onClick={onZoomOut} aria-label={t('toolbar.zoomOut')} title={t('toolbar.zoomOut')}><Icon name="zoomOut" size="sm" /></button>
-                        <button type="button" className="ui-icon-button is-small" onClick={onZoomIn} aria-label={t('toolbar.zoomIn')} title={t('toolbar.zoomIn')}><Icon name="zoomIn" size="sm" /></button>
-                        <button type="button" className="ui-icon-button is-small" onClick={onFit} aria-label={t('toolbar.fit')} title={t('toolbar.fit')}><Icon name="fit" size="sm" /></button>
+                        <Button type="button" className="ui-icon-button is-small" onClick={onZoomOut} aria-label={t('toolbar.zoomOut')} title={t('toolbar.zoomOut')}><Icon name="zoomOut" size="sm" /></Button>
+                        <Button type="button" className="ui-icon-button is-small" onClick={onZoomIn} aria-label={t('toolbar.zoomIn')} title={t('toolbar.zoomIn')}><Icon name="zoomIn" size="sm" /></Button>
+                        <Button type="button" className="ui-icon-button is-small" onClick={onFit} aria-label={t('toolbar.fit')} title={t('toolbar.fit')}><Icon name="fit" size="sm" /></Button>
                     </span>
                 )}
             </div>

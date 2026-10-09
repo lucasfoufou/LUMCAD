@@ -1,3 +1,4 @@
+import { Button, Input, Select } from '~components/ui/Controls';
 import React, { useEffect, useId, useRef, useState } from 'react';
 
 import {
@@ -40,7 +41,7 @@ export default function DrawingQdimOptions({
             <div className="drawing-qdim-mode-options">
                 {DRAWING_QDIM_MODES.map(value => (
                     <label key={value} className="drawing-sidebar-check">
-                        <input
+                        <Input
                             checked={normalizedMode === value}
                             name={modeName}
                             onChange={() => emit({ mode: value })}
@@ -74,7 +75,7 @@ export default function DrawingQdimOptions({
                     </label>
                     <label className="drawing-sidebar-field">
                         <span>{t('dimension.qdim.baselineEnd')}</span>
-                        <select
+                        <Select
                             value={normalizedBaselineEnd}
                             onChange={event => emit({
                                 baselineEnd: normalizeDrawingQdimBaselineEnd(event.target.value),
@@ -85,9 +86,9 @@ export default function DrawingQdimOptions({
                                     {t(`dimension.qdim.baselineEnd.${value}`)}
                                 </option>
                             ))}
-                        </select>
+                        </Select>
                     </label>
-                    <button
+                    <Button
                         className="drawing-secondary-button"
                         onClick={() => emit({
                             baselineEnd: reverseDrawingQdimBaselineEnd(normalizedBaselineEnd),
@@ -95,7 +96,7 @@ export default function DrawingQdimOptions({
                         type="button"
                     >
                         {t('dimension.qdim.reverseBaseline')}
-                    </button>
+                    </Button>
                 </div>
             )}
         </fieldset>
@@ -131,7 +132,7 @@ function QdimNumberInput({ disabled, min = null, onValueChange, step = '1', valu
     };
 
     return (
-        <input
+        <Input
             aria-valuemin={Number.isFinite(minimum) ? minimum : undefined}
             aria-valuenow={parseNumericDraft(draft) ?? undefined}
             disabled={disabled}

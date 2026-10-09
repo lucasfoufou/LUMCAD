@@ -1,3 +1,4 @@
+import { Button, Input } from '~components/ui/Controls';
 import { useState } from 'react';
 
 export default function DrawingAttributeDefinitionForm({ onDefine, t }) {
@@ -15,18 +16,18 @@ export default function DrawingAttributeDefinitionForm({ onDefine, t }) {
                 {[
                     ['tag', 'attribute.tag', 64], ['prompt', 'attribute.prompt', 256], ['text', 'attribute.default', 16384],
                 ].map(([key, label, maxLength]) => <label className="drawing-sidebar-field" key={key}>
-                    <span>{t(label)}</span><input value={values[key]} required={key === 'tag'} pattern={key === 'tag' ? '[A-Za-z][A-Za-z0-9_-]{0,63}' : undefined}
+                    <span>{t(label)}</span><Input value={values[key]} required={key === 'tag'} pattern={key === 'tag' ? '[A-Za-z][A-Za-z0-9_-]{0,63}' : undefined}
                         maxLength={maxLength} onChange={event => update(key, event.target.value)} />
                 </label>)}
                 {[
                     ['x', 'attribute.positionX', -1e12, 1e12], ['y', 'attribute.positionY', -1e12, 1e12], ['height', 'attribute.height', 0.01, 1e6],
                 ].map(([key, label, min, max]) => <label className="drawing-sidebar-field" key={key}>
-                    <span>{t(label)}</span><input type="number" step="any" required min={min} max={max} value={values[key]} onChange={event => update(key, event.target.value)} />
+                    <span>{t(label)}</span><Input type="number" step="any" required min={min} max={max} value={values[key]} onChange={event => update(key, event.target.value)} />
                 </label>)}
                 {['constant', 'invisible'].map(key => <label className="drawing-sidebar-check" key={key}>
-                    <input type="checkbox" checked={values[key]} onChange={event => update(key, event.target.checked)} />{t(`attribute.${key}`)}
+                    <Input type="checkbox" checked={values[key]} onChange={event => update(key, event.target.checked)} />{t(`attribute.${key}`)}
                 </label>)}
-                <button type="submit">{t('attribute.create')}</button>
+                <Button type="submit">{t('attribute.create')}</Button>
             </fieldset>
         </form>
     </details>;

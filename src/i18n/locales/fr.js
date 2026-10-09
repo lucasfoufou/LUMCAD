@@ -12,7 +12,7 @@ const fr = {
     'hyperlink.saved': 'Liens des objets mis à jour.',
     'commandPreferences.temporaryOrtho': 'Maintenez Shift pour une activation temporaire',
     'commandPreferences.shortcutTitle': 'Raccourcis clavier',
-    'commandPreferences.shortcutHint': 'Mod signifie Ctrl/Commande, avec Alt et Shift en option : Mod+Shift+K, F8. Les lettres seules restent réservées à la saisie ; Échap et Entrée conservent leur rôle. Certaines combinaisons peuvent être interceptées par le système. Enregistrez les réglages pour appliquer.',
+    'commandPreferences.shortcutHint': 'Cliquez sur un raccourci, puis appuyez sur les touches souhaitées. Échap annule. Enregistrez les réglages pour appliquer. Certaines combinaisons sont réservées par l’application ou le système.',
     'commandPreferences.shortcutNumber': 'Raccourci {{number}}',
     'commandPreferences.addShortcut': 'Ajouter un raccourci',
     'commandPreferences.resetShortcuts': 'Rétablir les raccourcis par défaut',
@@ -2755,6 +2755,14 @@ const fr = {
     'commands.sheetSetArchive': 'Archiver le jeu de feuilles',
     'sheetSet.archiveTitle': 'Archive du jeu de feuilles',
     'sheetSet.archived': 'Archive enregistrée avec {{count}} fichiers sources.',
+    'creation.moreTextOptions': 'Typographie et alignement',
+    'commandPreferences.captureListening': 'Appuyez sur votre raccourci…',
+    'commandPreferences.captureStart': 'Enregistrer un raccourci',
+    'commandPreferences.captureHelp': 'Échap pour annuler · Tab pour quitter',
+    'commandPreferences.captureIdle': 'Cliquer pour modifier',
+    'commandPreferences.captureInvalid': 'Combinaison réservée ou non prise en charge. Réessayez.',
+    'commandPreferences.captureConflict': 'Déjà affecté à une autre commande.',
+    'sidebar.largeSelectionGrips': 'Les poignées sont masquées au-delà de {{limit}} objets sélectionnés. Toutes les commandes de sélection restent disponibles. Réduisez la sélection pour éditer les poignées.',
 };
 
 export default fr;

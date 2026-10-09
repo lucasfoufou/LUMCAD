@@ -1,0 +1,342 @@
+{
+  "date": "2026-10-09T08:44:17.167Z",
+  "environment": {
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36",
+    "devicePixelRatio": 1,
+    "viewport": {
+      "width": 1440,
+      "height": 813
+    },
+    "mode": "production"
+  },
+  "fixtures": {
+    "S": {
+      "entities": 1099,
+      "loadMs": 92.8,
+      "domNodes": 4853,
+      "jsHeapMiB": 16.6,
+      "peakJsHeapMiB": 53.9,
+      "scenarios": {
+        "hoverSelect": {
+          "samples": 60,
+          "median": 16.7,
+          "p95": 18,
+          "max": 18.4,
+          "longTasks": 0,
+          "longTaskMs": 0
+        },
+        "hoverLineWithSnaps": {
+          "samples": 60,
+          "median": 16.7,
+          "p95": 18.4,
+          "max": 39.6,
+          "checks": {
+            "lineToolActive": true,
+            "snapMarkers": 59
+          },
+          "longTasks": 0,
+          "longTaskMs": 0
+        },
+        "wheelZoom": {
+          "samples": 20,
+          "median": 16.7,
+          "p95": 24.3,
+          "max": 24.3,
+          "longTasks": 0,
+          "longTaskMs": 0
+        },
+        "pan": {
+          "samples": 30,
+          "median": 16.6,
+          "p95": 20.2,
+          "max": 24.2,
+          "longTasks": 0,
+          "longTaskMs": 0
+        },
+        "windowSelect": {
+          "samples": 11,
+          "median": 16.6,
+          "p95": 21.3,
+          "max": 21.3,
+          "checks": {
+            "selected": 1075
+          },
+          "longTasks": 0,
+          "longTaskMs": 0
+        },
+        "deleteUndoRedo": {
+          "samples": 5,
+          "median": 33.5,
+          "p95": 49.9,
+          "max": 49.9,
+          "checks": {
+            "before": 1099,
+            "afterDelete": 23,
+            "afterUndo": 1099,
+            "afterRedo": 23,
+            "restored": 1099
+          },
+          "longTasks": 0,
+          "longTaskMs": 0
+        },
+        "zoomedIn": {
+          "samples": 50,
+          "median": 16.6,
+          "p95": 18.6,
+          "max": 20.5,
+          "checks": {
+            "domNodes": 1305
+          },
+          "longTasks": 0,
+          "longTaskMs": 0
+        }
+      }
+    },
+    "M": {
+      "entities": 5024,
+      "loadMs": 215.3,
+      "domNodes": 20650,
+      "jsHeapMiB": 111.3,
+      "peakJsHeapMiB": 136.3,
+      "scenarios": {
+        "hoverSelect": {
+          "samples": 60,
+          "median": 16.6,
+          "p95": 18,
+          "max": 57.4,
+          "longTasks": 0,
+          "longTaskMs": 0
+        },
+        "hoverLineWithSnaps": {
+          "samples": 60,
+          "median": 16.7,
+          "p95": 20.2,
+          "max": 56.5,
+          "checks": {
+            "lineToolActive": true,
+            "snapMarkers": 59
+          },
+          "longTasks": 0,
+          "longTaskMs": 0
+        },
+        "wheelZoom": {
+          "samples": 20,
+          "median": 16.8,
+          "p95": 54.2,
+          "max": 54.2,
+          "longTasks": 0,
+          "longTaskMs": 0
+        },
+        "pan": {
+          "samples": 30,
+          "median": 16.6,
+          "p95": 33.2,
+          "max": 54.8,
+          "longTasks": 0,
+          "longTaskMs": 0
+        },
+        "windowSelect": {
+          "samples": 11,
+          "median": 26.4,
+          "p95": 32.9,
+          "max": 32.9,
+          "checks": {
+            "selected": 4880
+          },
+          "longTasks": 0,
+          "longTaskMs": 0
+        },
+        "deleteUndoRedo": {
+          "samples": 5,
+          "median": 52.9,
+          "p95": 195.1,
+          "max": 195.1,
+          "checks": {
+            "before": 5024,
+            "afterDelete": 144,
+            "afterUndo": 5024,
+            "afterRedo": 144,
+            "restored": 5024
+          },
+          "longTasks": 4,
+          "longTaskMs": 308
+        },
+        "zoomedIn": {
+          "samples": 50,
+          "median": 16.6,
+          "p95": 19.5,
+          "max": 23.9,
+          "checks": {
+            "domNodes": 2948
+          },
+          "longTasks": 1,
+          "longTaskMs": 67
+        }
+      }
+    },
+    "L": {
+      "entities": 20096,
+      "loadMs": 858.5,
+      "domNodes": 81824,
+      "jsHeapMiB": 568.8,
+      "peakJsHeapMiB": 568.8,
+      "scenarios": {
+        "hoverSelect": {
+          "samples": 60,
+          "median": 16.7,
+          "p95": 21.2,
+          "max": 71.3,
+          "longTasks": 1,
+          "longTaskMs": 63
+        },
+        "hoverLineWithSnaps": {
+          "samples": 60,
+          "median": 16.9,
+          "p95": 32.6,
+          "max": 208,
+          "checks": {
+            "lineToolActive": true,
+            "snapMarkers": 59
+          },
+          "longTasks": 2,
+          "longTaskMs": 207
+        },
+        "wheelZoom": {
+          "samples": 20,
+          "median": 16.9,
+          "p95": 199,
+          "max": 199,
+          "longTasks": 1,
+          "longTaskMs": 154
+        },
+        "pan": {
+          "samples": 30,
+          "median": 16.9,
+          "p95": 55.4,
+          "max": 183.2,
+          "longTasks": 2,
+          "longTaskMs": 201
+        },
+        "windowSelect": {
+          "samples": 11,
+          "median": 105.2,
+          "p95": 183.3,
+          "max": 183.3,
+          "checks": {
+            "selected": 19976
+          },
+          "longTasks": 9,
+          "longTaskMs": 629
+        },
+        "deleteUndoRedo": {
+          "samples": 5,
+          "median": 103.7,
+          "p95": 1106,
+          "max": 1106,
+          "checks": {
+            "before": 20096,
+            "afterDelete": 120,
+            "afterUndo": 20096,
+            "afterRedo": 120,
+            "restored": 20096
+          },
+          "longTasks": 6,
+          "longTaskMs": 2057
+        },
+        "zoomedIn": {
+          "samples": 50,
+          "median": 16.7,
+          "p95": 18,
+          "max": 18.2,
+          "checks": {
+            "domNodes": 8856
+          },
+          "longTasks": 2,
+          "longTaskMs": 274
+        }
+      }
+    },
+    "XL": {
+      "entities": 50083,
+      "loadMs": 2214.3,
+      "domNodes": 205401,
+      "jsHeapMiB": 594.2,
+      "peakJsHeapMiB": 1484.2,
+      "scenarios": {
+        "hoverSelect": {
+          "samples": 60,
+          "median": 32.8,
+          "p95": 54.3,
+          "max": 170.8,
+          "longTasks": 1,
+          "longTaskMs": 149
+        },
+        "hoverLineWithSnaps": {
+          "samples": 60,
+          "median": 31.4,
+          "p95": 63.3,
+          "max": 610.9,
+          "checks": {
+            "lineToolActive": true,
+            "snapMarkers": 59
+          },
+          "longTasks": 5,
+          "longTaskMs": 1516
+        },
+        "wheelZoom": {
+          "samples": 20,
+          "median": 19.5,
+          "p95": 718.4,
+          "max": 718.4,
+          "longTasks": 5,
+          "longTaskMs": 1483
+        },
+        "pan": {
+          "samples": 30,
+          "median": 61.1,
+          "p95": 558.2,
+          "max": 559.6,
+          "longTasks": 22,
+          "longTaskMs": 4695
+        },
+        "windowSelect": {
+          "samples": 11,
+          "median": 280.6,
+          "p95": 531.9,
+          "max": 531.9,
+          "checks": {
+            "selected": 49760
+          },
+          "longTasks": 21,
+          "longTaskMs": 3115
+        },
+        "deleteUndoRedo": {
+          "samples": 5,
+          "median": 569.2,
+          "p95": 8385.2,
+          "max": 8385.2,
+          "checks": {
+            "before": 50083,
+            "afterDelete": 315,
+            "afterUndo": 50083,
+            "afterRedo": 315,
+            "restored": 50083
+          },
+          "longTasks": 11,
+          "longTaskMs": 16870
+        },
+        "zoomedIn": {
+          "samples": 50,
+          "median": 16.5,
+          "p95": 18.1,
+          "max": 19.8,
+          "checks": {
+            "domNodes": 14691
+          },
+          "longTasks": 2,
+          "longTaskMs": 691
+        }
+      }
+    }
+  }
+}

@@ -47,6 +47,10 @@ const EPSILON = 1e-9;
  * creates the blue crossing window; moving right-to-left creates the green
  * containment window.
  */
+// Dense selections retain outlines and all editing commands; individual grips
+// return as soon as the selection is reduced to this many objects.
+export const DRAWING_GRIP_OBJECT_LIMIT = 100;
+
 export function createSelectionWindow(first, current) {
     return {
         ...normalizeBounds(first.x, first.y, current.x, current.y),

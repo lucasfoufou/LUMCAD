@@ -1,3 +1,4 @@
+import { Button, Input, Select } from '~components/ui/Controls';
 import React from 'react';
 
 import {
@@ -37,7 +38,7 @@ export default function DrawingDimensionFields({
                     <NumberField disabled={disabled} label={t('dimension.fields.breakGap')}
                         min="0.000001" step="0.05" value={normalized.dimensionAutoBreak.gap}
                         onChange={gap => emit({ dimensionAutoBreak: { ...normalized.dimensionAutoBreak, gap } })} />
-                    <button type="button" className="drawing-secondary-button" disabled={disabled} onClick={() => emit({ dimensionAutoBreak: undefined })}>{t('dimension.disableAutoBreak')}</button>
+                    <Button type="button" className="drawing-secondary-button" disabled={disabled} onClick={() => emit({ dimensionAutoBreak: undefined })}>{t('dimension.disableAutoBreak')}</Button>
                 </>
             )}
             <h4>{t('dimension.fields.geometry')}</h4>
@@ -443,11 +444,11 @@ function SelectField({ disabled, label, onChange, options, value }) {
     return (
         <label className="drawing-sidebar-field">
             <span>{label}</span>
-            <select disabled={disabled} value={value} onChange={event => onChange(event.target.value)}>
+            <Select disabled={disabled} value={value} onChange={event => onChange(event.target.value)}>
                 {options.map(option => (
                     <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
-            </select>
+            </Select>
         </label>
     );
 }
@@ -456,7 +457,7 @@ function NumberField({ disabled, label, max, min, onChange, step, value }) {
     return (
         <label className="drawing-sidebar-field">
             <span>{label}</span>
-            <input
+            <Input
                 disabled={disabled}
                 max={max}
                 min={min}
@@ -510,7 +511,7 @@ function TextField({ disabled, label, onChange, value }) {
     return (
         <label className="drawing-sidebar-field">
             <span>{label}</span>
-            <input
+            <Input
                 disabled={disabled}
                 onChange={event => onChange(event.target.value)}
                 type="text"
@@ -523,7 +524,7 @@ function TextField({ disabled, label, onChange, value }) {
 function CheckboxField({ checked, disabled, label, onChange }) {
     return (
         <label className="drawing-sidebar-field drawing-sidebar-checkbox">
-            <input
+            <Input
                 checked={Boolean(checked)}
                 disabled={disabled}
                 onChange={event => onChange(event.target.checked)}

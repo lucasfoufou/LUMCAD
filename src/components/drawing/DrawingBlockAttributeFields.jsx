@@ -1,3 +1,4 @@
+import { Button, Input } from '~components/ui/Controls';
 import { drawingAttributeDefinitions, drawingAttributeValues } from '~utils/drawingBlockAttributes';
 import { editDrawingAttribute, syncDrawingAttributes } from '~utils/drawingAttributeOperations';
 
@@ -11,10 +12,10 @@ export default function DrawingBlockAttributeFields({ content, reference, disabl
             const result = editDrawingAttribute(content, [reference.id], tag, value);
             if (result.content) onCommit(result.content);
         }} />
-        <button type="button" className="drawing-secondary-button" onClick={() => {
+        <Button type="button" className="drawing-secondary-button" onClick={() => {
             const result = syncDrawingAttributes(content, [reference.id]);
             if (result.content) onCommit(result.content);
-        }}>{t('commands.attributeSync')}</button>
+        }}>{t('commands.attributeSync')}</Button>
     </fieldset>;
 }
 
@@ -25,7 +26,7 @@ export function DrawingAttributeValueInputs({ block, reference, onChange, t }) {
         const value = values[definition.tag];
         return <label className="drawing-sidebar-field" key={definition.tag}>
             <span>{definition.prompt || definition.tag} ({definition.tag}){definition.constant ? ` — ${t('attribute.constant')}` : ''}</span>
-            <input key={`${reference.id}:${value}`} defaultValue={value} disabled={definition.constant} maxLength={16384}
+            <Input key={`${reference.id}:${value}`} defaultValue={value} disabled={definition.constant} maxLength={16384}
                 onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); } }}
                 onBlur={event => { if (event.target.value !== value) onChange(definition.tag, event.target.value); }} />
         </label>;

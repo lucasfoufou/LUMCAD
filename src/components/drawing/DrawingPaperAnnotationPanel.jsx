@@ -1,3 +1,4 @@
+import { Button, Select } from '~components/ui/Controls';
 import DrawingCreationControls from '~components/drawing/DrawingCreationControls';
 import { canEditEntity } from '~utils/drawingDocument';
 import React, { useEffect, useRef, useState } from 'react';
@@ -60,21 +61,21 @@ export default function DrawingPaperAnnotationPanel({
             <legend>{t('layout.paperAnnotations')}</legend>
             <p className="drawing-layout-help">{t('layout.paperAnnotationsHint')}</p>
             <div className="drawing-layout-sidebar-actions">
-                <button type="button" disabled={!canEditEntity(content, { layerId: content.activeLayerId })} onClick={() => create('text')}>{t('layout.addPaperText')}</button>
-                <button type="button" disabled={!canEditEntity(content, { layerId: content.activeLayerId })} onClick={() => create('line')}>{t('layout.addPaperLine')}</button>
-                <button type="button" disabled={!canEditEntity(content, { layerId: content.activeLayerId })} onClick={() => create('rectangle')}>{t('layout.addPaperRectangle')}</button>
+                <Button type="button" disabled={!canEditEntity(content, { layerId: content.activeLayerId })} onClick={() => create('text')}>{t('layout.addPaperText')}</Button>
+                <Button type="button" disabled={!canEditEntity(content, { layerId: content.activeLayerId })} onClick={() => create('line')}>{t('layout.addPaperLine')}</Button>
+                <Button type="button" disabled={!canEditEntity(content, { layerId: content.activeLayerId })} onClick={() => create('rectangle')}>{t('layout.addPaperRectangle')}</Button>
             </div>
             {annotations.length > 0 ? (
                 <label className="drawing-sidebar-field">
                     <span>{t('layout.paperAnnotation')}</span>
-                    <select value={selectedId || ''} onChange={event => setSelectedId(event.target.value || null)}>
+                    <Select value={selectedId || ''} onChange={event => setSelectedId(event.target.value || null)}>
                         <option value="">{t('layout.paperAnnotationNone')}</option>
                         {annotations.map((annotation, index) => (
                             <option key={annotation.id} value={annotation.id}>
                                 {t(`layout.paperAnnotation.${annotation.type}`)} {index + 1}
                             </option>
                         ))}
-                    </select>
+                    </Select>
                 </label>
             ) : (
                 <p className="drawing-sidebar-empty">{t('layout.paperAnnotationEmpty')}</p>
@@ -83,9 +84,9 @@ export default function DrawingPaperAnnotationPanel({
                 <fieldset ref={selectedFieldsRef} className="drawing-paper-annotation-fields" disabled={!canEditEntity(content, selected)}>
                     <label className="drawing-sidebar-field">
                         <span>{t('layout.paperAnnotationLayer')}</span>
-                        <select value={selected.layerId} onChange={event => patch({ layerId: event.target.value })}>
+                        <Select value={selected.layerId} onChange={event => patch({ layerId: event.target.value })}>
                             {content.layers.map(layer => <option key={layer.id} value={layer.id}>{layer.name}</option>)}
-                        </select>
+                        </Select>
                     </label>
                     <DrawingCreationControls key={selected.id} embedded lengthUnit="mm" editEntity={selected}
                         textStyles={content.textStyles} onEditChange={canEditEntity(content, selected) ? patch : null} />
@@ -96,9 +97,9 @@ export default function DrawingPaperAnnotationPanel({
                         t={t}
                     />
                     <div className="drawing-layout-sidebar-actions">
-                        <button type="button" className="is-danger" onClick={remove}>
+                        <Button type="button" className="is-danger" onClick={remove}>
                             {t('layout.deletePaperAnnotation')}
-                        </button>
+                        </Button>
                     </div>
                 </fieldset>
             )}

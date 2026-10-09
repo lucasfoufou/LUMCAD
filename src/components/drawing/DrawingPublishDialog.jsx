@@ -1,3 +1,5 @@
+import useDialogFocus from '~hooks/useDialogFocus';
+import { Button, Input, Select } from '~components/ui/Controls';
 import { DRAWING_DEVICE_PROFILES, applyDrawingDeviceProfile, normalizeDrawingPlotStamp } from '~utils/drawingPlot';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -34,11 +36,9 @@ export default function DrawingPublishDialog({
     const [rememberSettings, setRememberSettings] = useState(true);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
-    const busyRef = useRef(false);
-    const dialogRef = useRef(null);
+    const dialogRef = useDialogFocus(open, onClose, busy);
     const initializedRef = useRef(false);
     const rendererRef = useRef(null);
-    busyRef.current = busy;
 
     useEffect(() => {
         if (!open) {
@@ -63,38 +63,7 @@ export default function DrawingPublishDialog({
         setError('');
     }, [drawing, initialFormat, initialLayoutIds, open]);
 
-    useEffect(() => {
-        if (!open) return undefined;
-        const previousFocus = document.activeElement;
-        const focusFrame = window.requestAnimationFrame(() => {
-            getFocusableDialogElements(dialogRef.current)[0]?.focus({ preventScroll: true });
-        });
-        const onKeyDown = event => {
-            if (event.key === 'Escape' && !busyRef.current) {
-                event.preventDefault();
-                onClose();
-                return;
-            }
-            if (event.key !== 'Tab') return;
-            const focusable = getFocusableDialogElements(dialogRef.current);
-            if (!focusable.length) return;
-            const first = focusable[0];
-            const last = focusable[focusable.length - 1];
-            if (event.shiftKey && document.activeElement === first) {
-                event.preventDefault();
-                last.focus();
-            } else if (!event.shiftKey && document.activeElement === last) {
-                event.preventDefault();
-                first.focus();
-            }
-        };
-        window.addEventListener('keydown', onKeyDown);
-        return () => {
-            window.cancelAnimationFrame(focusFrame);
-            window.removeEventListener('keydown', onKeyDown);
-            if (previousFocus instanceof HTMLElement) previousFocus.focus({ preventScroll: true });
-        };
-    }, [onClose, open]);
+
 
     const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
     const layouts = useMemo(() => drawing.layouts
@@ -166,25 +135,25 @@ export default function DrawingPublishDialog({
                         <span>{t('publish.kicker')}</span>
                         <h1 id="drawing-publish-title">{t('publish.title')}</h1>
                     </div>
-                    <button type="button" onClick={onClose} disabled={busy} aria-label={t('publish.close')}>×</button>
+                    <Button type="button" onClick={onClose} disabled={busy} aria-label={t('publish.close')}>×</Button>
                 </header>
                 <div className="drawing-publish-body">
                     <aside className="drawing-publish-sheets" aria-label={t('publish.sheets')}>
                         <strong>{t('publish.sheets')}</strong>
                         {drawing.layouts.map(layout => (
                             <label key={layout.id} className={previewLayout?.id === layout.id ? 'is-previewed' : ''}>
-                                <input
+                                <Input
                                     type="checkbox"
                                     checked={selectedSet.has(layout.id)}
                                     onChange={() => toggleLayout(layout.id)}
                                 />
-                                <button type="button" onClick={() => {
+                                <Button type="button" onClick={() => {
                                     if (!selectedSet.has(layout.id)) toggleLayout(layout.id);
                                     setPreviewId(layout.id);
                                 }}>
                                     <span>{layout.name}</span>
                                     <small>{paperLabel(layout)}</small>
-                                </button>
+                                </Button>
                             </label>
                         ))}
                     </aside>
@@ -302,7 +271,7 @@ export default function DrawingPublishDialog({
                             <PublishToggle checked={settings.stamp?.enabled === true} label={t('plotStyle.stampEnabled')}
                                 onChange={enabled => updateNestedSettings('stamp', { ...normalizeDrawingPlotStamp(settings.stamp), enabled })} />
                             <label className="drawing-sidebar-field"><span>{t('plotStyle.stampText')}</span>
-                                <input value={normalizeDrawingPlotStamp(settings.stamp).text} maxLength={512} onChange={event => updateNestedSettings('stamp', { ...normalizeDrawingPlotStamp(settings.stamp), text: event.target.value })} />
+                                <Input value={normalizeDrawingPlotStamp(settings.stamp).text} maxLength={512} onChange={event => updateNestedSettings('stamp', { ...normalizeDrawingPlotStamp(settings.stamp), text: event.target.value })} />
                             </label>
                             <PublishNumber label={t('plotStyle.stampSize')} min={1} max={10} value={normalizeDrawingPlotStamp(settings.stamp).sizeMm}
                                 onChange={sizeMm => updateNestedSettings('stamp', { ...normalizeDrawingPlotStamp(settings.stamp), sizeMm })} />
@@ -343,13 +312,13 @@ export default function DrawingPublishDialog({
                 <footer className="drawing-publish-footer">
                     <span role="status" className={error ? 'is-error' : ''}>{error || (busy ? t('publish.preparing') : '')}</span>
                     <div>
-                        <button type="button" disabled={busy} onClick={onClose}>{t('publish.cancel')}</button>
-                        <button type="button" disabled={busy || !layouts.length} onClick={() => run((pages, selectedLayouts, plotSettings) => onSystemPrint({
+                        <Button type="button" disabled={busy} onClick={onClose}>{t('publish.cancel')}</Button>
+                        <Button type="button" disabled={busy || !layouts.length} onClick={() => run((pages, selectedLayouts, plotSettings) => onSystemPrint({
                             pages, layouts: selectedLayouts, plotSettings,
-                        }))}>{t('publish.systemPrint')}</button>
-                        <button type="button" className="is-primary" disabled={busy || !layouts.length} onClick={() => run((pages, selectedLayouts, plotSettings) => onPublish({
+                        }))}>{t('publish.systemPrint')}</Button>
+                        <Button type="button" className="is-primary" disabled={busy || !layouts.length} onClick={() => run((pages, selectedLayouts, plotSettings) => onPublish({
                             format, pages, layouts: selectedLayouts, plotSettings,
-                        }))}>{t(format === 'pdf' ? 'publish.exportPdf' : 'publish.exportDwfx')}</button>
+                        }))}>{t(format === 'pdf' ? 'publish.exportPdf' : 'publish.exportDwfx')}</Button>
                     </div>
                 </footer>
                 <DrawingPublishRenderer
@@ -367,7 +336,7 @@ function PublishSelect({ children, label, onChange, value }) {
     return (
         <label className="drawing-publish-field">
             <span>{label}</span>
-            <select value={value} onChange={event => onChange(event.target.value)}>{children}</select>
+            <Select value={value} onChange={event => onChange(event.target.value)}>{children}</Select>
         </label>
     );
 }
@@ -406,7 +375,7 @@ function PublishNumber({ label, max, min, onChange, step = 'any', value }) {
     return (
         <label className="drawing-publish-field">
             <span>{label}</span>
-            <input
+            <Input
                 aria-valuemax={max}
                 aria-valuemin={min}
                 aria-valuenow={parsePublishNumber(draft) ?? undefined}
@@ -444,7 +413,7 @@ function PublishNumber({ label, max, min, onChange, step = 'any', value }) {
 function PublishToggle({ checked, label, onChange }) {
     return (
         <label className="drawing-publish-toggle">
-            <input type="checkbox" checked={checked} onChange={event => onChange(event.target.checked)} />
+            <Input type="checkbox" checked={checked} onChange={event => onChange(event.target.checked)} />
             <span>{label}</span>
         </label>
     );
@@ -470,11 +439,4 @@ async function waitForCommittedPublishPages() {
     if (document.fonts?.ready) await document.fonts.ready;
     await new Promise(resolve => requestAnimationFrame(resolve));
     await new Promise(resolve => requestAnimationFrame(resolve));
-}
-
-function getFocusableDialogElements(dialog) {
-    if (!dialog) return [];
-    return [...dialog.querySelectorAll(
-        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    )].filter(element => !element.hidden && element.getClientRects().length > 0);
 }

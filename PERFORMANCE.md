@@ -1,6 +1,6 @@
 # Performance and reliability baseline
 
-- Last measured: 2026-10-08
+- Last measured: 2026-10-09
 - Scope: editor responsiveness, memory, and document size limits for large 2D drawings
 
 This document defines how LUMCAD performance is measured, the budgets that changes must respect, and the current baseline. Re-run the benchmarks and update the baseline when a change targets performance or alters rendering, snapping, selection, history, or persistence.
@@ -161,10 +161,43 @@ The peak is dominated by the DOM of a fully visible `L` drawing; zoomed-in work 
 - Autosave compares immutable document identities instead of serializing the drawing on every change; the initial document is normalized once instead of on every editor render.
 - Repeated `Array.includes` lookups over selections were replaced by `Set` lookups, and text layout reuses one grapheme segmenter.
 
-## Remaining findings
+## Remaining findings after Lot 1 (historical)
 
 - Bulk edits on large drawings (delete/undo of thousands of objects, large window selections) still re-create many SVG nodes: about 330 ms at `L`.
 - Each entity still renders a hit shape in addition to its visible shape; picking through the spatial index would halve the DOM.
 - The settle redraw after pan or zoom is proportional to the visible entity count (about 350 ms when all of `L` is visible).
 - Each history commit still runs whole-document refresh passes (constraints, hatches, path arrays, arc texts, quantity tables): about 14 ms at `L`.
 - `XL` window selection and pan in a fully visible view remain above budget.
+
+## Follow-up — 2026-10-09
+
+The interactive canvas shares eligible static block geometry through scene-local SVG definitions and `use` instances. Dynamic, clipped, external, nested, annotated and viewport-dependent blocks keep the original rendering path. Publication/export uses the original renderer. Empty collection defaults are stable; dimension-size invalidation only affects entities which actually use it. Recursive block dependency caches are keyed by the definition catalog, so editing a nested definition invalidates them correctly.
+
+Selections above 100 objects retain every outline and editing command but omit individual grips. Properties explains the limit. Dimension-series grip discovery is a single pass and also bounds the number of series objects displayed.
+
+### Corrected measurement protocol
+
+The old XL selection sometimes selected zero objects and consequently measured a no-op delete. The harness now fits the drawing, selects a substantial region, requires a nonempty result, and waits for the actual delete/undo/redo scene counts before timing completion. It fails on a no-op or a failed restoration. Scenarios wait for deferred viewport updates. Consequently the new bulk measurements must not be compared directly with the original smaller selections or first-frame-only timings.
+
+`peakJsHeapMiB` samples Chromium's JS heap every 100 ms and at scenario boundaries. This is a **sampled JS-heap peak**, not total native RAM or an allocation limit; short peaks may be missed and collection timing varies. WKWebView/GPU/native RSS has not been remeasured comparably in this pass. The older native numbers above remain historical.
+
+### Comparable before/after, fixture L alone
+
+Same machine, Chrome 154, 1440 × 813, production bundles, same corrected harness. Baseline is the repository's previous committed implementation; after is this working tree. Raw results: [before](./benchmarks/hardening-2026-10-09/before-L.json), [after](./benchmarks/hardening-2026-10-09/after-L.json).
+
+| Measure | Before | After |
+| --- | ---: | ---: |
+| Load all 20,096 objects | 1,695 ms | 986 ms |
+| DOM nodes, overview | 150,932 | 81,824 |
+| Sampled peak JS heap | 1,246 MiB | 606 MiB |
+| Window selection, 19,976 objects, median / max | 273 / 773 ms | 106 / 136 ms |
+| Delete / undo / redo, median / max | 206 / 1,855 ms | 111 / 972 ms |
+| Wheel zoom, median / max | 17 / 325 ms | 17 / 197 ms |
+| Pan, median / max | 17 / 402 ms | 17 / 181 ms |
+| Zoomed-in hover/pan, median / p95 | 17 / 18 ms | 17 / 18 ms |
+
+### Stress limits and remaining work
+
+The complete S → M → L → XL run is stored [here](./benchmarks/hardening-2026-10-09/after-S-M-L-XL.json), and the document pipeline [here](./benchmarks/hardening-2026-10-09/document.json). XL loads 50,083 objects with 205,401 DOM nodes (the earlier unchanged overview had 377,649), selects 49,760 objects, deletes, and restores the exact scene count through undo/redo. The sampled peak is 1,484 MiB. Zoomed-in work remains around 17 ms.
+
+XL overview interaction remains outside the comfort budget: window selection reaches 532 ms, pan 560 ms and a full bulk undo/redraw reaches 8.4 s in the sequential stress run. This pass improves the common L case substantially but does not establish a hard memory ceiling or make every 50,000-object overview interaction smooth. Full-remount costs, per-entity hit shapes and whole-document refresh passes remain the next targets. Do not present the normal zoomed-in frame time as the full-drawing redraw time.

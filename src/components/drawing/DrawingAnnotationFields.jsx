@@ -1,3 +1,4 @@
+import { Button, Input, Select } from '~components/ui/Controls';
 import React from 'react';
 import { ANNOTATION_LIMIT, currentAnnotationScale, normalizeAnnotationScales, normalizeDrawingAnnotation, supportsDrawingAnnotation } from '~utils/drawingAnnotations';
 import { canEditEntity } from '~utils/drawingDocument';
@@ -15,28 +16,28 @@ export default function DrawingAnnotationFields({ content, selectedIds, onComman
         <div className="drawing-annotation-body">
         {content[ANNOTATION_LIMIT] && <p role="status">{t('annotation.limit')}</p>}
         <label className="drawing-sidebar-field"><span>{t('annotation.currentLabel')}</span>
-            <select value={current} onChange={event => onCommand('scaleListEdit', `CURRENT ${event.target.value}`)}>
+            <Select value={current} onChange={event => onCommand('scaleListEdit', `CURRENT ${event.target.value}`)}>
                 {catalog.map(scale => <option key={scale} value={scale}>1:{scale}</option>)}
-            </select>
+            </Select>
         </label>
-        <label className="drawing-sidebar-check"><input type="checkbox" checked={content.settings?.annotationShowAll === true}
+        <label className="drawing-sidebar-check"><Input type="checkbox" checked={content.settings?.annotationShowAll === true}
             onChange={event => onCommand('scaleListEdit', `ALLVISIBLE ${event.target.checked ? 'ON' : 'OFF'}`)} />{t('annotation.showAll')}</label>
-        {editable && <label className="drawing-sidebar-check"><input type="checkbox" checked={selected.every(entity => Boolean(entity.annotation))}
+        {editable && <label className="drawing-sidebar-check"><Input type="checkbox" checked={selected.every(entity => Boolean(entity.annotation))}
             onChange={event => onCommand('objectScale', event.target.checked ? 'ON' : 'OFF')} />{t('annotation.enabled')}</label>}
         {editable && annotation && <>
             <label className="drawing-sidebar-field"><span>{t('annotation.add')}</span>
-                <select value="" onChange={event => onCommand('objectScale', `ADD ${event.target.value}`)}>
+                <Select value="" onChange={event => onCommand('objectScale', `ADD ${event.target.value}`)}>
                     <option value="">{t('annotation.add')}</option>
                     {catalog.filter(scale => !annotation.scales.some(item => item.scale === scale)).map(scale => <option key={scale} value={scale}>1:{scale}</option>)}
-                </select>
+                </Select>
             </label>
             {annotation.scales.map(item => <div className="drawing-layout-sidebar-actions" key={item.scale}>
-                <span>1:{item.scale}</span><button type="button" disabled={annotation.scales.length <= 1}
-                    onClick={() => onCommand('objectScale', `DELETE ${item.scale}`)} aria-label={t('annotation.remove', { scale: item.scale })}>×</button>
+                <span>1:{item.scale}</span><Button type="button" disabled={annotation.scales.length <= 1}
+                    onClick={() => onCommand('objectScale', `DELETE ${item.scale}`)} aria-label={t('annotation.remove', { scale: item.scale })}>×</Button>
             </div>)}
             <div className="drawing-layout-sidebar-actions">
-                <button type="button" onClick={() => onCommand('annotationReset', '')}>{t('commands.annotationReset')}</button>
-                <button type="button" onClick={() => onCommand('annotationUpdate', '')}>{t('commands.annotationUpdate')}</button>
+                <Button type="button" onClick={() => onCommand('annotationReset', '')}>{t('commands.annotationReset')}</Button>
+                <Button type="button" onClick={() => onCommand('annotationUpdate', '')}>{t('commands.annotationUpdate')}</Button>
             </div>
         </>}
         </div>

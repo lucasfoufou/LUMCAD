@@ -1,3 +1,4 @@
+import { Button, Input, Select } from '~components/ui/Controls';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -346,7 +347,7 @@ export function DrawingTextEditor({
             >
                 <label className="drawing-text-editor__field">
                     <span>{labels.textStyle}</span>
-                    <select
+                    <Select
                         aria-label={labels.textStyle}
                         value={draft.textStyleId}
                         disabled={disabled}
@@ -370,11 +371,11 @@ export function DrawingTextEditor({
                                 {labels.textStyles?.[textStyle.id] || textStyle.name}
                             </option>
                         ))}
-                    </select>
+                    </Select>
                 </label>
                 <label className="drawing-text-editor__field">
                     <span>{labels.font}</span>
-                    <select
+                    <Select
                         aria-label={labels.font}
                         value={currentFont === 'mixed' ? '' : currentFont}
                         disabled={disabled}
@@ -388,11 +389,11 @@ export function DrawingTextEditor({
                         {DRAWING_TEXT_FONTS.map(font => (
                             <option key={font.id} value={font.id}>{labels.fonts?.[font.id] || font.id}</option>
                         ))}
-                    </select>
+                    </Select>
                 </label>
                 <label className="drawing-text-editor__field is-compact">
                     <span>{labels.fontSize}</span>
-                    <input
+                    <Input
                         type="number"
                         min="0.01"
                         step="0.01"
@@ -436,7 +437,7 @@ export function DrawingTextEditor({
                     ><s aria-hidden="true">S</s></TextFormatButton>
                     <label className="drawing-text-editor__color">
                         <span>{labels.color}</span>
-                        <input
+                        <Input
                             type="color"
                             aria-label={labels.color}
                             value={currentColor === 'mixed' ? '#000000' : currentColor}
@@ -449,7 +450,7 @@ export function DrawingTextEditor({
                 </div>
                 <label className="drawing-text-editor__field">
                     <span>{labels.textMode}</span>
-                    <select
+                    <Select
                         aria-label={labels.textMode}
                         value={draft.textMode}
                         disabled={disabled}
@@ -472,11 +473,11 @@ export function DrawingTextEditor({
                         {DRAWING_TEXT_MODES.map(mode => (
                             <option key={mode} value={mode}>{labels.textModes?.[mode] || mode}</option>
                         ))}
-                    </select>
+                    </Select>
                 </label>
                 <label className="drawing-text-editor__field">
                     <span>{labels.wrapMode}</span>
-                    <select
+                    <Select
                         aria-label={labels.wrapMode}
                         value={draft.wrapMode}
                         disabled={disabled || draft.textMode === 'singleLine'}
@@ -489,11 +490,11 @@ export function DrawingTextEditor({
                         {DRAWING_TEXT_WRAP_MODES.map(mode => (
                             <option key={mode} value={mode}>{labels.wrapModes?.[mode] || mode}</option>
                         ))}
-                    </select>
+                    </Select>
                 </label>
                 <label className="drawing-text-editor__field">
                     <span>{labels.alignment}</span>
-                    <select
+                    <Select
                         aria-label={labels.alignment}
                         value={draft.horizontalAlign}
                         disabled={disabled}
@@ -508,10 +509,10 @@ export function DrawingTextEditor({
                                 {labels.alignments?.[alignment] || alignment}
                             </option>
                         ))}
-                    </select>
+                    </Select>
                 </label>
                 <div className="drawing-text-editor__actions">
-                    <button
+                    <Button
                         type="button"
                         className="drawing-text-editor__done"
                         disabled={disabled}
@@ -520,7 +521,7 @@ export function DrawingTextEditor({
                         onClick={commit}
                     >
                         <span aria-hidden="true">✓</span>
-                    </button>
+                    </Button>
                 </div>
             </div>
             <div
@@ -572,7 +573,7 @@ export function DrawingTextEditor({
 
 function TextFormatButton({ children, disabled, label, onPress, pressed }) {
     return (
-        <button
+        <Button
             type="button"
             aria-label={label}
             title={label}
@@ -583,7 +584,7 @@ function TextFormatButton({ children, disabled, label, onPress, pressed }) {
             onClick={onPress}
         >
             {children}
-        </button>
+        </Button>
     );
 }
 

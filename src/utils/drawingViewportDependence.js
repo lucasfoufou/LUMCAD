@@ -6,7 +6,8 @@ import { isDrawingDimensionEntity } from './drawingDimensions.js';
 import { getEntityBounds } from './drawingGeometry.js';
 
 const MAX_BLOCK_DEPTH = 16;
-const blockDependence = new WeakMap();
+const blockDependenceByCatalog = new WeakMap();
+const dimensionDependenceByCatalog = new WeakMap();
 const renderBounds = new WeakMap();
 
 /**
@@ -35,6 +36,7 @@ export function drawingEntityViewportChanged(entity, previousViewBox, nextViewBo
 }
 
 function blockDependsOnViewport(block, blockMap, visiting = new Set()) {
+    const blockDependence = catalogCache(blockDependenceByCatalog, blockMap);
     if (blockDependence.has(block)) return blockDependence.get(block);
     if (visiting.has(block.id) || visiting.size > MAX_BLOCK_DEPTH) return true;
     visiting.add(block.id);
@@ -98,4 +100,24 @@ function overflowPadding(entity, bounds) {
     if (entity.type === 'text') return String(entity.text || '').length * (Number(entity.fontSize) || 0);
     if (entity.type === 'blockReference') return Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) / 2;
     return 0;
+}
+
+function catalogCache(cache, catalog) {
+    if (!cache.has(catalog)) cache.set(catalog, new WeakMap());
+    return cache.get(catalog);
+}
+
+/** Only dimensions without an explicit size follow the interactive zoom size. */
+export function drawingEntityUsesDefaultDimensionSize(entity, blockMap, visiting = new Set()) {
+    if (isDrawingDimensionEntity(entity)) return !(Number.isFinite(Number(entity.textSize)) && Number(entity.textSize) > 0);
+    if (entity.type !== 'blockReference') return false;
+    const block = blockMap.get(entity.blockId);
+    if (!block) return false;
+    if (visiting.has(block.id) || visiting.size >= MAX_BLOCK_DEPTH) return true;
+    const cache = catalogCache(dimensionDependenceByCatalog, blockMap);
+    if (cache.has(block)) return cache.get(block);
+    const next = new Set(visiting).add(block.id);
+    const dependent = block.entities.some(child => drawingEntityUsesDefaultDimensionSize(child, blockMap, next));
+    cache.set(block, dependent);
+    return dependent;
 }

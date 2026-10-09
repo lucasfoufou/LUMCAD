@@ -56,16 +56,23 @@ async function runBenchmark(loadDocument, sizes) {
     const restorePointerCapture = tolerateSyntheticPointerCapture();
     try {
         for (const size of sizes) {
-            const load = await loadFixture(loadDocument, size);
-            await settle();
-            const loadedDomNodes = document.getElementsByTagName('*').length;
-            const scenarios = {};
-            for (const [name, scenario] of Object.entries(SCENARIOS).filter(([name]) => !selected || selected.includes(name))) {
-                scenarios[name] = await observeLongTasks(() => scenario(canvasSvg()));
+            let peakJsHeapMiB = 0;
+            const sampleMemory = () => { peakJsHeapMiB = Math.max(peakJsHeapMiB, memorySnapshot().jsHeapMiB || 0); };
+            const memoryTimer = setInterval(sampleMemory, 100);
+            try {
+                const load = await loadFixture(loadDocument, size);
+                sampleMemory();
                 await settle();
-            }
-            results.fixtures[size] = { ...load, ...memorySnapshot(), domNodes: loadedDomNodes, scenarios };
-            console.info(`[LUMCAD bench] ${size}`, results.fixtures[size]);
+                const loadedDomNodes = document.getElementsByTagName('*').length;
+                const scenarios = {};
+                for (const [name, scenario] of Object.entries(SCENARIOS).filter(([name]) => !selected || selected.includes(name))) {
+                    scenarios[name] = await observeLongTasks(() => scenario(canvasSvg()));
+                    await settle();
+                    sampleMemory();
+                }
+                results.fixtures[size] = { ...load, ...memorySnapshot(), peakJsHeapMiB: round(peakJsHeapMiB), domNodes: loadedDomNodes, scenarios };
+                console.info(`[LUMCAD bench] ${size}`, results.fixtures[size]);
+            } finally { clearInterval(memoryTimer); }
         }
     } finally {
         restorePointerCapture();
@@ -121,25 +128,34 @@ const SCENARIOS = {
     windowSelect: async svg => {
         // Selection windows follow the CAD click-move-click convention.
         clickTool('select');
-        const first = relativePoint(svg, 0.55, 0.2);
-        const last = relativePoint(svg, 0.1, 0.6);
+        await settle();
+        document.querySelector('.drawing-status-view button:last-child')?.click();
+        await settle();
+        const first = relativePoint(svg, 0.9, 0.1);
+        const last = relativePoint(svg, 0.1, 0.9);
         click(svg, first);
+        await nextFrame();
         const points = Array.from({ length: 10 }, (_, index) => interpolate(first, last, (index + 1) / 10));
         const timings = await timeSequence(points, point => pointer(svg, 'pointermove', point));
         timings.push(await timed(() => click(svg, last)));
-        return { timings, checks: { selected: selectedCount() } };
+        await settle();
+        const selected = selectedCount();
+        if (!selected) throw new Error(`Window selection selected no entities (${svg.getAttribute('viewBox')}); bulk timings would be invalid.`);
+        return { timings, checks: { selected } };
     },
     deleteUndoRedo: async () => {
         const timings = [];
         const counts = { before: entityCount() };
-        timings.push(await timed(() => key('Delete')));
+        timings.push(await timed(() => key('Delete'), () => entityCount() < counts.before));
         counts.afterDelete = entityCount();
-        timings.push(await timed(() => key('z', { ctrlKey: true })));
+        if (counts.afterDelete >= counts.before) throw new Error('Bulk delete made no change.');
+        timings.push(await timed(() => key('z', { ctrlKey: true }), () => entityCount() === counts.before));
         counts.afterUndo = entityCount();
-        timings.push(await timed(() => key('Z', { ctrlKey: true, shiftKey: true })));
+        timings.push(await timed(() => key('Z', { ctrlKey: true, shiftKey: true }), () => entityCount() === counts.afterDelete));
         counts.afterRedo = entityCount();
-        timings.push(await timed(() => key('z', { ctrlKey: true })));
+        timings.push(await timed(() => key('z', { ctrlKey: true }), () => entityCount() === counts.before));
         counts.restored = entityCount();
+        if (counts.afterUndo !== counts.before || counts.afterRedo !== counts.afterDelete || counts.restored !== counts.before) throw new Error(`Bulk undo/redo did not restore the scene: ${JSON.stringify(counts)}`);
         timings.push(await timed(() => key('Escape')));
         return { timings, checks: counts };
     },
@@ -167,9 +183,10 @@ async function timeSequence(items, run) {
     return timings;
 }
 
-async function timed(run) {
+async function timed(run, until = null) {
     const start = performance.now();
     run();
+    if (until) await waitFor(until, 120_000);
     await nextFrame();
     return performance.now() - start;
 }
@@ -302,6 +319,7 @@ function delay(ms) {
 }
 
 async function settle() {
+    await delay(350); // Allow the deferred pan/zoom viewport to commit before the next interaction.
     for (let index = 0; index < 5; index += 1) await nextFrame();
 }
 

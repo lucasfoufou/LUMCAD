@@ -1,3 +1,4 @@
+import { Button, Input } from '~components/ui/Controls';
 import useDrawingShortcutLabel from '~hooks/useDrawingShortcutLabel';
 import React, { useEffect, useRef, useState } from 'react';
 
@@ -55,63 +56,63 @@ export default function DrawingSnapControls({
                 open={snapMenuOpen}
                 onOpenChange={setSnapMenuOpen}
                 trigger={(
-                    <button type="button" className="drawing-status-aid" aria-pressed={objectSnapsOn} aria-haspopup="true"
+                    <Button type="button" className="drawing-status-aid" aria-pressed={objectSnapsOn} aria-haspopup="true"
                         aria-expanded={snapMenuOpen} onClick={() => setSnapMenuOpen(open => !open)} title={t('snap.controls')}>
                         {t('status.snap')}<Icon name="chevronDown" size="sm" />
-                    </button>
+                    </Button>
                 )}
             >
                 <div className="drawing-status-menu" aria-label={t('snap.controls')}>
                     {objectSnapKeys.map(key => (
                         <label key={key}>
-                            <input type="checkbox" checked={Boolean(snaps[key])} onChange={event => updateSnaps({ [key]: event.target.checked })} />
+                            <Input type="checkbox" checked={Boolean(snaps[key])} onChange={event => updateSnaps({ [key]: event.target.checked })} />
                             <span>{t(`snap.${key}`)}</span>
                         </label>
                     ))}
                     <div className="drawing-status-menu-actions">
-                        <button type="button" className="ui-button is-small" disabled={objectSnapKeys.every(key => snaps[key])}
-                            onClick={() => updateSnaps(Object.fromEntries(objectSnapKeys.map(key => [key, true])))}>{t('snap.all')}</button>
-                        <button type="button" className="ui-button is-small" disabled={!objectSnapsOn}
-                            onClick={() => updateSnaps(Object.fromEntries(objectSnapKeys.map(key => [key, false])))}>{t('snap.none')}</button>
+                        <Button type="button" className="ui-button is-small" disabled={objectSnapKeys.every(key => snaps[key])}
+                            onClick={() => updateSnaps(Object.fromEntries(objectSnapKeys.map(key => [key, true])))}>{t('snap.all')}</Button>
+                        <Button type="button" className="ui-button is-small" disabled={!objectSnapsOn}
+                            onClick={() => updateSnaps(Object.fromEntries(objectSnapKeys.map(key => [key, false])))}>{t('snap.none')}</Button>
                     </div>
                 </div>
             </StatusPopover>
-            <button type="button" className="drawing-status-aid" aria-pressed={Boolean(snaps.grid)} title={t('snap.grid')}
-                onClick={() => updateSnaps({ grid: !snaps.grid })}>{t('status.grid')}</button>
-            <button type="button" className="drawing-status-aid" aria-pressed={Boolean(settings.ortho)} title={`${shortcutLabel('toggleOrtho')}; ${t('commandPreferences.temporaryOrtho')}`}
+            <Button type="button" className="drawing-status-aid" aria-pressed={Boolean(snaps.grid)} title={t('snap.grid')}
+                onClick={() => updateSnaps({ grid: !snaps.grid })}>{t('status.grid')}</Button>
+            <Button type="button" className="drawing-status-aid" aria-pressed={Boolean(settings.ortho)} title={`${shortcutLabel('toggleOrtho')}; ${t('commandPreferences.temporaryOrtho')}`}
                 aria-label={t('snap.orthoMode')}
-                onClick={() => updateSettings({ ortho: !settings.ortho, ...(!settings.ortho ? { polarTracking: false } : {}) })}>{t('status.ortho')}</button>
-            <button type="button" className="drawing-status-aid" aria-pressed={Boolean(settings.polarTracking)} title={shortcutLabel('togglePolar')}
+                onClick={() => updateSettings({ ortho: !settings.ortho, ...(!settings.ortho ? { polarTracking: false } : {}) })}>{t('status.ortho')}</Button>
+            <Button type="button" className="drawing-status-aid" aria-pressed={Boolean(settings.polarTracking)} title={shortcutLabel('togglePolar')}
                 aria-label={t('snap.polarMode')}
-                onClick={() => updateSettings({ polarTracking: !settings.polarTracking, ...(!settings.polarTracking ? { ortho: false } : {}) })}>{t('status.polar')}</button>
-            <button type="button" className="drawing-status-aid drawing-tracking-toggle" aria-pressed={Boolean(settings.tracking)} title={shortcutLabel('toggleObjectTracking')}
+                onClick={() => updateSettings({ polarTracking: !settings.polarTracking, ...(!settings.polarTracking ? { ortho: false } : {}) })}>{t('status.polar')}</Button>
+            <Button type="button" className="drawing-status-aid drawing-tracking-toggle" aria-pressed={Boolean(settings.tracking)} title={shortcutLabel('toggleObjectTracking')}
                 aria-label={t('snap.objectTracking')}
-                onClick={() => updateSettings({ tracking: !settings.tracking })}>{t('status.tracking')}</button>
-            <button type="button" className="ui-icon-button is-small" onClick={onTemporaryTrackingPoint}
+                onClick={() => updateSettings({ tracking: !settings.tracking })}>{t('status.tracking')}</Button>
+            <Button type="button" className="ui-icon-button is-small" onClick={onTemporaryTrackingPoint}
                 aria-label={t('snap.temporaryTrackingPoint')} title={t('snap.temporaryTrackingPointTitle')}>
                 <Icon name="point" size="sm" />
-            </button>
+            </Button>
             <StatusPopover
                 open={draftingSettingsOpen}
                 onOpenChange={open => onDraftingSettingsOpenChange?.(open)}
                 trigger={(
-                    <button type="button" className="ui-icon-button is-small" aria-expanded={draftingSettingsOpen}
+                    <Button type="button" className="ui-icon-button is-small" aria-expanded={draftingSettingsOpen}
                         onClick={() => onDraftingSettingsOpenChange?.(!draftingSettingsOpen)}
                         aria-label={t('snap.draftingSettings')} title={t('snap.draftingSettingsTitle')}>
                         <Icon name="settings" size="sm" />
-                    </button>
+                    </Button>
                 )}
             >
                 <div className="drawing-status-menu drawing-drafting-settings">
                     <label className="drawing-status-field">
                         <span>{t('snap.spacing')}</span>
-                        <input type="number" min="0.0001" step="0.1" value={settings.gridSpacing}
+                        <Input type="number" min="0.0001" step="0.1" value={settings.gridSpacing}
                             onChange={event => updateSettings({ gridSpacing: Math.max(0.0001, Number(event.target.value) || 0.5) })} />
                         <span>m</span>
                     </label>
                     <label className="drawing-status-field">
                         <span>{t('snap.polarIncrement')}</span>
-                        <input type="number" min="1" max="180" step="1" value={settings.polarIncrement}
+                        <Input type="number" min="1" max="180" step="1" value={settings.polarIncrement}
                             onChange={event => {
                                 const value = Number(event.target.value);
                                 if (Number.isFinite(value) && value >= 1 && value <= 180) updateSettings({ polarIncrement: value });
@@ -120,14 +121,14 @@ export default function DrawingSnapControls({
                     </label>
                     <label className="drawing-status-field is-wide">
                         <span>{t('snap.additionalPolarAngles')}</span>
-                        <input type="text" value={polarAnglesDraft} placeholder={t('snap.additionalPolarAnglesPlaceholder')}
+                        <Input type="text" value={polarAnglesDraft} placeholder={t('snap.additionalPolarAnglesPlaceholder')}
                             onChange={event => setPolarAnglesDraft(event.target.value)} onBlur={applyPolarAngles} onKeyDown={commitOnEnter(applyPolarAngles)} />
                     </label>
                     <fieldset className="drawing-tracking-relations">
                         <legend>{t('snap.objectTrackingRelations')}</legend>
                         {['parallel', 'perpendicular', 'tangent'].map(relation => (
                             <label key={relation}>
-                                <input type="checkbox" checked={relations[relation] !== false}
+                                <Input type="checkbox" checked={relations[relation] !== false}
                                     onChange={event => updateSettings({ trackingRelations: { ...relations, [relation]: event.target.checked } })} />
                                 <span>{t(`snap.${relation}`)}</span>
                             </label>
@@ -138,7 +139,7 @@ export default function DrawingSnapControls({
             <span className="drawing-status-separator" aria-hidden="true" />
             <label className="drawing-snap-scale" title={t('snap.screenScaleTitle')}>
                 <span aria-hidden="true">1:</span>
-                <input type="text" inputMode="decimal" value={scaleDraft} aria-label={t('snap.screenScaleAria')}
+                <Input type="text" inputMode="decimal" value={scaleDraft} aria-label={t('snap.screenScaleAria')}
                     onChange={event => setScaleDraft(event.target.value)} onBlur={applyScale} onKeyDown={commitOnEnter(applyScale)} />
             </label>
         </div>

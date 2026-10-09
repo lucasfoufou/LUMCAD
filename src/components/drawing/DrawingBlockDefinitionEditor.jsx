@@ -1,5 +1,6 @@
+import { Button, Input, TextArea } from '~components/ui/Controls';
 import { useState } from 'react';
-import { NumberField, SelectField, CheckboxField } from '~components/drawing/DrawingCreationControls';
+import { NumberField, SelectField, CheckboxField } from '~components/ui/Fields';
 
 const quote = value => JSON.stringify(String(value));
 const TYPES = ['distance', 'angle', 'number', 'point', 'flip', 'choice'];
@@ -39,7 +40,7 @@ export default function DrawingBlockDefinitionEditor({ dynamic, selectedIds, onC
                     setParameter(source ? { name, type: source.type, value: source.default, x: source.default?.x ?? 0, y: source.default?.y ?? 0,
                         choices: source.choices?.join('\n') || '', min: source.min ?? 0, max: source.max ?? 1e9, step: source.step ?? 0 } : initialParameter());
                 }} />
-            <label className="drawing-sidebar-field"><span>{t('dynamicBlock.parameterName')}</span><input value={parameter.name} maxLength={64} onChange={event => editParameter({ name: event.target.value })} /></label>
+            <label className="drawing-sidebar-field"><span>{t('dynamicBlock.parameterName')}</span><Input value={parameter.name} maxLength={64} onChange={event => editParameter({ name: event.target.value })} /></label>
             <SelectField label={t('dynamicBlock.parameterType')} value={parameter.type} options={TYPES.map(type => [type, t(`dynamicBlock.type.${type}`)])}
                 onChange={type => editParameter({ type, value: type === 'flip' ? false : type === 'choice' ? '' : 1, min: type === 'distance' ? 0 : -1e9 })} />
             {numeric && <>
@@ -51,11 +52,11 @@ export default function DrawingBlockDefinitionEditor({ dynamic, selectedIds, onC
             {parameter.type === 'point' && ['x', 'y'].map(axis => <NumberField key={axis} label={`${t('dynamicBlock.defaultValue')} ${axis.toUpperCase()}`} value={parameter[axis]} onChange={value => editParameter({ [axis]: value })} />)}
             {parameter.type === 'flip' && <CheckboxField label={t('dynamicBlock.defaultValue')} checked={parameter.value} onChange={value => editParameter({ value })} />}
             {parameter.type === 'choice' && <>
-                <label className="drawing-sidebar-field"><span>{t('dynamicBlock.defaultValue')}</span><input value={parameter.value} onChange={event => editParameter({ value: event.target.value })} /></label>
-                <label className="drawing-sidebar-field"><span>{t('dynamicBlock.choices')}</span><textarea rows={4} value={parameter.choices} onChange={event => editParameter({ choices: event.target.value })} /></label>
+                <label className="drawing-sidebar-field"><span>{t('dynamicBlock.defaultValue')}</span><Input value={parameter.value} onChange={event => editParameter({ value: event.target.value })} /></label>
+                <label className="drawing-sidebar-field"><span>{t('dynamicBlock.choices')}</span><TextArea rows={4} value={parameter.choices} onChange={event => editParameter({ choices: event.target.value })} /></label>
             </>}
-            <button type="button" className="drawing-secondary-button" disabled={!parameter.name} onClick={saveParameter}>{t('dynamicBlock.saveParameter')}</button>
-            <button type="button" className="drawing-secondary-button" disabled={!dynamic.parameters.some(item => item.name === parameter.name)} onClick={() => onCommand('blockParameter', `DELETE ${quote(parameter.name)}`)}>{t('dynamicBlock.deleteParameter')}</button>
+            <Button type="button" className="drawing-secondary-button" disabled={!parameter.name} onClick={saveParameter}>{t('dynamicBlock.saveParameter')}</Button>
+            <Button type="button" className="drawing-secondary-button" disabled={!dynamic.parameters.some(item => item.name === parameter.name)} onClick={() => onCommand('blockParameter', `DELETE ${quote(parameter.name)}`)}>{t('dynamicBlock.deleteParameter')}</Button>
         </details>
         <details className="drawing-block-attribute-fields">
             <summary>{t('commands.blockAction')}</summary>
@@ -69,7 +70,7 @@ export default function DrawingBlockDefinitionEditor({ dynamic, selectedIds, onC
                             x: vector?.x ?? 1, y: vector?.y ?? 0, originX: source.origin?.x ?? 0, originY: source.origin?.y ?? 0,
                             ...source.window } : initialAction());
                     }} />
-                <label className="drawing-sidebar-field"><span>{t('dynamicBlock.actionName')}</span><input value={action.id} maxLength={64} onChange={event => editAction({ id: event.target.value })} /></label>
+                <label className="drawing-sidebar-field"><span>{t('dynamicBlock.actionName')}</span><Input value={action.id} maxLength={64} onChange={event => editAction({ id: event.target.value })} /></label>
                 <SelectField label={t('dynamicBlock.actionType')} value={action.type} options={ACTIONS.map(type => [type, t(`dynamicBlock.action.${type}`)])} onChange={type => editAction({ type })} />
                 <SelectField label={t('dynamicBlock.actionParameter')} value={actionParameter.name} options={dynamic.parameters.map(item => [item.name, item.name])} onChange={parameter => editAction({ parameter })} />
                 <CheckboxField label={t('dynamicBlock.actionSelection')} checked={action.useSelection} onChange={useSelection => editAction({ useSelection })} />
@@ -79,8 +80,8 @@ export default function DrawingBlockDefinitionEditor({ dynamic, selectedIds, onC
                         value={action[axis]} onChange={value => editAction({ [axis]: value })} />)}
                 {['rotate', 'scale', 'flip'].includes(action.type) && ['X', 'Y'].map(axis => <NumberField key={axis} label={`${t('dynamicBlock.origin')} ${axis}`} value={action[`origin${axis}`]} onChange={value => editAction({ [`origin${axis}`]: value })} />)}
                 {action.type === 'stretch' && ['minX', 'minY', 'maxX', 'maxY'].map(key => <NumberField key={key} label={t(`dynamicBlock.window.${key}`)} value={action[key]} onChange={value => editAction({ [key]: value })} />)}
-                <button type="button" className="drawing-secondary-button" disabled={!action.id} onClick={saveAction}>{t('dynamicBlock.saveAction')}</button>
-                <button type="button" className="drawing-secondary-button" disabled={!dynamic.actions.some(item => item.id === action.id)} onClick={() => onCommand('blockAction', `DELETE ${quote(action.id)}`)}>{t('dynamicBlock.deleteAction')}</button>
+                <Button type="button" className="drawing-secondary-button" disabled={!action.id} onClick={saveAction}>{t('dynamicBlock.saveAction')}</Button>
+                <Button type="button" className="drawing-secondary-button" disabled={!dynamic.actions.some(item => item.id === action.id)} onClick={() => onCommand('blockAction', `DELETE ${quote(action.id)}`)}>{t('dynamicBlock.deleteAction')}</Button>
             </>}
         </details>
     </>;

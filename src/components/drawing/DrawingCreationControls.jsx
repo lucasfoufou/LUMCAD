@@ -1,3 +1,6 @@
+import { Button, Input } from '~components/ui/Controls';
+import { NumberField, SelectField, CheckboxField, TextField, TextAreaField } from '~components/ui/Fields';
+import { Disclosure } from '~components/ui/Controls';
 import { rebuildDrawingArcTextEntity } from '~utils/drawingArcText';
 import { editDrawingLinework } from '~utils/drawingLineworkCommands';
 import { editDrawingTableDefinition, tableCellAddress, normalizeDrawingTableStyles } from '~utils/drawingTables';
@@ -16,7 +19,7 @@ import { normalizeImageAdjustments } from '~utils/drawingImageAdjustments';
 import { normalizeImageClip, parseImageClipInput } from '~utils/drawingImageClip';
 import { isDrawingWipeout } from '~utils/drawingWipeout';
 import { normalizeDrawingHatchPattern } from '~utils/drawingAdvancedEntities';
-import React, { useEffect, useId, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { editSplineControl, editSplineDefinitionPoint, editSplineDefinitionKnot, editSplineEndpointTangent, splineEndpointDerivative, isEditableSpline } from '~utils/drawingSplineEditing';
 import { changeSplinePointList, convertSplineToControl, convertSplineToPolyline, insertSplineKnot, refitSpline } from '~utils/drawingSplineTopology';
@@ -24,7 +27,6 @@ import { MAX_SPLINE_CREATION_POINTS } from '~utils/drawingSplineCreation';
 import { normalizeCurvePrimitive } from '~utils/drawingCurveKernel';
 import { useI18n } from '~i18n/I18nProvider';
 import { createDefaultDrawingCreationConfig, supportsDrawingCreationPanel } from '~utils/drawingCreation';
-import { formatDecimalValue, parseDecimalDraft } from '~utils/drawingFormValues';
 import {
     DEFAULT_DRAWING_TEXT_STYLE_ID,
     DRAWING_TEXT_FONTS,
@@ -81,9 +83,9 @@ export default function DrawingCreationControls({
             <header>
                 <strong>{editMode ? t('creation.editSelected', { tool: toolLabel }) : toolLabel}</strong>
                 {!editMode && !operation && (
-                    <button type="button" onClick={() => onChange(createDefaultDrawingCreationConfig(activeTool))}>
+                    <Button type="button" onClick={() => onChange(createDefaultDrawingCreationConfig(activeTool))}>
                         {t('creation.reset')}
-                    </button>
+                    </Button>
                 )}
             </header>
             {editMode ? (
@@ -121,9 +123,9 @@ function ContextFields({ operation, activeTool, input, onCancel, t }) {
         : getDrawingCreationOptionSuggestions(activeTool, '');
     const choose = option => (input.focus ? input.focus(`${option.completion} `) : input.onChange(`${option.completion} `));
     return <div className="drawing-creation-context" role="group" aria-label={t('creation.contextOption')}>
-        {suggestions.map(option => <button type="button" className="ui-button is-small" key={option.command || option.name}
-            onClick={() => choose(option)}>{t(option.labelKey)}</button>)}
-        {onCancel && <button type="button" className="ui-button is-small is-ghost" onClick={onCancel}>{t('settings.cancel')}<kbd>Esc</kbd></button>}
+        {suggestions.map(option => <Button type="button" className="ui-button is-small" key={option.command || option.name}
+            onClick={() => choose(option)}>{t(option.labelKey)}</Button>)}
+        {onCancel && <Button type="button" className="ui-button is-small is-ghost" onClick={onCancel}>{t('settings.cancel')}<kbd>Esc</kbd></Button>}
     </div>;
 }
 
@@ -216,8 +218,8 @@ function CurvePolylineFields({ entity, disabled, t, onChange }) {
                 onChange={value => setSelected(Number(value))} />
             <CheckboxField label={t('polylineEdit.closed')} checked={Boolean(entity.closed)} disabled={disabled}
                 onChange={closed => update({ action: 'close', closed })} />
-            <button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => update({ action: 'reverse' })}>{t('polylineEdit.reverse')}</button>
-            <button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => update({ action: 'split', index, parameter: 0.5 })}>{t('polylineEdit.split')}</button>
+            <Button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => update({ action: 'reverse' })}>{t('polylineEdit.reverse')}</Button>
+            <Button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => update({ action: 'split', index, parameter: 0.5 })}>{t('polylineEdit.split')}</Button>
             {error && <p role="alert">{t('polylineEdit.invalid')}</p>}
         </div>
     </>;
@@ -243,11 +245,11 @@ function PointPolylineFields({ entity, disabled, t, onChange }) {
                 onChange={value => update({ action: 'vertex', index, point: { ...point, [axis]: value } })} />)}
             <CheckboxField label={t('polylineEdit.closed')} checked={Boolean(entity.closed)} disabled={disabled}
                 onChange={closed => update({ action: 'close', closed })} />
-            <button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => update({ action: 'reverse' })}>{t('polylineEdit.reverse')}</button>
-            <button type="button" className="drawing-creation-action" disabled={disabled || !following} onClick={() => update({ action: 'insert', index: index + 1,
-                point: { x: (point.x + following.x) / 2, y: (point.y + following.y) / 2 } })}>{t('polylineEdit.insert')}</button>
-            <button type="button" className="drawing-creation-action" disabled={disabled || entity.points.length <= (entity.closed ? 3 : 2)}
-                onClick={() => update({ action: 'remove', index })}>{t('polylineEdit.remove')}</button>
+            <Button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => update({ action: 'reverse' })}>{t('polylineEdit.reverse')}</Button>
+            <Button type="button" className="drawing-creation-action" disabled={disabled || !following} onClick={() => update({ action: 'insert', index: index + 1,
+                point: { x: (point.x + following.x) / 2, y: (point.y + following.y) / 2 } })}>{t('polylineEdit.insert')}</Button>
+            <Button type="button" className="drawing-creation-action" disabled={disabled || entity.points.length <= (entity.closed ? 3 : 2)}
+                onClick={() => update({ action: 'remove', index })}>{t('polylineEdit.remove')}</Button>
             {error && <p role="alert">{t('polylineEdit.invalid')}</p>}
         </div>
     </>;
@@ -276,24 +278,24 @@ function ImageFields({ entity, disabled, t, onChange, onImageSource, busy }) {
     const update = patch => onChange({ imageAdjustments: { ...settings, ...patch } });
     return <div className="drawing-creation-fields">
         <DetailsFields t={t} label={t('image.source')}>
-            <label className="drawing-creation-field is-wide"><span>{t('image.sourcePath')}</span><input readOnly value={entity.imageSource?.path || t('image.embedded')} title={entity.imageSource?.path || ''} /></label>
+            <label className="drawing-creation-field is-wide"><span>{t('image.sourcePath')}</span><Input readOnly value={entity.imageSource?.path || t('image.embedded')} title={entity.imageSource?.path || ''} /></label>
             {onImageSource && <>
-                <button type="button" className="drawing-creation-action" disabled={disabled || busy} onClick={() => onImageSource('LINK')}>{t('image.sourceLink')}</button>
-                <button type="button" className="drawing-creation-action" disabled={disabled || busy || !entity.imageSource} onClick={() => onImageSource('RELOAD')}>{t('image.sourceReload')}</button>
-                <button type="button" className="drawing-creation-action" disabled={disabled || busy || !entity.imageSource} onClick={() => onImageSource('EMBED')}>{t('image.sourceEmbed')}</button>
+                <Button type="button" className="drawing-creation-action" disabled={disabled || busy} onClick={() => onImageSource('LINK')}>{t('image.sourceLink')}</Button>
+                <Button type="button" className="drawing-creation-action" disabled={disabled || busy || !entity.imageSource} onClick={() => onImageSource('RELOAD')}>{t('image.sourceReload')}</Button>
+                <Button type="button" className="drawing-creation-action" disabled={disabled || busy || !entity.imageSource} onClick={() => onImageSource('EMBED')}>{t('image.sourceEmbed')}</Button>
             </>}
         </DetailsFields>
         {['brightness', 'contrast'].map(key => <NumberField key={key} label={t(`image.${key}`)} value={settings[key]} min={0} max={200} step={1} disabled={disabled}
             onChange={value => { if (Number.isFinite(value) && value >= 0 && value <= 200) update({ [key]: value }); }} />)}
         <SelectField label={t('image.colorMode')} value={settings.monochrome ? 'mono' : 'color'} disabled={disabled}
             options={[['color', t('image.color')], ['mono', t('image.monochrome')]]} onChange={value => update({ monochrome: value === 'mono' })} />
-        <button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => onChange({ imageAdjustments: normalizeImageAdjustments() })}>{t('creation.reset')}</button>
+        <Button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => onChange({ imageAdjustments: normalizeImageAdjustments() })}>{t('creation.reset')}</Button>
         <DetailsFields t={t} label={t('image.transparentColor')}>
             <SelectField label={t('image.colorKeyMode')} value={settings.transparentColor ? 'on' : 'off'} disabled={disabled}
                 options={[['off', t('image.keyOff')], ['on', t('image.keyOn')]]}
                 onChange={value => update({ transparentColor: value === 'on' ? '#ffffff' : undefined, colorTolerance: 0 })} />
             {settings.transparentColor && <>
-                <label className="drawing-creation-field"><span>{t('image.transparentColor')}</span><input type="color" aria-label={t('image.transparentColor')} disabled={disabled}
+                <label className="drawing-creation-field"><span>{t('image.transparentColor')}</span><Input type="color" aria-label={t('image.transparentColor')} disabled={disabled}
                     value={settings.transparentColor} onChange={event => update({ transparentColor: event.target.value })} /></label>
                 <NumberField label={t('image.colorTolerance')} value={settings.colorTolerance} min={0} max={100} step={1} disabled={disabled}
                     onChange={value => { if (Number.isFinite(value) && value >= 0 && value <= 100) update({ colorTolerance: value }); }} />
@@ -326,13 +328,13 @@ function HatchFields({ entity, disabled, t, onChange }) {
         {pattern.name !== 'solid' && <NumberField label={t('creation.rotation')} value={pattern.angle} disabled={disabled}
             onChange={value => { if (Number.isFinite(value)) update({ angle: value }); }} />}
         {['gradient', 'radial'].includes(pattern.name) && <label className="drawing-creation-field"><span>{t('hatch.endColor')}</span>
-            <input type="color" aria-label={t('hatch.endColor')} value={pattern.endColor || '#ffffff'} disabled={disabled} onChange={event => update({ endColor: event.target.value })} />
+            <Input type="color" aria-label={t('hatch.endColor')} value={pattern.endColor || '#ffffff'} disabled={disabled} onChange={event => update({ endColor: event.target.value })} />
         </label>}
         <DetailsFields t={t}>
             {['x', 'y'].map(axis => <NumberField key={axis} label={t('hatch.origin', { axis: axis.toUpperCase() })} value={pattern.origin[axis]} disabled={disabled}
                 onChange={value => { if (Number.isFinite(value) && Math.abs(value) <= 1e12) update({ origin: { ...pattern.origin, [axis]: value } }); }} />)}
-            {entity.sourceIds?.length > 0 && <button type="button" className="drawing-creation-action" disabled={disabled}
-                onClick={() => onChange({ sourceIds: undefined })}>{t('hatch.detach')}</button>}
+            {entity.sourceIds?.length > 0 && <Button type="button" className="drawing-creation-action" disabled={disabled}
+                onClick={() => onChange({ sourceIds: undefined })}>{t('hatch.detach')}</Button>}
         </DetailsFields>
     </div>;
 }
@@ -358,24 +360,24 @@ function SplineDefinitionFields({ entity, disabled, t, onChange }) {
         <NumberField label={t('creation.splineParameter')} value={definition.knots[knotIndex]} min={0} max={1} step={0.01}
             disabled={disabled || (definition.mode === 'fit' ? knotIndex === 0 || knotIndex === definition.knots.length - 1 : knotIndex < 4 || knotIndex >= definition.knots.length - 4)}
             onChange={value => update(editSplineDefinitionKnot(entity, knotIndex, value))} />
-        <button type="button" className="drawing-creation-action" disabled={disabled || definition.points.length >= MAX_SPLINE_CREATION_POINTS}
+        <Button type="button" className="drawing-creation-action" disabled={disabled || definition.points.length >= MAX_SPLINE_CREATION_POINTS}
             onClick={() => {
                 const next = definition.points[pointIndex + 1];
                 const previous = definition.points[Math.max(0, pointIndex - 1)];
                 const added = next ? { x: (point.x + next.x) / 2, y: (point.y + next.y) / 2 }
                     : { x: 2 * point.x - previous.x, y: 2 * point.y - previous.y };
                 update(changeSplinePointList(entity, pointIndex + 1, added));
-            }}>{t('creation.splineInsertPoint')}</button>
-        <button type="button" className="drawing-creation-action" disabled={disabled || definition.points.length <= (definition.mode === 'fit' ? 2 : 4)}
-            onClick={() => update(changeSplinePointList(entity, pointIndex))}>{t('creation.splineRemovePoint')}</button>
+            }}>{t('creation.splineInsertPoint')}</Button>
+        <Button type="button" className="drawing-creation-action" disabled={disabled || definition.points.length <= (definition.mode === 'fit' ? 2 : 4)}
+            onClick={() => update(changeSplinePointList(entity, pointIndex))}>{t('creation.splineRemovePoint')}</Button>
         <span>{t('creation.splineReparameterize')}</span>
         {definition.mode === 'control' && <DetailsFields t={t} label={t('creation.splineInsertKnot')}>
             <NumberField label={t('creation.splineNewKnot')} value={newKnot} min={0} max={1} step={0.01} disabled={disabled} onChange={setNewKnot} />
-            <button type="button" className="drawing-creation-action" disabled={disabled || definition.points.length >= MAX_SPLINE_CREATION_POINTS}
-                onClick={() => update(insertSplineKnot(entity, newKnot))}>{t('creation.splineInsertKnot')}</button>
+            <Button type="button" className="drawing-creation-action" disabled={disabled || definition.points.length >= MAX_SPLINE_CREATION_POINTS}
+                onClick={() => update(insertSplineKnot(entity, newKnot))}>{t('creation.splineInsertKnot')}</Button>
         </DetailsFields>}
         <SplineTangentFields entity={entity} disabled={disabled} t={t} onChange={update} />
-        <button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => onChange({ splineDefinition: undefined })}>{t('creation.splineBezier')}</button>
+        <Button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => onChange({ splineDefinition: undefined })}>{t('creation.splineBezier')}</Button>
         <SplineConversionFields entity={entity} disabled={disabled} t={t} onChange={update} />
     </div>;
 }
@@ -392,10 +394,10 @@ function SplineTangentFields({ entity, disabled, t, onChange }) {
             options={['start', 'end'].map(value => [value, t(`creation.splineTangent${value === 'start' ? 'Start' : 'End'}`)])} />
         {['x', 'y'].map(axis => <NumberField key={axis} label={t('creation.splineDerivative', { axis: axis.toUpperCase() })}
             value={tangent[axis]} disabled={disabled} onChange={value => onChange(editSplineEndpointTangent(entity, endpoint, { ...tangent, [axis]: value }))} />)}
-        {definition.mode === 'fit' && <button type="button" className="drawing-creation-action" disabled={disabled}
+        {definition.mode === 'fit' && <Button type="button" className="drawing-creation-action" disabled={disabled}
             onClick={() => onChange(editSplineEndpointTangent(entity, endpoint, natural ? tangent : null))}>
             {t(natural ? 'creation.splineConstrainTangent' : 'creation.splineNaturalTangent')}
-        </button>}
+        </Button>}
     </DetailsFields>;
 }
 
@@ -423,10 +425,10 @@ function SplineConversionFields({ entity, disabled, t, onChange }) {
     const [tolerance, setTolerance] = useState(0.001);
     const update = next => { if (next !== entity) onChange(next); };
     return <DetailsFields t={t} label={t('creation.splineConversions')}>
-        <button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => update(convertSplineToControl(entity))}>{t('creation.splineToControl')}</button>
-        <button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => update(refitSpline(entity))}>{t('creation.splineRefit')}</button>
+        <Button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => update(convertSplineToControl(entity))}>{t('creation.splineToControl')}</Button>
+        <Button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => update(refitSpline(entity))}>{t('creation.splineRefit')}</Button>
         <NumberField label={t('creation.splineTolerance')} value={tolerance} min={0.00000001} step={0.001} disabled={disabled} onChange={setTolerance} />
-        <button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => update(convertSplineToPolyline(entity, tolerance))}>{t('creation.splineToPolyline')}</button>
+        <Button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => update(convertSplineToPolyline(entity, tolerance))}>{t('creation.splineToPolyline')}</Button>
     </DetailsFields>;
 }
 
@@ -644,11 +646,12 @@ function TextFields({ values, textStyles = [], t, onChange, disabled = false, in
                 style.id,
                 style.id === DEFAULT_DRAWING_TEXT_STYLE_ID ? t('creation.textStyleStandard') : style.name,
             ])} />
+            <NumberField label={t('creation.textSize')} value={resolvedStyle.fontSize} min={0.01} step={0.05} disabled={disabled} placeholder="0.35" onChange={value => updateNumber('fontSize', value)} />
+            <DetailsFields t={t} label={t('creation.moreTextOptions')}>
             <SelectField label={t('creation.textFont')} value={resolvedStyle.fontFamily} disabled={disabled} onChange={value => onChange({ fontFamily: value })} options={DRAWING_TEXT_FONTS.map(font => [
                 font.id,
                 t(`creation.textFont.${font.id}`),
             ])} />
-            <NumberField label={t('creation.textSize')} value={resolvedStyle.fontSize} min={0.01} step={0.05} disabled={disabled} placeholder="0.35" onChange={value => updateNumber('fontSize', value)} />
             <CheckboxField label={t('creation.textBold')} checked={resolvedStyle.fontWeight >= 700} disabled={disabled} onChange={checked => onChange({ fontWeight: checked ? 700 : 400 })} />
             <CheckboxField label={t('creation.textItalic')} checked={resolvedStyle.fontStyle === 'italic'} disabled={disabled} onChange={checked => onChange({ fontStyle: checked ? 'italic' : 'normal' })} />
             <CheckboxField label={t('creation.textUnderline')} checked={resolvedStyle.underline} disabled={disabled} onChange={underline => onChange({ underline })} />
@@ -668,6 +671,7 @@ function TextFields({ values, textStyles = [], t, onChange, disabled = false, in
                 ['middle', t('creation.middle')],
                 ['bottom', t('creation.bottom')],
             ]} />
+            </DetailsFields>
         </div>
     );
 }
@@ -760,163 +764,8 @@ function ArcEditFields({ entity, disabled, t, onChange }) {
     );
 }
 
-export function NumberField({ label, value, onChange, min, max, step = 0.1, placeholder, disabled = false }) {
-    const formattedValue = formatDecimalValue(value);
-    const [draft, setDraft] = useState(formattedValue);
-    const focusedRef = useRef(false);
-
-    useEffect(() => {
-        if (!focusedRef.current) setDraft(formattedValue);
-    }, [formattedValue]);
-
-    const applyDraft = rawValue => {
-        setDraft(rawValue);
-        const parsed = parseDecimalDraft(rawValue);
-        if (parsed.kind === 'empty') onChange(undefined);
-        else if (parsed.kind === 'complete') onChange(parsed.value);
-    };
-
-    const finishEditing = () => {
-        focusedRef.current = false;
-        const parsed = parseDecimalDraft(draft);
-        if (parsed.kind === 'complete') onChange(parsed.value);
-        else if (parsed.kind === 'empty') onChange(undefined);
-        setDraft(formattedValue);
-    };
-
-    return (
-        <label className="drawing-creation-field">
-            <span>{label}</span>
-            <input
-                type="text"
-                role="spinbutton"
-                inputMode="decimal"
-                value={draft}
-                aria-valuemin={min}
-                aria-valuemax={max}
-                aria-valuenow={Number.isFinite(value) ? value : undefined}
-                data-step={step}
-                placeholder={placeholder}
-                disabled={disabled}
-                onFocus={() => { focusedRef.current = true; }}
-                onChange={event => applyDraft(event.target.value)}
-                onBlur={finishEditing}
-            />
-        </label>
-    );
-}
-
-function TextAreaField({ label, value, onChange, placeholder, disabled = false, className = '', singleLine = false }) {
-    return (
-        <label className={`drawing-creation-field ${className}`.trim()}>
-            <span>{label}</span>
-            {singleLine ? (
-                <input type="text" value={value} placeholder={placeholder} disabled={disabled} onChange={event => onChange(event.target.value)} />
-            ) : (
-                <textarea value={value} placeholder={placeholder} disabled={disabled} rows="2" onChange={event => onChange(event.target.value)} />
-            )}
-        </label>
-    );
-}
-
-export function CheckboxField({ label, checked, onChange, disabled = false }) {
-    return (
-        <label className="drawing-creation-toggle">
-            <input type="checkbox" checked={Boolean(checked)} disabled={disabled} onChange={event => onChange(event.target.checked)} />
-            <span>{label}</span>
-        </label>
-    );
-}
-
 function DetailsFields({ children, t, label }) {
-    const [open, setOpen] = useState(false);
-    return (
-        <div className="drawing-creation-details">
-            <button
-                type="button"
-                className="drawing-creation-details-toggle"
-                aria-expanded={open}
-                onClick={() => setOpen(current => !current)}
-            >
-                <span aria-hidden="true">{open ? '^' : '>'}</span>
-                {label || t('creation.details')}
-            </button>
-            {open && <div className="drawing-creation-details-fields">{children}</div>}
-        </div>
-    );
-}
-
-export function SelectField({ label, value, onChange, options, disabled = false }) {
-    const fieldRef = useRef(null);
-    const triggerRef = useRef(null);
-    const labelId = useId();
-    const listboxId = useId();
-    const [open, setOpen] = useState(false);
-    const selected = options.find(([optionValue]) => optionValue === value) || options[0];
-
-    useEffect(() => {
-        if (!open) return undefined;
-        const closeOnOutsidePointer = event => {
-            if (fieldRef.current?.contains(event.target)) return;
-            setOpen(false);
-            triggerRef.current?.blur();
-        };
-        document.addEventListener('pointerdown', closeOnOutsidePointer, true);
-        return () => document.removeEventListener('pointerdown', closeOnOutsidePointer, true);
-    }, [open]);
-
-    const selectValue = nextValue => {
-        onChange(nextValue);
-        setOpen(false);
-        window.requestAnimationFrame(() => triggerRef.current?.blur());
-    };
-
-    return (
-        <div ref={fieldRef} className="drawing-creation-field drawing-creation-select-field">
-            <span id={labelId}>{label}</span>
-            <button
-                ref={triggerRef}
-                type="button"
-                className="drawing-creation-select"
-                role="combobox"
-                aria-labelledby={labelId}
-                aria-controls={listboxId}
-                aria-expanded={open}
-                aria-haspopup="listbox"
-                disabled={disabled}
-                onClick={() => setOpen(current => !current)}
-                onKeyDown={event => {
-                    if (event.key === 'Escape') {
-                        event.preventDefault();
-                        setOpen(false);
-                        event.currentTarget.blur();
-                    } else if (event.key === 'ArrowDown') {
-                        event.preventDefault();
-                        setOpen(true);
-                    }
-                }}
-            >
-                <span>{selected?.[1] || ''}</span>
-                <span aria-hidden="true">⌄</span>
-            </button>
-            {open && (
-                <div id={listboxId} className="drawing-creation-select-menu" role="listbox" aria-labelledby={labelId}>
-                    {options.map(([optionValue, optionLabel]) => (
-                        <button
-                            type="button"
-                            role="option"
-                            aria-selected={optionValue === value}
-                            className={optionValue === value ? 'is-selected' : ''}
-                            key={optionValue}
-                            onClick={() => selectValue(optionValue)}
-                        >
-                            {optionLabel}
-                        </button>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
+    return <Disclosure label={label || t('creation.details')}>{children}</Disclosure>;
 }
 
 function updateFinite(onChange, property, value) {
@@ -1051,21 +900,21 @@ function TableFields({ content, entity, disabled, t, onChange }) {
         <SelectField label={t('table.row')} value={String(r)} disabled={disabled} options={table.cells.map((_, index) => [String(index), String(index + 1)])} onChange={value => setRow(Number(value))} />
         <SelectField label={t('table.column')} value={String(c)} disabled={disabled} options={table.cells[0].map((_, index) => [String(index), tableCellAddress(0, index).slice(0, -1)])} onChange={value => setColumn(Number(value))} />
         <TextAreaField label={t('table.cellValue', { address })} value={draft} onChange={setDraft} disabled={disabled || Boolean(table.quantityLink)} />
-        <button type="button" className="drawing-creation-action" disabled={disabled || Boolean(table.quantityLink) || draft === value} onClick={() => update({ action: 'cell', address, value: draft })}>{t('table.applyCell')}</button>
+        <Button type="button" className="drawing-creation-action" disabled={disabled || Boolean(table.quantityLink) || draft === value} onClick={() => update({ action: 'cell', address, value: draft })}>{t('table.applyCell')}</Button>
         <NumberField label={t('table.rowHeight')} value={table.rowHeights[r]} min={0.000002} max={1e6} disabled={disabled} onChange={value => update({ action: 'rowHeight', index: r, value })} />
         <NumberField label={t('table.columnWidth')} value={table.columnWidths[c]} min={0.000002} max={1e6} disabled={disabled} onChange={value => update({ action: 'columnWidth', index: c, value })} />
         <TextAreaField label={t('table.mergeEnd')} value={mergeEnd} onChange={setMergeEnd} disabled={disabled} singleLine />
-        <button type="button" className="drawing-creation-action" disabled={disabled || Boolean(table.quantityLink)} onClick={() => update({ action: 'merge', first: address, last: mergeEnd })}>{t('table.merge')}</button>
-        <button type="button" className="drawing-creation-action" disabled={disabled || Boolean(table.quantityLink)} onClick={() => update({ action: 'unmerge', address })}>{t('table.unmerge')}</button>
+        <Button type="button" className="drawing-creation-action" disabled={disabled || Boolean(table.quantityLink)} onClick={() => update({ action: 'merge', first: address, last: mergeEnd })}>{t('table.merge')}</Button>
+        <Button type="button" className="drawing-creation-action" disabled={disabled || Boolean(table.quantityLink)} onClick={() => update({ action: 'unmerge', address })}>{t('table.unmerge')}</Button>
         {error && <p role="alert" className="drawing-creation-field is-wide">{t('table.invalid')}</p>}
         <DetailsFields t={t} label={t('table.cellFormatting')}>
             <NumberField label={t('table.fontSize')} value={cellStyle.fontSize} min={0.000002} max={1e6} disabled={disabled} onChange={fontSize => formatCell({ fontSize })} />
             <NumberField label={t('table.padding')} value={cellStyle.padding} min={0} max={1e6} disabled={disabled} onChange={padding => formatCell({ padding })} />
             <SelectField label={t('table.alignment')} value={cellStyle.alignment} disabled={disabled}
                 options={['left', 'center', 'right'].map(value => [value, t(`table.align.${value}`)])} onChange={alignment => formatCell({ alignment })} />
-            <label className="drawing-creation-field"><span>{t('table.cellColor')}</span><input type="color" value={cellStyle.color} disabled={disabled} onChange={event => formatCell({ color: event.target.value })} /></label>
+            <label className="drawing-creation-field"><span>{t('table.cellColor')}</span><Input type="color" value={cellStyle.color} disabled={disabled} onChange={event => formatCell({ color: event.target.value })} /></label>
             <CheckboxField label={t('table.bold')} checked={cellStyle.bold ?? (r < table.style.headerRows && table.style.headerBold)} disabled={disabled} onChange={bold => formatCell({ bold })} />
-            <button type="button" className="drawing-creation-action" disabled={disabled || !table.cells[r][c].style} onClick={() => formatCell(null)}>{t('table.resetCellStyle')}</button>
+            <Button type="button" className="drawing-creation-action" disabled={disabled || !table.cells[r][c].style} onClick={() => formatCell(null)}>{t('table.resetCellStyle')}</Button>
         </DetailsFields>
         <SelectField label={t('table.styleLabel')} value={table.style.name} disabled={disabled}
             options={[...new Set([table.style.name, ...styles.map(style => style.name)])].map(name => [name, name])}
@@ -1074,9 +923,9 @@ function TableFields({ content, entity, disabled, t, onChange }) {
             onChange={fontSize => update({ action: 'style', style: { ...table.style, fontSize } })} />
         {table.quantityLink && <>
             <p role="status" className="drawing-creation-field is-wide">{t(`table.quantity.${table.quantityLink.status}`)}</p>
-            <button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => update({ action: 'detachQuantity' })}>{t('table.quantity.detach')}</button>
+            <Button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => update({ action: 'detachQuantity' })}>{t('table.quantity.detach')}</Button>
         </>}
-        {table.dataLink && <label className="drawing-creation-field is-wide"><span>{t('table.linkSource')}</span><input readOnly value={table.dataLink.path || table.dataLink.name} /></label>}
+        {table.dataLink && <label className="drawing-creation-field is-wide"><span>{t('table.linkSource')}</span><Input readOnly value={table.dataLink.path || table.dataLink.name} /></label>}
     </div>;
 }
 
@@ -1116,19 +965,11 @@ function ToleranceFields({ content, entity, disabled, t, onChange }) {
         <SelectField label={t('table.styleLabel')} value={draft.style.name} disabled={disabled}
             options={[...new Set([draft.style.name, ...normalizeDrawingTableStyles(content?.tableStyles).map(style => style.name)])].map(name => [name, name])}
             onChange={name => { const style = normalizeDrawingTableStyles(content?.tableStyles).find(style => style.name === name); if (style) setDraft(current => ({ ...current, style })); }} />
-        <button type="button" className="drawing-creation-action" disabled={disabled || draft.rows.length >= 4} onClick={() => { setDraft(current => ({ ...current, rows: [...current.rows, structuredClone(row)] })); setRowIndex(draft.rows.length); }}>{t('tolerance.addRow')}</button>
-        <button type="button" className="drawing-creation-action" disabled={disabled || draft.rows.length <= 1} onClick={() => { setDraft(current => ({ ...current, rows: current.rows.filter((_, i) => i !== index) })); setRowIndex(0); }}>{t('tolerance.removeRow')}</button>
-        <button type="button" className="drawing-creation-action" disabled={disabled} onClick={apply}>{t('tolerance.apply')}</button>
+        <Button type="button" className="drawing-creation-action" disabled={disabled || draft.rows.length >= 4} onClick={() => { setDraft(current => ({ ...current, rows: [...current.rows, structuredClone(row)] })); setRowIndex(draft.rows.length); }}>{t('tolerance.addRow')}</Button>
+        <Button type="button" className="drawing-creation-action" disabled={disabled || draft.rows.length <= 1} onClick={() => { setDraft(current => ({ ...current, rows: current.rows.filter((_, i) => i !== index) })); setRowIndex(0); }}>{t('tolerance.removeRow')}</Button>
+        <Button type="button" className="drawing-creation-action" disabled={disabled} onClick={apply}>{t('tolerance.apply')}</Button>
         {error && <p role="alert" className="drawing-creation-field is-wide">{t('tolerance.invalid')}</p>}
     </div>;
-}
-
-
-export function TextField({ label, value, onChange, maxLength = 512, disabled = false, placeholder }) {
-    return <label className="drawing-sidebar-field"><span>{label}</span>
-        <input type="text" value={value} maxLength={maxLength} disabled={disabled} placeholder={placeholder}
-            onChange={event => onChange(event.target.value)} />
-    </label>;
 }
 
 
@@ -1157,8 +998,8 @@ function ArcTextFields({ entity, disabled, t, onChange }) {
         <CheckboxField label={t('arcText.reverse')} checked={draft.reverse} disabled={disabled} onChange={reverse => patch({ reverse })} />
         <p role="status" className="drawing-creation-field is-wide">{t(entity.sourceId ? `arcText.status.${entity.arcText.status}` : 'arcText.detached')}</p>
         {error && <p role="alert" className="drawing-creation-field is-wide">{t('arcText.invalid')}</p>}
-        <button type="button" className="drawing-creation-action" disabled={disabled} onClick={apply}>{t('arcText.apply')}</button>
-        {entity.sourceId && <button type="button" className="drawing-creation-action" disabled={disabled}
-            onClick={() => onChange({ ...entity, sourceId: undefined, arcText: { ...entity.arcText, status: 'current' } })}>{t('arcText.detach')}</button>}
+        <Button type="button" className="drawing-creation-action" disabled={disabled} onClick={apply}>{t('arcText.apply')}</Button>
+        {entity.sourceId && <Button type="button" className="drawing-creation-action" disabled={disabled}
+            onClick={() => onChange({ ...entity, sourceId: undefined, arcText: { ...entity.arcText, status: 'current' } })}>{t('arcText.detach')}</Button>}
     </div>;
 }

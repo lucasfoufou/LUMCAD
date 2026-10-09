@@ -1,3 +1,4 @@
+import { Button, Input } from '~components/ui/Controls';
 import React, { useEffect, useRef, useState } from 'react';
 
 import { useI18n } from '~i18n/I18nProvider';
@@ -155,12 +156,12 @@ export default function DrawingWorkspaceTabs({
 
     return (
         <nav className="drawing-workspace-tabs" aria-label={t('layout.workspaceTabs')}>
-            <button type="button" className={mode === 'model' ? 'is-active is-model' : 'is-model'} onClick={openModel}>
+            <Button type="button" className={mode === 'model' ? 'is-active is-model' : 'is-model'} onClick={openModel}>
                 {t('layout.model')}
-            </button>
-            <button type="button" className="is-tab-scroll" onClick={() => scrollTabs(-1)} aria-label={t('layout.scrollTabsLeft')} title={t('layout.scrollTabsLeft')}>
+            </Button>
+            <Button type="button" className="is-tab-scroll" onClick={() => scrollTabs(-1)} aria-label={t('layout.scrollTabsLeft')} title={t('layout.scrollTabsLeft')}>
                 <span aria-hidden="true">‹</span>
-            </button>
+            </Button>
             <div className="drawing-workspace-tab-strip" ref={stripRef} onScroll={() => setMenu(null)}>
                 {layouts.map((layout, index) => (
                     <div
@@ -179,7 +180,7 @@ export default function DrawingWorkspaceTabs({
                     >
                         {renamingLayoutId === layout.id ? (
                             <form onSubmit={event => { event.preventDefault(); finishRename(layout); }}>
-                                <input
+                                <Input
                                     autoFocus
                                     aria-label={t('layout.renameLayout')}
                                     value={renameValue}
@@ -194,7 +195,7 @@ export default function DrawingWorkspaceTabs({
                                 />
                             </form>
                         ) : (
-                            <button
+                            <Button
                                 type="button"
                                 className={[
                                     mode === 'layout' && activeLayoutId === layout.id && 'is-active',
@@ -208,10 +209,10 @@ export default function DrawingWorkspaceTabs({
                                 onKeyDown={event => reorderFromKeyboard(event, layout, index)}
                             >
                                 {layout.name}
-                            </button>
+                            </Button>
                         )}
                         {(onRenameLayout || onDuplicateLayout || onDeleteLayout) && (
-                            <button
+                            <Button
                                 type="button"
                                 className="is-layout-menu"
                                 aria-label={t('layout.layoutMenu', { name: layout.name })}
@@ -221,16 +222,16 @@ export default function DrawingWorkspaceTabs({
                                 onClick={event => toggleMenu(event, layout)}
                             >
                                 <span aria-hidden="true">⋮</span>
-                            </button>
+                            </Button>
                         )}
                     </div>
                 ))}
             </div>
-            <button type="button" className="is-tab-scroll" onClick={() => scrollTabs(1)} aria-label={t('layout.scrollTabsRight')} title={t('layout.scrollTabsRight')}>
+            <Button type="button" className="is-tab-scroll" onClick={() => scrollTabs(1)} aria-label={t('layout.scrollTabsRight')} title={t('layout.scrollTabsRight')}>
                 <span aria-hidden="true">›</span>
-            </button>
+            </Button>
             <div className="drawing-workspace-add-tab">
-                <button
+                <Button
                     type="button"
                     className="is-add"
                     onClick={() => onAddLayoutFromTemplate ? setAddMenuOpen(current => !current) : onAddLayout()}
@@ -239,13 +240,13 @@ export default function DrawingWorkspaceTabs({
                     title={t('layout.addLayout')}
                 >
                     +
-                </button>
+                </Button>
                 {addMenuOpen && (
                     <div className="drawing-workspace-layout-menu is-add-menu">
                         {DRAWING_LAYOUT_TEMPLATE_OPTIONS.map(template => (
-                            <button type="button" key={template} onClick={() => addFromTemplate(template)}>
+                            <Button type="button" key={template} onClick={() => addFromTemplate(template)}>
                                 {t(`layout.template.${template}`)}
-                            </button>
+                            </Button>
                         ))}
                     </div>
                 )}
@@ -257,9 +258,9 @@ export default function DrawingWorkspaceTabs({
                     aria-label={t('layout.layoutMenu', { name: menuLayout.name })}
                     style={{ left: `${menu.left}px`, bottom: `${menu.bottom}px` }}
                 >
-                    <button role="menuitem" type="button" disabled={!onRenameLayout} onClick={() => beginRename(menuLayout)}>{t('layout.renameLayout')}</button>
-                    <button role="menuitem" type="button" disabled={!onDuplicateLayout} onClick={() => { setMenu(null); onDuplicateLayout?.(menuLayout.id); }}>{t('layout.duplicateLayout')}</button>
-                    <button role="menuitem" type="button" className="is-danger" disabled={!onDeleteLayout || layouts.length <= 1} onClick={() => { setMenu(null); onDeleteLayout?.(menuLayout.id); }}>{t('layout.deleteLayout')}</button>
+                    <Button role="menuitem" type="button" disabled={!onRenameLayout} onClick={() => beginRename(menuLayout)}>{t('layout.renameLayout')}</Button>
+                    <Button role="menuitem" type="button" disabled={!onDuplicateLayout} onClick={() => { setMenu(null); onDuplicateLayout?.(menuLayout.id); }}>{t('layout.duplicateLayout')}</Button>
+                    <Button role="menuitem" type="button" className="is-danger" disabled={!onDeleteLayout || layouts.length <= 1} onClick={() => { setMenu(null); onDeleteLayout?.(menuLayout.id); }}>{t('layout.deleteLayout')}</Button>
                 </div>
             )}
         </nav>

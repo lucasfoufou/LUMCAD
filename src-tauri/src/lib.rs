@@ -75,6 +75,8 @@ pub fn run() {
         .on_menu_event(|app, event| {
             if event.id().as_ref() == native_menu::SETTINGS_MENU_ID {
                 let _ = app.emit("lumcad://open-settings", ());
+            } else if let Some(action) = native_menu::drawing_action(event.id().as_ref()) {
+                let _ = app.emit("lumcad://drawing-action", action);
             }
         })
         .build(tauri::generate_context!())

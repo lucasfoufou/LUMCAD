@@ -12,7 +12,7 @@ const en = {
     'hyperlink.saved': 'Object links updated.',
     'commandPreferences.temporaryOrtho': 'Hold Shift for a temporary override',
     'commandPreferences.shortcutTitle': 'Keyboard shortcuts',
-    'commandPreferences.shortcutHint': 'Use Mod for Ctrl/Command, optionally Alt and Shift: Mod+Shift+K, F8. Unmodified letters remain command input; Escape and Enter keep their editing roles. Some combinations may be intercepted by your operating system. Save settings to apply.',
+    'commandPreferences.shortcutHint': 'Click a shortcut, then press the desired keys. Escape cancels. Save settings to apply. Some combinations are reserved by the application or operating system.',
     'commandPreferences.shortcutNumber': 'Shortcut {{number}}',
     'commandPreferences.addShortcut': 'Add shortcut',
     'commandPreferences.resetShortcuts': 'Restore default shortcuts',
@@ -2755,6 +2755,14 @@ const en = {
     'commands.sheetSetArchive': 'Package sheet set',
     'sheetSet.archiveTitle': 'Sheet-set archive',
     'sheetSet.archived': 'Archive saved with {{count}} source files.',
+    'creation.moreTextOptions': 'Typography and alignment',
+    'commandPreferences.captureListening': 'Press your shortcut…',
+    'commandPreferences.captureStart': 'Record shortcut',
+    'commandPreferences.captureHelp': 'Escape to cancel · Tab to leave',
+    'commandPreferences.captureIdle': 'Click to change',
+    'commandPreferences.captureInvalid': 'Reserved or unsupported combination. Try another.',
+    'commandPreferences.captureConflict': 'Already assigned to another command.',
+    'sidebar.largeSelectionGrips': 'Individual grips are hidden above {{limit}} selected objects. All selection commands remain available. Select fewer objects to edit their grips.',
 };
 
 export default en;

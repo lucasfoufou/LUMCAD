@@ -1,3 +1,5 @@
+import { DRAWING_GRIP_OBJECT_LIMIT } from '~utils/drawingSelection';
+import { Button, Input, Select } from '~components/ui/Controls';
 import DrawingHyperlinkFields from '~components/drawing/DrawingHyperlinkFields';
 import DrawingParametersPanel from '~components/drawing/DrawingParametersPanel';
 import DrawingConstraintsPanel from '~components/drawing/DrawingConstraintsPanel';
@@ -86,7 +88,7 @@ export default function DrawingSidebar({ content, selectedIds, editEntityId = nu
         <aside className="drawing-sidebar">
             <div className="drawing-sidebar-tabs" role="tablist">
                 {tabs.map(([id, label]) => (
-                    <button type="button" role="tab" key={id} aria-selected={tab === id} className={tab === id ? 'is-active' : ''} onClick={() => showTab(id)}>{label}</button>
+                    <Button type="button" role="tab" key={id} aria-selected={tab === id} className={tab === id ? 'is-active' : ''} onClick={() => showTab(id)}>{label}</Button>
                 ))}
             </div>
             <div className="drawing-sidebar-content" role="tabpanel">
@@ -101,7 +103,7 @@ export default function DrawingSidebar({ content, selectedIds, editEntityId = nu
                                 <div className="drawing-manage-grid">
                                     {Object.entries(MANAGER_PANELS)
                                         .filter(([id]) => id !== 'parameters' || parametersEnabled)
-                                        .map(([id, labelKey]) => <button type="button" key={id} onClick={() => open(id)}>{t(labelKey)}</button>)}
+                                        .map(([id, labelKey]) => <Button type="button" key={id} onClick={() => open(id)}>{t(labelKey)}</Button>)}
                                 </div>
                             </section>
                         )}
@@ -131,7 +133,7 @@ function DrawingManagerWindow({ title, closeLabel, onClose, children }) {
         <section className="ui-popover drawing-manager-window" role="dialog" aria-label={title}>
             <header>
                 <h2>{title}</h2>
-                <button type="button" className="ui-icon-button is-small" aria-label={closeLabel} title={closeLabel} onClick={onClose}><Icon name="close" size="sm" /></button>
+                <Button type="button" className="ui-icon-button is-small" aria-label={closeLabel} title={closeLabel} onClick={onClose}><Icon name="close" size="sm" /></Button>
             </header>
             <div className="drawing-manager-body">{children}</div>
         </section>
@@ -229,9 +231,9 @@ function LayersPanel({ content, onCommit, filter, onFilter, t }) {
         <section className="drawing-layer-panel">
             <div className="drawing-sidebar-heading">
                 <div><strong>{t('sidebar.layers')}</strong><small>{t('sidebar.layerCount', { count: content.layers.length })}</small></div>
-                <button type="button" onClick={() => onCommit(addLayer(content, t('document.newLayer', { number: content.layers.length + 1 })))}>{t('sidebar.add')}</button>
+                <Button type="button" onClick={() => onCommit(addLayer(content, t('document.newLayer', { number: content.layers.length + 1 })))}>{t('sidebar.add')}</Button>
             </div>
-            <input aria-label={t('layerManager.filter')} placeholder={t('layerManager.filterHint')} value={filter || ''} onChange={event => onFilter?.(event.target.value)} />
+            <Input aria-label={t('layerManager.filter')} placeholder={t('layerManager.filterHint')} value={filter || ''} onChange={event => onFilter?.(event.target.value)} />
             <div className="drawing-layer-list">
                 {filterDrawingLayers(content.layers, filter).map(layer => (
                     <LayerRow key={layer.id} layer={layer} content={content} count={entityCounts[layer.id] || 0} onCommit={onCommit} t={t} />
@@ -255,7 +257,7 @@ function LayerRow({ layer, content, count, onCommit, t }) {
     return (
         <div className={`drawing-layer-row ${active ? 'is-active' : ''}`}>
             <div className="drawing-layer-row-header">
-                <input
+                <Input
                     type="radio"
                     name="activeDrawingLayer"
                     aria-label={t('sidebar.activateLayer', { name: layer.name })}
@@ -264,7 +266,7 @@ function LayerRow({ layer, content, count, onCommit, t }) {
                 />
                 <span className="drawing-layer-swatch" style={{ background: layer.color }} aria-hidden="true" />
                 <div className="drawing-layer-main">
-                    <input
+                    <Input
                         value={layer.name}
                         disabled={isProtectedDrawingLayer(layer.id)}
                         title={isProtectedDrawingLayer(layer.id) ? t('sidebar.protectedLayer') : undefined}
@@ -275,14 +277,14 @@ function LayerRow({ layer, content, count, onCommit, t }) {
                 </div>
                 <div className="drawing-layer-actions">
                     {toggles.map(([field, on, icon, label]) => (
-                        <button type="button" key={field} className={on ? 'is-active' : ''} aria-pressed={Boolean(on)} title={label} aria-label={label}
+                        <Button type="button" key={field} className={on ? 'is-active' : ''} aria-pressed={Boolean(on)} title={label} aria-label={label}
                             onClick={() => update({ [field]: field === 'plot' ? !on : !layer[field] })}>
                             <Icon name={icon} size="sm" />
-                        </button>
+                        </Button>
                     ))}
-                    <button type="button" aria-expanded={expanded} title={t('sidebar.layerDetails')} aria-label={t('sidebar.layerDetails')} onClick={() => setExpanded(open => !open)}>
+                    <Button type="button" aria-expanded={expanded} title={t('sidebar.layerDetails')} aria-label={t('sidebar.layerDetails')} onClick={() => setExpanded(open => !open)}>
                         <Icon name={expanded ? 'chevronDown' : 'chevronRight'} size="sm" />
-                    </button>
+                    </Button>
                 </div>
             </div>
             {expanded && (
@@ -290,13 +292,13 @@ function LayerRow({ layer, content, count, onCommit, t }) {
                     <DrawingLayerAppearanceFields layer={layer} t={t} onChange={update} />
                     <div className="drawing-layer-flags">
                         <label>
-                            <input type="checkbox" checked={Boolean(layer.newViewportFrozen)} onChange={event => update({ newViewportFrozen: event.target.checked })} />
+                            <Input type="checkbox" checked={Boolean(layer.newViewportFrozen)} onChange={event => update({ newViewportFrozen: event.target.checked })} />
                             {t('layerManager.newViewportFrozen')}
                         </label>
-                        <button type="button" className="ui-button is-small is-danger" disabled={Boolean(count) || isProtectedDrawingLayer(layer.id)}
+                        <Button type="button" className="ui-button is-small is-danger" disabled={Boolean(count) || isProtectedDrawingLayer(layer.id)}
                             title={t('sidebar.deleteEmptyLayer')} onClick={() => onCommit(removeEmptyLayer(content, layer.id))}>
                             {t('sidebar.deleteEmptyLayer')}
-                        </button>
+                        </Button>
                     </div>
                 </div>
             )}
@@ -339,17 +341,18 @@ function SelectionPanel({ content, selectedIds, onCommit, t }) {
     return (
         <section className="drawing-selection-panel">
             <h3>{t('sidebar.selectedCount', { count: selected.length })}</h3>
+            {selected.length > DRAWING_GRIP_OBJECT_LIMIT && <p className="drawing-sidebar-empty" role="status">{t('sidebar.largeSelectionGrips', { limit: DRAWING_GRIP_OBJECT_LIMIT })}</p>}
             {single && <p className="drawing-selection-type">{t('sidebar.type')} : <strong>{entityTypeLabel(single.type, t)}</strong></p>}
             <label className="drawing-sidebar-check">
-                <input type="checkbox" checked={selected.every(entity => entity.locked)} onChange={event => setLocked(event.target.checked)} />
+                <Input type="checkbox" checked={selected.every(entity => entity.locked)} onChange={event => setLocked(event.target.checked)} />
                 {t('sidebar.lockSelection', { count: selected.length })}
             </label>
             <label className="drawing-sidebar-field">
                 <span>{t('sidebar.layer')}</span>
-                <select disabled={selectionLocked} value={single?.layerId || ''} onChange={event => setSelected(entity => ({ ...entity, layerId: event.target.value }))}>
+                <Select disabled={selectionLocked} value={single?.layerId || ''} onChange={event => setSelected(entity => ({ ...entity, layerId: event.target.value }))}>
                     {!single && <option value="">{t('sidebar.multipleLayers')}</option>}
                     {content.layers.map(layer => <option key={layer.id} value={layer.id}>{layer.name}</option>)}
-                </select>
+                </Select>
             </label>
             {single?.type === 'blockReference' && <DrawingBlockAttributeFields content={content} reference={single} disabled={selectionLocked} onCommit={onCommit} t={t} />}
             {single?.type === 'blockReference' && <DrawingBlockParameterFields content={content} reference={single} disabled={selectionLocked} onCommit={onCommit} t={t} />}
@@ -388,10 +391,10 @@ function SelectionPanel({ content, selectedIds, onCommit, t }) {
                 <>
                     <label className="drawing-sidebar-field">
                         <span>{t('sidebar.opacity', { value: Math.round((single.opacity ?? 0.55) * 100) })}</span>
-                        <input disabled={selectionLocked} type="range" min="0.05" max="1" step="0.05" value={single.opacity ?? 0.55} onChange={event => setSelected(entity => ({ ...entity, opacity: Number(event.target.value) }))} />
+                        <Input disabled={selectionLocked} type="range" min="0.05" max="1" step="0.05" value={single.opacity ?? 0.55} onChange={event => setSelected(entity => ({ ...entity, opacity: Number(event.target.value) }))} />
                     </label>
                     <label className="drawing-sidebar-check">
-                        <input disabled={selectionLocked} type="checkbox" checked={Boolean(single.includeInPdf)} onChange={event => setSelected(entity => ({ ...entity, includeInPdf: event.target.checked }))} />
+                        <Input disabled={selectionLocked} type="checkbox" checked={Boolean(single.includeInPdf)} onChange={event => setSelected(entity => ({ ...entity, includeInPdf: event.target.checked }))} />
                         {t('sidebar.includeReferenceInPdf')}
                     </label>
                 </>

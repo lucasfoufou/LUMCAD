@@ -1,3 +1,5 @@
+import useDialogFocus from '~hooks/useDialogFocus';
+import { Button, Input, Select } from '~components/ui/Controls';
 import CommandAliasFields from './CommandAliasFields';
 import { validateDrawingAliases, validateDrawingCommandShortcuts, DEFAULT_DRAWING_SHORTCUTS } from '~utils/drawingCommandPreferences';
 import React, { useEffect, useState } from 'react';
@@ -15,6 +17,7 @@ export default function AppSettingsDialog({ open, onClose }) {
     const [saveError, setSaveError] = useState(false);
     const [shortcutError, setShortcutError] = useState(false);
     const [aliasError, setAliasError] = useState(false);
+    const dialogRef = useDialogFocus(open, onClose, saving);
     const [copied, setCopied] = useState(false);
 
     useEffect(() => {
@@ -31,14 +34,9 @@ export default function AppSettingsDialog({ open, onClose }) {
         });
         refresh();
         const timer = window.setInterval(refresh, 1_500);
-        const onKeyDown = event => {
-            if (event.key === 'Escape') onClose();
-        };
-        window.addEventListener('keydown', onKeyDown);
         return () => {
             disposed = true;
             window.clearInterval(timer);
-            window.removeEventListener('keydown', onKeyDown);
         };
     }, [onClose, open, settings]);
 
@@ -89,27 +87,27 @@ export default function AppSettingsDialog({ open, onClose }) {
         <div className="lumcad-settings-backdrop" onMouseDown={event => {
             if (event.target === event.currentTarget) onClose();
         }}>
-            <section className="lumcad-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="lumcad-settings-title">
+            <section ref={dialogRef} className="lumcad-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="lumcad-settings-title">
                 <header className="lumcad-settings-header">
                     <div>
                         <span className="lumcad-settings-kicker">LUMCAD</span>
                         <h1 id="lumcad-settings-title">{t('settings.title')}</h1>
                     </div>
-                    <button type="button" className="lumcad-settings-close" onClick={onClose} aria-label={t('settings.close')}>×</button>
+                    <Button type="button" className="lumcad-settings-close" onClick={onClose} aria-label={t('settings.close')}>×</Button>
                 </header>
 
                 <form onSubmit={save}>
                     <div className="lumcad-settings-content">
                         <SettingsSection title={t('settings.generalTitle')} description={t('settings.generalDescription')}>
                             <SettingsField label={t('language.label')}>
-                                <select value={draft.language} onChange={event => update({ language: event.target.value })}>
+                                <Select value={draft.language} onChange={event => update({ language: event.target.value })}>
                                     <option value="en">{t('language.english')}</option>
                                     <option value="fr">{t('language.french')}</option>
-                                </select>
+                                </Select>
                             </SettingsField>
                             <SettingsField label={t('settings.autosaveDelay')} hint={t('settings.autosaveDelayHint')}>
                                 <div className="lumcad-settings-input-unit">
-                                    <input
+                                    <Input
                                         type="number"
                                         min="0.3"
                                         max="10"
@@ -129,18 +127,18 @@ export default function AppSettingsDialog({ open, onClose }) {
 
                         <SettingsSection title={t('commandPreferences.shortcutTitle')} description={t('commandPreferences.shortcutHint')}>
                             <CommandAliasFields shortcuts value={draft.commandShortcuts} onChange={commandShortcuts => { update({ commandShortcuts }); setShortcutError(false); }} />
-                            <button type="button" className="lumcad-settings-button" onClick={() => update({ commandShortcuts: DEFAULT_DRAWING_SHORTCUTS.map(row => ({ ...row })) })}>{t('commandPreferences.resetShortcuts')}</button>
+                            <Button type="button" className="lumcad-settings-button" onClick={() => update({ commandShortcuts: DEFAULT_DRAWING_SHORTCUTS.map(row => ({ ...row })) })}>{t('commandPreferences.resetShortcuts')}</Button>
                             {shortcutError && <p role="alert" className="lumcad-settings-error is-visible">{t('commandPreferences.shortcutError')}</p>}
                         </SettingsSection>
 
                         <SettingsSection title={t('settings.newDrawingsTitle')} description={t('settings.newDrawingsDescription')}>
                             <SettingsField label={t('template.defaultPath')} hint={t('template.defaultPathHint')}>
-                                <input type="text" value={draft.drawingDefaults.templatePath}
+                                <Input type="text" value={draft.drawingDefaults.templatePath}
                                     onChange={event => updateDrawingDefaults({ templatePath: event.target.value })} />
                             </SettingsField>
                             <SettingsField label={t('settings.defaultGridSpacing')}>
                                 <div className="lumcad-settings-input-unit">
-                                    <input
+                                    <Input
                                         type="number"
                                         min="0.0001"
                                         max="1000"
@@ -161,14 +159,14 @@ export default function AppSettingsDialog({ open, onClose }) {
 
                         <SettingsSection title={t('settings.drawingOperationsTitle')} description={t('settings.drawingOperationsDescription')}>
                             <SettingsField label={t('settings.angleUnit')} hint={t('settings.angleUnitHint')}>
-                                <select
+                                <Select
                                     value={draft.drawingDefaults.angleUnit}
                                     onChange={event => updateDrawingDefaults({ angleUnit: event.target.value })}
                                 >
                                     <option value="degrees">{t('settings.angleDegrees')}</option>
                                     <option value="radians">{t('settings.angleRadians')}</option>
                                     <option value="gradians">{t('settings.angleGradians')}</option>
-                                </select>
+                                </Select>
                             </SettingsField>
                             <SettingsToggle
                                 checked={draft.drawingDefaults.clockwiseAngles}
@@ -192,7 +190,7 @@ export default function AppSettingsDialog({ open, onClose }) {
                                 hint={t('settings.mcpEnabledHint')}
                             />
                             <SettingsField label={t('settings.mcpPreferredPort')} hint={t('settings.mcpPreferredPortHint')}>
-                                <input
+                                <Input
                                     type="number"
                                     min="1024"
                                     max="65535"
@@ -211,10 +209,10 @@ export default function AppSettingsDialog({ open, onClose }) {
                             {saveError ? t('settings.saveError') : ''}
                         </span>
                         <div>
-                            <button type="button" className="lumcad-settings-button" onClick={onClose}>{t('settings.cancel')}</button>
-                            <button type="submit" className="lumcad-settings-button is-primary" disabled={saving}>
+                            <Button type="button" className="lumcad-settings-button" onClick={onClose}>{t('settings.cancel')}</Button>
+                            <Button type="submit" className="lumcad-settings-button is-primary" disabled={saving}>
                                 {saving ? t('settings.saving') : t('settings.save')}
-                            </button>
+                            </Button>
                         </div>
                     </footer>
                 </form>
@@ -248,7 +246,7 @@ function SettingsToggle({ checked, onChange, label, hint }) {
     return (
         <label className="lumcad-settings-field">
             <span><strong>{label}</strong><small>{hint}</small></span>
-            <input className="lumcad-settings-toggle" type="checkbox" checked={checked} onChange={event => onChange(event.target.checked)} />
+            <Input className="lumcad-settings-toggle" type="checkbox" checked={checked} onChange={event => onChange(event.target.checked)} />
         </label>
     );
 }
@@ -269,7 +267,7 @@ function McpStatus({ status, copied, onCopy, t }) {
             {status?.endpoint && (
                 <div className="lumcad-mcp-endpoint">
                     <code>{status.endpoint}</code>
-                    <button type="button" onClick={onCopy}>{copied ? t('settings.copied') : t('settings.copy')}</button>
+                    <Button type="button" onClick={onCopy}>{copied ? t('settings.copied') : t('settings.copy')}</Button>
                 </div>
             )}
             {status?.fallbackUsed && (

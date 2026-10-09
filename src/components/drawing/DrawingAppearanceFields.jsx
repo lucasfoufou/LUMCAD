@@ -1,3 +1,4 @@
+import { Input, Select } from '~components/ui/Controls';
 import React from 'react';
 
 import {
@@ -14,13 +15,13 @@ import {
 export function DrawingLayerAppearanceFields({ layer, onChange, t }) {
     return (
         <div className="drawing-layer-appearance">
-            <input
+            <Input
                 type="color"
                 value={layer.color}
                 aria-label={t('sidebar.layerColor', { name: layer.name })}
                 onChange={event => onChange({ color: event.target.value })}
             />
-            <select
+            <Select
                 value={layer.lineWeight}
                 aria-label={t('sidebar.layerLineWeight', { name: layer.name })}
                 onChange={event => onChange({ lineWeight: Number(event.target.value) })}
@@ -28,8 +29,8 @@ export function DrawingLayerAppearanceFields({ layer, onChange, t }) {
                 {DRAWING_LINE_WEIGHT_OPTIONS.map(weight => (
                     <option key={weight} value={weight}>{formatWeight(weight)}</option>
                 ))}
-            </select>
-            <select
+            </Select>
+            <Select
                 value={layer.lineType}
                 aria-label={t('sidebar.layerLineType', { name: layer.name })}
                 onChange={event => onChange({ lineType: event.target.value })}
@@ -37,9 +38,9 @@ export function DrawingLayerAppearanceFields({ layer, onChange, t }) {
                 {DRAWING_LINE_TYPE_OPTIONS.map(lineType => (
                     <option key={lineType} value={lineType}>{t(`lineType.${lineType}`)}</option>
                 ))}
-            </select>
+            </Select>
             <div className="drawing-layer-transparency">
-                <input
+                <Input
                     type="number"
                     min="0"
                     max={MAX_DRAWING_TRANSPARENCY}
@@ -117,7 +118,7 @@ function ByLayerColorField({ content, disabled, entities, onUpdate, t }) {
         <div className="drawing-appearance-field">
             <label className="drawing-sidebar-field">
                 <span>{t('sidebar.color')}</span>
-                <select disabled={disabled} value={mode} onChange={event => setMode({
+                <Select disabled={disabled} value={mode} onChange={event => setMode({
                     entities,
                     mode: event.target.value,
                     onUpdate,
@@ -127,10 +128,10 @@ function ByLayerColorField({ content, disabled, entities, onUpdate, t }) {
                     {mode === 'mixed' && <option value="mixed" disabled>{t('sidebar.mixed')}</option>}
                     <option value="byLayer">{t('sidebar.byLayer')}</option>
                     <option value="custom">{t('sidebar.custom')}</option>
-                </select>
+                </Select>
             </label>
             {mode === 'custom' && (
-                <input
+                <Input
                     className="drawing-appearance-color"
                     disabled={disabled}
                     type="color"
@@ -154,7 +155,7 @@ function ByLayerSelectField({ customOptions, disabled, entities, formatOption, g
         <div className="drawing-appearance-field">
             <label className="drawing-sidebar-field">
                 <span>{label}</span>
-                <select disabled={disabled} value={mode} onChange={event => setMode({
+                <Select disabled={disabled} value={mode} onChange={event => setMode({
                     entities,
                     mode: event.target.value,
                     onUpdate,
@@ -164,19 +165,19 @@ function ByLayerSelectField({ customOptions, disabled, entities, formatOption, g
                     {mode === 'mixed' && <option value="mixed" disabled>{t('sidebar.mixed')}</option>}
                     <option value="byLayer">{t('sidebar.byLayer')}</option>
                     <option value="custom">{t('sidebar.custom')}</option>
-                </select>
+                </Select>
             </label>
             {mode === 'custom' && (
                 <label className="drawing-sidebar-field drawing-appearance-custom-value">
                     <span>{t('sidebar.customValue')}</span>
-                    <select disabled={disabled} value={resolved} onChange={event => {
+                    <Select disabled={disabled} value={resolved} onChange={event => {
                         const value = typeof customOptions[0] === 'number' ? Number(event.target.value) : event.target.value;
                         onUpdate(entity => entities.some(candidate => candidate.id === entity.id)
                             ? { ...entity, [property]: value }
                             : entity);
                     }}>
                         {customOptions.map(option => <option key={option} value={option}>{formatOption(option)}</option>)}
-                    </select>
+                    </Select>
                 </label>
             )}
         </div>
@@ -191,7 +192,7 @@ function ByLayerTransparencyField({ content, disabled, entities, onUpdate, t }) 
         <div className="drawing-appearance-field">
             <label className="drawing-sidebar-field">
                 <span>{t('sidebar.transparency')}</span>
-                <select disabled={disabled} value={mode} onChange={event => setMode({
+                <Select disabled={disabled} value={mode} onChange={event => setMode({
                     entities,
                     mode: event.target.value,
                     onUpdate,
@@ -201,12 +202,12 @@ function ByLayerTransparencyField({ content, disabled, entities, onUpdate, t }) 
                     {mode === 'mixed' && <option value="mixed" disabled>{t('sidebar.mixed')}</option>}
                     <option value="byLayer">{t('sidebar.byLayer')}</option>
                     <option value="custom">{t('sidebar.custom')}</option>
-                </select>
+                </Select>
             </label>
             {mode === 'custom' && (
                 <label className="drawing-sidebar-field drawing-appearance-custom-value">
                     <span>{t('sidebar.transparencyValue', { value: resolved })}</span>
-                    <input
+                    <Input
                         disabled={disabled}
                         type="range"
                         min="0"

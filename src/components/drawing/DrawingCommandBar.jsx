@@ -1,3 +1,4 @@
+import { Button, Input } from '~components/ui/Controls';
 import { useAppSettings } from '~settings/AppSettingsProvider';
 import { getDrawingCommandDefinition } from '~utils/drawingCommands';
 import React, { forwardRef, useId, useImperativeHandle, useMemo, useRef, useState } from 'react';
@@ -114,7 +115,7 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
                     inputRef.current?.focus();
                 }}
             >
-                <button
+                <Button
                     id={`${historyPanelId}-toggle`}
                     type="button"
                     className="drawing-command-prompt"
@@ -128,9 +129,9 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
                     }}
                 >
                     <span aria-hidden="true">{historyOpen ? '^' : '>'}</span>
-                </button>
+                </Button>
                 {message && <span className="drawing-command-message" title={message} aria-live="polite">{message}</span>}
-                <input
+                <Input
                     ref={inputRef}
                     value={value}
                     onChange={event => {
@@ -146,11 +147,11 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
                     spellCheck="false"
                     placeholder={message ? '' : t('commandBar.placeholder')}
                 />
-                <button type="submit">{t('commandBar.enter')}</button>
+                <Button type="submit">{t('commandBar.enter')}</Button>
                 {focused && suggestions.length > 0 && !historyOpen && (
                     <div className="drawing-command-suggestions" role="listbox" aria-label={t('commandBar.suggestions')}>
                         {suggestions.map((suggestion, index) => (
-                            <button
+                            <Button
                                 type="button"
                                 role="option"
                                 aria-selected={index === activeSuggestionIndex}
@@ -165,7 +166,7 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
                                 }}
                             >
                                 <strong>{suggestion.name}</strong><span><kbd>{suggestion.alias}</kbd> {t(suggestion.labelKey)}</span>
-                            </button>
+                            </Button>
                         ))}
                     </div>
                 )}
@@ -175,13 +176,13 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
                             <ul>
                                 {history.map(command => (
                                     <li key={command}>
-                                        <button
+                                        <Button
                                             type="button"
                                             onMouseDown={event => event.preventDefault()}
                                             onClick={() => selectHistoryCommand(command)}
                                         >
                                             {command}
-                                        </button>
+                                        </Button>
                                     </li>
                                 ))}
                             </ul>

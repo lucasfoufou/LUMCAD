@@ -1,3 +1,4 @@
+import { Button, Input, Select } from '~components/ui/Controls';
 import React from 'react';
 
 import DrawingPaperAnnotationPanel from '~components/drawing/DrawingPaperAnnotationPanel';
@@ -89,25 +90,25 @@ export default function DrawingLayoutSidebar({
             <div className="drawing-sidebar-content">
                 <label className="drawing-sidebar-field">
                     <span>{t('layout.name')}</span>
-                    <input value={layout.name} onChange={event => onChange({ ...layout, name: event.target.value })} />
+                    <Input value={layout.name} onChange={event => onChange({ ...layout, name: event.target.value })} />
                 </label>
                 <label className="drawing-sidebar-field">
                     <span>{t('layout.paperFormat')}</span>
-                    <select value={layout.format} onChange={event => onChange(changeDrawingLayoutFormat(layout, event.target.value))}>
+                    <Select value={layout.format} onChange={event => onChange(changeDrawingLayoutFormat(layout, event.target.value))}>
                         {DRAWING_PAPER_FORMAT_OPTIONS.map(format => (
                             <option key={format} value={format}>
                                 {format === DRAWING_CUSTOM_PAPER_FORMAT ? t('layout.paperFormatCustom') : format}
                             </option>
                         ))}
-                    </select>
+                    </Select>
                 </label>
                 <label className="drawing-sidebar-field">
                     <span>{t('layout.orientation')}</span>
-                    <select value={layout.orientation} onChange={event => onChange(changeDrawingLayoutOrientation(layout, event.target.value))}>
+                    <Select value={layout.orientation} onChange={event => onChange(changeDrawingLayoutOrientation(layout, event.target.value))}>
                         {DRAWING_ORIENTATION_OPTIONS.map(orientation => (
                             <option key={orientation} value={orientation}>{t(`layout.orientation.${orientation}`)}</option>
                         ))}
-                    </select>
+                    </Select>
                 </label>
                 {layout.format === DRAWING_CUSTOM_PAPER_FORMAT && (
                     <CustomPaperFields layout={layout} onChange={onChange} t={t} />
@@ -132,15 +133,15 @@ export default function DrawingLayoutSidebar({
                     t={t}
                 />
                 <div className="drawing-layout-sidebar-actions">
-                    <button type="button" onClick={() => onToolChange('viewport')}>{t('layout.addViewport')}</button>
-                    <button
+                    <Button type="button" onClick={() => onToolChange('viewport')}>{t('layout.addViewport')}</Button>
+                    <Button
                         type="button"
                         className="is-danger"
                         disabled={layoutCount <= 1}
                         onClick={() => { if (window.confirm(t('layout.confirmDelete'))) onDeleteLayout(); }}
                     >
                         {t('layout.deleteLayout')}
-                    </button>
+                    </Button>
                 </div>
 
                 <DrawingPaperAnnotationPanel
@@ -194,11 +195,11 @@ function ViewportFields({ content, viewport, onChange, onResize, onFit, onUseCur
             <ViewportScaleField viewport={viewport} onChange={onChange} t={t} />
             <ViewportDisplayFields viewport={viewport} onChange={onChange} t={t} />
             <div className="drawing-layout-sidebar-actions is-wrap">
-                <button type="button" disabled={viewport.locked} onClick={onFit}>{t('layout.fitModel')}</button>
-                <button type="button" disabled={viewport.locked} onClick={onUseCurrent}>{t('layout.useCurrentView')}</button>
-                <button type="button" disabled={viewport.locked} onClick={() => onZoom(0.8)}>{t('layout.zoomIn')}</button>
-                <button type="button" disabled={viewport.locked} onClick={() => onZoom(1.25)}>{t('layout.zoomOut')}</button>
-                <button type="button" className="is-danger" onClick={onDelete}>{t('layout.deleteViewport')}</button>
+                <Button type="button" disabled={viewport.locked} onClick={onFit}>{t('layout.fitModel')}</Button>
+                <Button type="button" disabled={viewport.locked} onClick={onUseCurrent}>{t('layout.useCurrentView')}</Button>
+                <Button type="button" disabled={viewport.locked} onClick={() => onZoom(0.8)}>{t('layout.zoomIn')}</Button>
+                <Button type="button" disabled={viewport.locked} onClick={() => onZoom(1.25)}>{t('layout.zoomOut')}</Button>
+                <Button type="button" className="is-danger" onClick={onDelete}>{t('layout.deleteViewport')}</Button>
             </div>
             <ViewportLayerVisibility content={content} viewport={viewport} onChange={onChange} t={t} />
             <p className="drawing-layout-help">{t('layout.viewportHelp')}</p>
@@ -217,14 +218,14 @@ function ViewportScaleField({ viewport, onChange, t }) {
         <div className="drawing-viewport-scale-field">
             <label className="drawing-sidebar-field">
                 <span>{t('layout.viewportScalePreset')}</span>
-                <select value={preset} onChange={event => applyScale(event.target.value)}>
+                <Select value={preset} onChange={event => applyScale(event.target.value)}>
                     <option value="">{t('layout.customScale')}</option>
                     {DRAWING_VIEWPORT_SCALE_OPTIONS.map(value => <option key={value} value={value}>1 / {value}</option>)}
-                </select>
+                </Select>
             </label>
             <label className="drawing-sidebar-field">
                 <span>{t('layout.viewportScale')}</span>
-                <span className="drawing-scale-input"><b>1 /</b><input type="number" min="0.000001" step="1" value={roundInput(scale)} disabled={viewport.locked} onChange={event => applyScale(event.target.value)} /></span>
+                <span className="drawing-scale-input"><b>1 /</b><Input type="number" min="0.000001" step="1" value={roundInput(scale)} disabled={viewport.locked} onChange={event => applyScale(event.target.value)} /></span>
             </label>
         </div>
     );
@@ -259,7 +260,7 @@ function NumberField({ label, value, onChange, disabled = false, max, min, step 
     return (
         <label className="drawing-sidebar-field">
             <span>{label}</span>
-            <input
+            <Input
                 type="number"
                 disabled={disabled}
                 max={max}
@@ -314,19 +315,19 @@ function PageSetupProfiles({ layout, pageSetups, onApply, onCreate, onDelete, on
             <legend>{t('layout.pageSetups')}</legend>
             <label className="drawing-sidebar-field">
                 <span>{t('layout.pageSetupProfile')}</span>
-                <select value={layout.pageSetupId || ''} onChange={event => {
+                <Select value={layout.pageSetupId || ''} onChange={event => {
                     const pageSetup = pageSetups.find(item => item.id === event.target.value);
                     if (pageSetup) onApply(pageSetup);
                 }}>
                     <option value="">{t('layout.pageSetupNone')}</option>
                     {pageSetups.map(pageSetup => <option key={pageSetup.id} value={pageSetup.id}>{pageSetup.name}</option>)}
-                </select>
+                </Select>
             </label>
             <div className="drawing-layout-sidebar-actions is-wrap">
-                <button type="button" disabled={!onCreate} onClick={onCreate || undefined}>{t('layout.savePageSetup')}</button>
-                <button type="button" disabled={!onImport} onClick={onImport || undefined}>{t('layout.importPageSetup')}</button>
-                <button type="button" disabled={!onExport || pageSetups.length === 0} onClick={onExport || undefined}>{t('layout.exportPageSetups')}</button>
-                <button type="button" disabled={!onDelete || !layout.pageSetupId} onClick={() => onDelete?.(layout.pageSetupId)}>{t('layout.deletePageSetup')}</button>
+                <Button type="button" disabled={!onCreate} onClick={onCreate || undefined}>{t('layout.savePageSetup')}</Button>
+                <Button type="button" disabled={!onImport} onClick={onImport || undefined}>{t('layout.importPageSetup')}</Button>
+                <Button type="button" disabled={!onExport || pageSetups.length === 0} onClick={onExport || undefined}>{t('layout.exportPageSetups')}</Button>
+                <Button type="button" disabled={!onDelete || !layout.pageSetupId} onClick={() => onDelete?.(layout.pageSetupId)}>{t('layout.deletePageSetup')}</Button>
             </div>
         </fieldset>
     );
@@ -343,7 +344,7 @@ function StandardArrangementField({ currentModelViewport, layout, onChange, t })
     return (
         <label className="drawing-sidebar-field drawing-layout-arrangement-field">
             <span>{t('layout.standardArrangement')}</span>
-            <select defaultValue="" onChange={event => {
+            <Select defaultValue="" onChange={event => {
                 if (event.target.value) apply(event.target.value);
                 event.target.value = '';
             }}>
@@ -351,7 +352,7 @@ function StandardArrangementField({ currentModelViewport, layout, onChange, t })
                 {DRAWING_VIEWPORT_ARRANGEMENT_OPTIONS.map(arrangement => (
                     <option key={arrangement} value={arrangement}>{t(`layout.arrangement.${arrangement}`)}</option>
                 ))}
-            </select>
+            </Select>
         </label>
     );
 }
@@ -380,7 +381,7 @@ function ViewportDisplayFields({ viewport, onChange, t }) {
             />
             <label className="drawing-sidebar-field">
                 <span>{t('layout.viewportClip')}</span>
-                <select value={clipPreset} onChange={event => onChange({
+                <Select value={clipPreset} onChange={event => onChange({
                     ...viewport,
                     clipBoundary: createDrawingViewportClipPreset(event.target.value),
                 })}>
@@ -388,18 +389,18 @@ function ViewportDisplayFields({ viewport, onChange, t }) {
                         <option key={preset} value={preset}>{t(`layout.viewportClip.${preset}`)}</option>
                     ))}
                     {clipPreset === 'custom' && <option value="custom">{t('layout.viewportClip.custom')}</option>}
-                </select>
+                </Select>
             </label>
             <label className="drawing-sidebar-field">
                 <span>{t('layout.viewportVisualStyle')}</span>
-                <select value={visual.style || 'normal'} onChange={event => onChange({
+                <Select value={visual.style || 'normal'} onChange={event => onChange({
                     ...viewport,
                     visualSettings: { ...visual, style: event.target.value },
                 })}>
                     {DRAWING_VIEWPORT_VISUAL_STYLE_OPTIONS.map(style => (
                         <option key={style} value={style}>{t(`layout.viewportVisualStyle.${style}`)}</option>
                     ))}
-                </select>
+                </Select>
             </label>
             <ToggleField
                 checked={visual.showLineweights !== false}
@@ -446,19 +447,19 @@ function ViewportLayerRow({ hidden, layer, onChange, onToggle, t, viewport }) {
     return (
         <div className="drawing-viewport-layer-row">
             <label className="drawing-viewport-layer-visibility">
-                <input type="checkbox" checked={!hidden} onChange={onToggle} />
+                <Input type="checkbox" checked={!hidden} onChange={onToggle} />
                 <i style={{ backgroundColor: override?.color || layer.color }} aria-hidden="true" />
                 <span>{layer.name}</span>
             </label>
             <div className="drawing-viewport-layer-overrides">
                 <label title={t('layout.viewportColorOverride')}>
-                    <input
+                    <Input
                         type="checkbox"
                         checked={Boolean(override?.color)}
                         aria-label={t('layout.viewportColorOverride')}
                         onChange={event => setOverride({ color: event.target.checked ? layer.color : null })}
                     />
-                    <input
+                    <Input
                         type="color"
                         value={override?.color || layer.color}
                         disabled={!override?.color}
@@ -466,23 +467,23 @@ function ViewportLayerRow({ hidden, layer, onChange, onToggle, t, viewport }) {
                         onChange={event => setOverride({ color: event.target.value })}
                     />
                 </label>
-                <select
+                <Select
                     value={override?.lineType || ''}
                     aria-label={t('layout.viewportLineTypeOverride')}
                     onChange={event => setOverride({ lineType: event.target.value || null })}
                 >
                     <option value="">{t('sidebar.byLayer')}</option>
                     {DRAWING_LINE_TYPE_OPTIONS.map(lineType => <option key={lineType} value={lineType}>{t(`lineType.${lineType}`)}</option>)}
-                </select>
-                <select
+                </Select>
+                <Select
                     value={override?.lineWeight || ''}
                     aria-label={t('layout.viewportLineWeightOverride')}
                     onChange={event => setOverride({ lineWeight: event.target.value ? Number(event.target.value) : null })}
                 >
                     <option value="">{t('sidebar.byLayer')}</option>
                     {DRAWING_LINE_WEIGHT_OPTIONS.map(lineWeight => <option key={lineWeight} value={lineWeight}>{lineWeight}</option>)}
-                </select>
-                <button
+                </Select>
+                <Button
                     type="button"
                     disabled={!override}
                     aria-label={t('layout.clearViewportLayerOverrides')}
@@ -490,7 +491,7 @@ function ViewportLayerRow({ hidden, layer, onChange, onToggle, t, viewport }) {
                     onClick={() => onChange(clearDrawingViewportLayerOverride(viewport, layer.id))}
                 >
                     ×
-                </button>
+                </Button>
             </div>
         </div>
     );
@@ -499,7 +500,7 @@ function ViewportLayerRow({ hidden, layer, onChange, onToggle, t, viewport }) {
 function ToggleField({ checked, label, onChange }) {
     return (
         <label className="drawing-layout-toggle-field">
-            <input type="checkbox" checked={checked} onChange={event => onChange(event.target.checked)} />
+            <Input type="checkbox" checked={checked} onChange={event => onChange(event.target.checked)} />
             <span>{label}</span>
         </label>
     );

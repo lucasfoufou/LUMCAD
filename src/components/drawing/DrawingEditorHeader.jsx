@@ -1,3 +1,4 @@
+import { Button, Input } from '~components/ui/Controls';
 import useDrawingShortcutLabel from '~hooks/useDrawingShortcutLabel';
 import React from 'react';
 
@@ -31,7 +32,7 @@ export default function DrawingEditorHeader({
                 <img className="lumcad-brand-mark" src="/lumcad-icon.svg" alt="" aria-hidden="true" />
             </div>
             <div className="drawing-editor-title">
-                <input value={name} onChange={event => onNameChange(event.target.value)} aria-label={t('header.drawingName')} />
+                <Input value={name} onChange={event => onNameChange(event.target.value)} aria-label={t('header.drawingName')} />
                 {/* Only the status dot is visible; the details show on hover and remain readable by assistive technology. */}
                 <span
                     className={`drawing-save-status is-${saveStatus}`}
@@ -55,10 +56,10 @@ export default function DrawingEditorHeader({
                     </div>
                 )}
                 <div className="lumcad-header-group">
-                    <button type="button" className="ui-button is-ghost" onClick={onNew} title={shortcutLabel('newDocument', t('header.new'))}>{t('header.new')}</button>
-                    <button type="button" className="ui-button is-ghost" onClick={onOpen} title={shortcutLabel('open', t('header.open'))}>{t('header.open')}</button>
-                    <button type="button" className="ui-button" onClick={onPlot} title={t('header.plotHint')}><Icon name="plot" size="sm" />{t('header.plot')}</button>
-                    <button type="button" className="ui-button is-primary" onClick={onSaveAs} title={shortcutLabel('saveAs', t('header.saveAs'))}>{t('header.saveAs')}</button>
+                    <Button type="button" className="ui-button is-ghost" onClick={onNew} title={shortcutLabel('newDocument', t('header.new'))}>{t('header.new')}</Button>
+                    <Button type="button" className="ui-button is-ghost" onClick={onOpen} title={shortcutLabel('open', t('header.open'))}>{t('header.open')}</Button>
+                    <Button type="button" className="ui-button" onClick={onPlot} title={t('header.plotHint')}><Icon name="plot" size="sm" />{t('header.plot')}</Button>
+                    <Button type="button" className="ui-button is-primary" onClick={onSaveAs} title={shortcutLabel('saveAs', t('header.saveAs'))}>{t('header.saveAs')}</Button>
                 </div>
                 <UpdateHeaderAction state={updateState} onClick={onInstallUpdate} t={t} />
                 {shouldShowSettingsButton() && (
@@ -71,9 +72,9 @@ export default function DrawingEditorHeader({
 
 function HeaderIconButton({ icon, label, ...buttonProps }) {
     return (
-        <button type="button" className="ui-icon-button" aria-label={label} title={label} {...buttonProps}>
+        <Button type="button" className="ui-icon-button" aria-label={label} title={label} {...buttonProps}>
             <Icon name={icon} />
-        </button>
+        </Button>
     );
 }
 
@@ -90,9 +91,9 @@ function UpdateHeaderAction({ state, onClick, t }) {
     } else if (state.phase === 'installing') label = t('updater.installing');
     else if (state.phase === 'error') label = t('updater.retry', { version: state.version });
     return (
-        <button type="button" className="ui-button lumcad-update-button" disabled={checking || busy} onClick={onClick} title={label}>
+        <Button type="button" className="ui-button lumcad-update-button" disabled={checking || busy} onClick={onClick} title={label}>
             <Icon name="update" size="sm" />{label}
-        </button>
+        </Button>
     );
 }
 

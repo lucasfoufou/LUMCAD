@@ -1,3 +1,5 @@
+import { listen } from '@tauri-apps/api/event';
+import { isTauriRuntime } from '~utils/lcadStorage';
 import { useAppSettings } from '~settings/AppSettingsProvider';
 import { drawingShortcutFromEvent } from '~utils/drawingCommandPreferences';
 import { getDrawingCommandDefinition } from '~utils/drawingCommands';
@@ -35,7 +37,19 @@ export default function useDrawingEditorShortcuts({ actions, commandBarRef }) {
             }
         };
         window.addEventListener('keydown', onKeyDown);
-        return () => window.removeEventListener('keydown', onKeyDown);
+        let disposed = false;
+        let unlisten = null;
+        if (isTauriRuntime()) listen('lumcad://drawing-action', ({ payload }) => {
+            if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+            const allowed = ['newDocument', 'open', 'saveAs', 'undo', 'redo', 'copy', 'cut', 'paste', 'delete'];
+            if (!allowed.includes(payload)) return;
+            Promise.resolve().then(() => actionsRef.current[payload]?.()).catch(() => {});
+        }).then(cleanup => { if (disposed) cleanup(); else unlisten = cleanup; }).catch(() => {});
+        return () => {
+            disposed = true;
+            unlisten?.();
+            window.removeEventListener('keydown', onKeyDown);
+        };
     }, [actionsRef, commandBarRef, preferencesRef]);
 }
 

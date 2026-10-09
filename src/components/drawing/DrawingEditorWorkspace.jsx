@@ -1,3 +1,4 @@
+import { Button, Input } from '~components/ui/Controls';
 import useDrawingArcText from '~hooks/useDrawingArcText';
 import { parseDrawingHyperlinkInput } from '~utils/drawingHyperlinks';
 import { setDrawingHyperlink } from '~utils/drawingHyperlinkOperations';
@@ -2966,9 +2967,9 @@ export default function DrawingEditorWorkspace({
                     <strong>{t(blockEditor.session.referenceSource ? 'reference.editing' : 'block.editing', { name: blockEditor.session.name })}</strong>
                     <span>{t(blockEditor.dirty ? 'block.draftModified' : 'block.draftSaved')}</span>
                     {blockEditor.session.referenceSource && <span>{t('reference.sourceWriteNotice')}</span>}
-                    <button type="button" onClick={() => finishBlockEdit()}>{t(blockEditor.session.referenceSource ? 'commands.referenceSave' : 'commands.blockSave')}</button>
-                    <button type="button" onClick={() => finishBlockEdit(true)}>{t('block.saveAndClose')}</button>
-                    <button type="button" onClick={() => finishBlockEdit(true, true)}>{t('block.discardAndClose')}</button>
+                    <Button type="button" onClick={() => finishBlockEdit()}>{t(blockEditor.session.referenceSource ? 'commands.referenceSave' : 'commands.blockSave')}</Button>
+                    <Button type="button" onClick={() => finishBlockEdit(true)}>{t('block.saveAndClose')}</Button>
+                    <Button type="button" onClick={() => finishBlockEdit(true, true)}>{t('block.discardAndClose')}</Button>
                 </section>}
                 {workspaceMode === 'model' ? (
                     <DrawingEditorBody
@@ -3104,7 +3105,7 @@ export default function DrawingEditorWorkspace({
                     onZoomOut={workspaceMode === 'model' ? toolbarActions.zoomOut : undefined}
                     onFit={workspaceMode === 'model' ? toolbarActions.fit : undefined}
                 />
-                <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={handleImageFile} disabled={isUploading} />
+                <Input ref={imageInputRef} type="file" accept="image/*" hidden onChange={handleImageFile} disabled={isUploading} />
                 {isUploading && <div className="drawing-upload-indicator">{t('messages.importingImage')}</div>}
             </div>
             <DrawingPublishRenderer ref={publishRendererRef} drawing={document} layouts={layouts} />

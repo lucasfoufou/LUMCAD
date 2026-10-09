@@ -1,3 +1,4 @@
+import { Button, Input } from '~components/ui/Controls';
 import DrawingTransmittalReport from './DrawingTransmittalReport';
 import DrawingComparisonPreview from './DrawingComparisonPreview';
 import { formatDrawingDistance, formatDrawingAngle } from '~utils/drawingCoordinates';
@@ -25,15 +26,15 @@ export default function DrawingInquiryPanel({ result, onCopy, onInspectTransmitt
     </dl>;
     return <section className="drawing-inquiry-panel">
         <h3>{t(result?.mode === 'sheetSet' ? 'sheetSet.title' : result?.mode === 'standards' ? 'standards.title' : result?.mode === 'drawingCompare' ? 'comparison.title' : result?.mode === 'recoveryRelink' ? 'recovery.relink' : result?.mode === 'recoveryHistory' ? 'recovery.historyTitle' : result?.mode === 'recoveryManager' ? 'recovery.managerTitle' : result?.mode === 'recovery' ? 'recovery.title' : result?.mode === 'audit' ? 'audit.title' : 'inquiry.title')}</h3>
-        <button type="button" disabled={!result} onClick={onCopy}>{t('inquiry.copy')}</button>
-        {hasRecoveryGraph && result?.mode !== 'recoveryManager' && <button type="button" onClick={onShowRecoveryManager}>{t('recovery.managerTitle')}</button>}
-        {onShowRecoveryHistory && result?.mode !== 'recoveryHistory' && <button type="button" onClick={onShowRecoveryHistory}>{t('recovery.historyTitle')}</button>}
+        <Button type="button" disabled={!result} onClick={onCopy}>{t('inquiry.copy')}</Button>
+        {hasRecoveryGraph && result?.mode !== 'recoveryManager' && <Button type="button" onClick={onShowRecoveryManager}>{t('recovery.managerTitle')}</Button>}
+        {onShowRecoveryHistory && result?.mode !== 'recoveryHistory' && <Button type="button" onClick={onShowRecoveryHistory}>{t('recovery.historyTitle')}</Button>}
         {result ? <>
             {renderValues(result, 'summary')}
             {result.mode === 'sheetSet' && <>
                 <p>{t(result.dirty ? 'sheetSet.modified' : 'sheetSet.recorded')}</p>
                 {result.checked && <p>{t('sheetSet.checked')}</p>}
-                <button type="button" onClick={onInspectTransmittal}>{t('sheetSet.inspectTransmittal')}</button>
+                <Button type="button" onClick={onInspectTransmittal}>{t('sheetSet.inspectTransmittal')}</Button>
                 {result.transmittal && <DrawingTransmittalReport report={result.transmittal} t={t} />}
                 <ol>{result.sheets.map(sheet => <li key={sheet.id}><strong>{sheet.number}</strong> — {sheet.title}</li>)}</ol>
             </>}
@@ -52,7 +53,7 @@ export default function DrawingInquiryPanel({ result, onCopy, onInspectTransmitt
                 </li>)}</ol>
             </>}
 
-            {canRelinkRecovery && <button type="button" onClick={onRelinkRecovery}>{t('recovery.relink')}</button>}
+            {canRelinkRecovery && <Button type="button" onClick={onRelinkRecovery}>{t('recovery.relink')}</Button>}
             {result.mode === 'recoveryRelink' && <>
                 <p>{t('recovery.relinkResult', { count: result.changes.length })}</p>
                 <p>{t('recovery.referencePaths', { pinned: formatNumber(result.changes.length), unresolved: formatNumber(result.unresolved.length) })}</p>
@@ -67,15 +68,15 @@ export default function DrawingInquiryPanel({ result, onCopy, onInspectTransmitt
                     <time dateTime={new Date(entry.recordedAt).toISOString()}>{formatDate(entry.recordedAt)} {formatTime(entry.recordedAt)}</time>
                     <p>{t('recovery.historySummary', { files: formatNumber(entry.files), ready: formatNumber(entry.ready), issues: formatNumber(entry.issues), quarantined: formatNumber(entry.quarantined) })}</p>
                     {!entry.complete && <p>{t('recovery.historyIncomplete')}</p>}
-                    <button type="button" aria-label={t('recovery.retrySource', { name: entry.sourceName })} onClick={() => onRetryRecovery(entry.id)}>{t('recovery.retry')}</button>
-                    <button type="button" aria-label={t('recovery.forgetSource', { name: entry.sourceName })} onClick={() => onForgetRecovery(entry.id)}>{t('recovery.forget')}</button>
+                    <Button type="button" aria-label={t('recovery.retrySource', { name: entry.sourceName })} onClick={() => onRetryRecovery(entry.id)}>{t('recovery.retry')}</Button>
+                    <Button type="button" aria-label={t('recovery.forgetSource', { name: entry.sourceName })} onClick={() => onForgetRecovery(entry.id)}>{t('recovery.forget')}</Button>
                 </li>)}</ol>
             </>}
             {result.mode === 'recoveryManager' && <>
                 <p role="status">{t(result.complete ? 'recovery.batchComplete' : 'recovery.batchPartial', { count: result.entries.length })}</p>
                 {result.limited && <p>{t('recovery.batchLimit')}</p>}
                 <ol>{result.entries.map(entry => <li key={entry.id}>
-                    <button type="button" disabled={entry.status === 'failed'} onClick={() => onSelectRecovery(entry.id)}>{entry.path || t('recovery.unknownSource')}</button>
+                    <Button type="button" disabled={entry.status === 'failed'} onClick={() => onSelectRecovery(entry.id)}>{entry.path || t('recovery.unknownSource')}</Button>
                     <p>{t(`recovery.status.${entry.status}`)}</p>
                     {entry.savedPath && <p>{t('recovery.savedCopyPath', { path: entry.savedPath })}</p>}
                     {entry.error && <p>{localizeError(entry.error, t, 'recovery.failed')}</p>}
@@ -88,7 +89,7 @@ export default function DrawingInquiryPanel({ result, onCopy, onInspectTransmitt
             {result.mode === 'recovery' && <>
                 <p role="status">{t(result.opened ? 'recovery.opened' : result.ready ? 'recovery.ready' : 'recovery.unresolved')}</p>
                 {result.opened && <p>{t('recovery.referencePaths', { pinned: formatNumber(result.referencePaths?.length || 0), unresolved: formatNumber(result.unresolvedReferencePaths?.length || 0) })}</p>}
-                {!result.opened && <button type="button" disabled={!canOpenRecovery} onClick={onOpenRecovery}>{t('recovery.openCopy')}</button>}
+                {!result.opened && <Button type="button" disabled={!canOpenRecovery} onClick={onOpenRecovery}>{t('recovery.openCopy')}</Button>}
                 <p>{t('recovery.quarantined', { count: result.quarantine?.length || 0 })}</p>
                 <ul>{result.archiveIssues?.map((issue, index) => <li key={index}>
                     {t(`recovery.archive.${issue.code}`)}{issue.path ? ` — ${issue.path}` : ''}
@@ -105,9 +106,9 @@ export default function DrawingInquiryPanel({ result, onCopy, onInspectTransmitt
                 </li>)}</ol>
             </>}
             {result.mode === 'countObjects' && result.occurrences.length > 0 && <>
-                <button type="button" onClick={() => onSelectCountOccurrence('PREVIOUS')}>{t('selectionQuery.occurrencePrevious')}</button>
-                <button type="button" onClick={() => onSelectCountOccurrence('NEXT')}>{t('selectionQuery.occurrenceNext')}</button>
-                <label className="drawing-creation-field"><span>{t('selectionQuery.occurrenceIndex')}</span><input type="number" min="1" max={result.occurrences.length}
+                <Button type="button" onClick={() => onSelectCountOccurrence('PREVIOUS')}>{t('selectionQuery.occurrencePrevious')}</Button>
+                <Button type="button" onClick={() => onSelectCountOccurrence('NEXT')}>{t('selectionQuery.occurrenceNext')}</Button>
+                <label className="drawing-creation-field"><span>{t('selectionQuery.occurrenceIndex')}</span><Input type="number" min="1" max={result.occurrences.length}
                     value={result.activeOccurrence === undefined ? '' : result.activeOccurrence + 1}
                     onChange={event => { if (event.target.value) onSelectCountOccurrence(Number(event.target.value) - 1); }} /></label>
                 {result.activeOccurrence !== undefined && <p role="status">
@@ -124,13 +125,13 @@ export default function DrawingInquiryPanel({ result, onCopy, onInspectTransmitt
                 {result.unsupportedPaths?.length > 0 && <p>{t('selectionQuery.duplicateClips', { count: result.unsupportedPaths.length })}</p>}
                 {result.unsupportedIds.length > 0 && <p>{t('selectionQuery.duplicateUnsupported', { count: result.unsupportedIds.length })}</p>}
                 {result.groups.length > 0 && <>
-                    <button type="button" onClick={() => onSelectDuplicateGroup('PREVIOUS')}>{t('selectionQuery.duplicatePrevious')}</button>
-                    <button type="button" onClick={() => onSelectDuplicateGroup('NEXT')}>{t('selectionQuery.duplicateNext')}</button>
+                    <Button type="button" onClick={() => onSelectDuplicateGroup('PREVIOUS')}>{t('selectionQuery.duplicatePrevious')}</Button>
+                    <Button type="button" onClick={() => onSelectDuplicateGroup('NEXT')}>{t('selectionQuery.duplicateNext')}</Button>
                 </>}
                 <ol>{result.groups.map((group, index) => <li key={index}>
-                    <button type="button" aria-pressed={result.activeGroup === index} onClick={() => onSelectDuplicateGroup(index)}>
+                    <Button type="button" aria-pressed={result.activeGroup === index} onClick={() => onSelectDuplicateGroup(index)}>
                         {t('selectionQuery.duplicateGroup', { number: index + 1, count: group.length })}
-                    </button>
+                    </Button>
                     <div>{group.map(id => result.occurrencePaths?.[id]?.join(' → ') || id).join(', ')}</div>
                 </li>)}</ol>
             </>}

@@ -1,5 +1,6 @@
+import { Button } from '~components/ui/Controls';
 import { useEffect, useState } from 'react';
-import { NumberField, CheckboxField, SelectField } from '~components/drawing/DrawingCreationControls';
+import { NumberField, CheckboxField, SelectField } from '~components/ui/Fields';
 import { normalizeDrawingDynamicBlock, resolveDrawingDynamicBlockValues } from '~utils/drawingDynamicBlocks';
 import { editDrawingDynamicBlockInstances } from '~utils/drawingDynamicBlockOperations';
 
@@ -21,8 +22,8 @@ export default function DrawingBlockParameterFields({ content, reference, disabl
         <DrawingBlockParameterInputs parameters={dynamic.parameters} values={{ ...values, ...patch }} driven={driven}
             disabled={disabled} onChange={(name, value) => setPatch(current => ({ ...current, [name]: value }))} />
         {error && <p role="alert">{t(`dynamicBlock.${error}`)}</p>}
-        <button type="button" className="drawing-secondary-button" onClick={() => apply(false)}>{t('dynamicBlock.apply')}</button>
-        <button type="button" className="drawing-secondary-button" onClick={() => apply(true)}>{t('commands.resetBlock')}</button>
+        <Button type="button" className="drawing-secondary-button" onClick={() => apply(false)}>{t('dynamicBlock.apply')}</Button>
+        <Button type="button" className="drawing-secondary-button" onClick={() => apply(true)}>{t('commands.resetBlock')}</Button>
     </fieldset>;
 }
 

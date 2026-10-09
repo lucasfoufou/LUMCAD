@@ -1,0 +1,96 @@
+{
+  "date": "2026-10-09T08:47:56.164Z",
+  "environment": {
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36",
+    "devicePixelRatio": 1,
+    "viewport": {
+      "width": 1440,
+      "height": 813
+    },
+    "mode": "production"
+  },
+  "fixtures": {
+    "L": {
+      "entities": 20096,
+      "loadMs": 1694.6,
+      "domNodes": 150932,
+      "jsHeapMiB": 934.9,
+      "peakJsHeapMiB": 1245.7,
+      "scenarios": {
+        "hoverSelect": {
+          "samples": 60,
+          "median": 16.8,
+          "p95": 34.7,
+          "max": 76.4,
+          "longTasks": 1,
+          "longTaskMs": 66
+        },
+        "hoverLineWithSnaps": {
+          "samples": 60,
+          "median": 16.7,
+          "p95": 27.5,
+          "max": 330.8,
+          "checks": {
+            "lineToolActive": true,
+            "snapMarkers": 59
+          },
+          "longTasks": 5,
+          "longTaskMs": 804
+        },
+        "wheelZoom": {
+          "samples": 20,
+          "median": 16.8,
+          "p95": 325.3,
+          "max": 325.3,
+          "longTasks": 2,
+          "longTaskMs": 324
+        },
+        "pan": {
+          "samples": 30,
+          "median": 16.8,
+          "p95": 43.5,
+          "max": 401.8,
+          "longTasks": 2,
+          "longTaskMs": 382
+        },
+        "windowSelect": {
+          "samples": 11,
+          "median": 272.5,
+          "p95": 773.1,
+          "max": 773.1,
+          "checks": {
+            "selected": 19976
+          },
+          "longTasks": 19,
+          "longTaskMs": 3567
+        },
+        "deleteUndoRedo": {
+          "samples": 5,
+          "median": 206.3,
+          "p95": 1855.2,
+          "max": 1855.2,
+          "checks": {
+            "before": 20096,
+            "afterDelete": 120,
+            "afterUndo": 20096,
+            "afterRedo": 120,
+            "restored": 20096
+          },
+          "longTasks": 8,
+          "longTaskMs": 3079
+        },
+        "zoomedIn": {
+          "samples": 50,
+          "median": 16.6,
+          "p95": 17.7,
+          "max": 28.9,
+          "checks": {
+            "domNodes": 11301
+          },
+          "longTasks": 2,
+          "longTaskMs": 430
+        }
+      }
+    }
+  }
+}

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { drawingEntityRenderBounds, drawingEntityViewportChanged, drawingEntityViewportKey } from './drawingViewportDependence.js';
+import { drawingEntityRenderBounds, drawingEntityViewportChanged, drawingEntityViewportKey, drawingEntityUsesDefaultDimensionSize } from './drawingViewportDependence.js';
 
 const near = { x: 0, y: 0, width: 20, height: 10 };
 const panned = { x: 2, y: 1, width: 20, height: 10 };
@@ -52,4 +52,20 @@ test('render bounds are conservative and unknown extents always render', () => {
     assert.equal(drawingEntityRenderBounds({ id: 'x', type: 'xline', x1: 0, y1: 0, x2: 1, y2: 0 }), null);
     assert.equal(drawingEntityRenderBounds({ id: 'd', type: 'linearDimension', p1: { x: 0, y: 0 }, p2: { x: 1, y: 0 }, offset: 1 }), null);
     assert.equal(drawingEntityRenderBounds({ id: 'u', type: 'unknown' }), null);
+});
+
+test('nested block cache follows replacement catalogs and automatic dimension sizing', () => {
+    const parent = { id: 'parent', entities: [{ type: 'blockReference', blockId: 'child' }] };
+    const plain = { id: 'child', entities: [{ type: 'line' }] };
+    const original = new Map([['parent', parent], ['child', plain]]);
+    const reference = { type: 'blockReference', blockId: 'parent' };
+    assert.equal(drawingEntityViewportKey(reference, near, original), '');
+    assert.equal(drawingEntityUsesDefaultDimensionSize(reference, original), false);
+    const changed = new Map([['parent', parent], ['child', { id: 'child', entities: [{ type: 'xline', x1: 0, y1: 0, x2: 1, y2: 1 }, { type: 'linearDimension' }] }]]);
+    assert.equal(drawingEntityViewportChanged(reference, near, far, changed), true);
+    assert.equal(drawingEntityUsesDefaultDimensionSize(reference, changed), true);
+    assert.equal(drawingEntityUsesDefaultDimensionSize({ type: 'linearDimension', textSize: 0.3 }, changed), false);
+    assert.equal(drawingEntityUsesDefaultDimensionSize({ type: 'linearDimension', textSize: 0 }, changed), true);
+    const cyclic = new Map([['parent', { id: 'parent', entities: [reference] }]]);
+    assert.equal(drawingEntityUsesDefaultDimensionSize(reference, cyclic), true);
 });

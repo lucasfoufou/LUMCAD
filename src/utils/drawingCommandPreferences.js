@@ -54,6 +54,12 @@ export function drawingShortcutFromEvent(event) {
     } catch { return null; }
 }
 
+export function formatDrawingShortcut(value, platform = '') {
+    const names = { MOD: /Mac|iPhone|iPad/i.test(platform) ? 'Cmd' : 'Ctrl', ALT: /Mac/i.test(platform) ? 'Option' : 'Alt',
+        SHIFT: 'Shift', BACKSPACE: 'Backspace', DELETE: 'Delete' };
+    return String(value || '').split('+').map(key => names[key] || key).join(' + ');
+}
+
 export function validateDrawingCommandShortcuts(value, reserved = []) {
     if (!Array.isArray(value) || value.length > maximumBindings) throw new Error('limit');
     const seen = new Set(reserved.map(normalizeDrawingShortcut));

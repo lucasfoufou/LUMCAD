@@ -1,4 +1,4 @@
-import { SelectField } from '~components/drawing/DrawingCreationControls';
+import { SelectField } from '~components/ui/Fields';
 import { drawingGripLabel } from '~utils/drawingGripLabels';
 import { drawingConstraintReferenceChoices } from '~utils/drawingConstraintEntities';
 

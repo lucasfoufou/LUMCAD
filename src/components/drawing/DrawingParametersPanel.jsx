@@ -1,5 +1,6 @@
+import { Button } from '~components/ui/Controls';
 import { useEffect, useMemo, useState } from 'react';
-import { SelectField, TextField, CheckboxField } from '~components/drawing/DrawingCreationControls';
+import { SelectField, TextField, CheckboxField } from '~components/ui/Fields';
 import DrawingConstraintReferences from '~components/drawing/DrawingConstraintReferences';
 import { DRAWING_DIMENSIONAL_COMMANDS, runDrawingDimensionalCommand } from '~utils/drawingDimensionalCommands';
 import { normalizeDrawingDimensionalConstraints, drawingDimensionalConstraintResiduals } from '~utils/drawingDimensionalConstraints';
@@ -17,8 +18,8 @@ function ExpressionEditor({ definition, value, dependencies, onSave, onDelete, c
             <TextField label={t('parameters.ui.expression')} value={expression} onChange={setExpression} />
             {!!dependencies?.length && <p>{t('parameters.ui.dependencies', { names: dependencies.join(', ') })}</p>}
             {children}
-            <button type="submit" className="drawing-secondary-button" disabled={!expression.trim()}>{t('parameters.ui.apply')}</button>
-            <button type="button" className="drawing-secondary-button" onClick={onDelete}>{t('parameters.ui.delete')}</button>
+            <Button type="submit" className="drawing-secondary-button" disabled={!expression.trim()}>{t('parameters.ui.apply')}</Button>
+            <Button type="button" className="drawing-secondary-button" onClick={onDelete}>{t('parameters.ui.delete')}</Button>
         </fieldset>
     </form>;
 }
@@ -64,7 +65,7 @@ export default function DrawingParametersPanel({ content, selectedIds, enabled, 
                     options={['number', 'distance', 'angle'].map(type => [type, t(`dynamicBlock.type.${type}`)])}
                     onChange={type => setParameter(current => ({ ...current, type }))} />
                 <TextField label={t('parameters.ui.expression')} value={parameter.expression} onChange={expression => setParameter(current => ({ ...current, expression }))} />
-                <button type="submit" className="drawing-secondary-button" disabled={!parameter.name.trim() || !parameter.expression.trim()}>{t('parameters.ui.save')}</button>
+                <Button type="submit" className="drawing-secondary-button" disabled={!parameter.name.trim() || !parameter.expression.trim()}>{t('parameters.ui.save')}</Button>
             </fieldset>
         </form>
         <details className="drawing-block-attribute-fields">
@@ -83,13 +84,13 @@ export default function DrawingParametersPanel({ content, selectedIds, enabled, 
                     onChange={axis => setDimension(current => ({ ...current, axis }))} />}
                 <DrawingConstraintReferences entities={entities} selectedIds={selectedIds} values={references.slice(0, referenceCount)} t={t}
                     onChange={(index, value) => setReferences(current => current.map((previous, position) => position === index ? value : previous))} />
-                <button type="submit" className="drawing-secondary-button" disabled={!selectedIds.length || !dimension.name.trim() || !dimension.expression.trim()}>{t('parameters.ui.createDimension')}</button>
+                <Button type="submit" className="drawing-secondary-button" disabled={!selectedIds.length || !dimension.name.trim() || !dimension.expression.trim()}>{t('parameters.ui.createDimension')}</Button>
             </form>
         </details>
         <fieldset className="drawing-block-attribute-fields">
             <legend>{t('commands.dcConvert')}</legend>
             <p>{t('parameters.ui.convertHint')}</p>
-            <button type="button" className="drawing-secondary-button" disabled={!selectedIds.length} onClick={() => run('dcConvert', '')}>{t('commands.dcConvert')}</button>
+            <Button type="button" className="drawing-secondary-button" disabled={!selectedIds.length} onClick={() => run('dcConvert', '')}>{t('commands.dcConvert')}</Button>
         </fieldset>
         <h4>{t('commands.parameters')}</h4>
         {!graph.parameters.length && <p>{t('parameters.ui.empty')}</p>}
@@ -107,7 +108,7 @@ export default function DrawingParametersPanel({ content, selectedIds, enabled, 
                 dependencies={graph.dependencies[item.name]} onSave={expression => run('dimConstraint', `SET ${quote(item.id)} ${quote(expression)}`)}
                 onDelete={() => run('dimConstraint', `DELETE ${quote(item.id)}`)}>
                 <p>{t(`commands.${commandFor(item.type)}`)} · {t(satisfied ? 'constraints.ui.satisfied' : 'constraints.ui.unsatisfied')}</p>
-                <button type="button" className="drawing-secondary-button" onClick={() => onSelect?.([...new Set([...item.refs.map(ref => ref.entityId), ...(item.dimensionId ? [item.dimensionId] : [])])])}>{t('constraints.ui.select')}</button>
+                <Button type="button" className="drawing-secondary-button" onClick={() => onSelect?.([...new Set([...item.refs.map(ref => ref.entityId), ...(item.dimensionId ? [item.dimensionId] : [])])])}>{t('constraints.ui.select')}</Button>
             </ExpressionEditor>;
         })}
     </div>;

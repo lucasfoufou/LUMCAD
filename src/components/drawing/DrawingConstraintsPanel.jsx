@@ -1,6 +1,7 @@
+import { Button } from '~components/ui/Controls';
 import DrawingConstraintReferences, { drawingConstraintReferenceLabel as referenceLabel } from '~components/drawing/DrawingConstraintReferences';
 import { useMemo, useState } from 'react';
-import { CheckboxField, NumberField, SelectField } from '~components/drawing/DrawingCreationControls';
+import { CheckboxField, NumberField, SelectField } from '~components/ui/Fields';
 import { DRAWING_CONSTRAINT_COMMANDS, runDrawingConstraintCommand } from '~utils/drawingConstraintCommands';
 import { DRAWING_AUTO_CONSTRAINT_TYPES } from '~utils/drawingAutoConstraints';
 import { drawingGeometricConstraintResiduals } from '~utils/drawingGeometricConstraints';
@@ -56,8 +57,8 @@ export default function DrawingConstraintsPanel({ content, selectedIds, onCommit
             <DrawingConstraintReferences entities={entities} selectedIds={selectedIds} values={references.slice(0, count)} t={t}
                 onChange={(index, value) => setReferences(current => current.map((previous, position) => position === index ? value : previous))} />
             {type === 'tangent' && <CheckboxField label={t('constraints.ui.internal')} checked={internal} onChange={setInternal} />}
-            <button type="button" className="drawing-secondary-button" disabled={!selectedIds.length}
-                onClick={() => run(commandFor(type), `${references.slice(0, count).filter(Boolean).join(' ')}${type === 'tangent' && internal ? ' INTERNAL' : ''}`)}>{t('constraints.ui.create')}</button>
+            <Button type="button" className="drawing-secondary-button" disabled={!selectedIds.length}
+                onClick={() => run(commandFor(type), `${references.slice(0, count).filter(Boolean).join(' ')}${type === 'tangent' && internal ? ' INTERNAL' : ''}`)}>{t('constraints.ui.create')}</Button>
         </fieldset>
         <details className="drawing-block-attribute-fields">
             <summary>{t('commands.autoConstrain')}</summary>
@@ -65,13 +66,13 @@ export default function DrawingConstraintsPanel({ content, selectedIds, onCommit
             <NumberField label={t('constraints.ui.angle')} value={angle} min={0.000001} max={10} step="any" onChange={setAngle} />
             {DRAWING_AUTO_CONSTRAINT_TYPES.map(type => <CheckboxField key={type} label={label(type)} checked={autoTypes.includes(type)}
                 onChange={enabled => setAutoTypes(current => enabled ? [...current, type] : current.filter(value => value !== type))} />)}
-            <button type="button" className="drawing-secondary-button" disabled={!selectedIds.length || !autoTypes.length}
-                onClick={() => run('autoConstrain', `PREVIEW ${autoInput}`)}>{t('constraints.ui.preview')}</button>
+            <Button type="button" className="drawing-secondary-button" disabled={!selectedIds.length || !autoTypes.length}
+                onClick={() => run('autoConstrain', `PREVIEW ${autoInput}`)}>{t('constraints.ui.preview')}</Button>
             {currentPreview && <div role="status">
                 <p>{t('constraints.ui.proposals', { count: currentPreview.length })}</p>
                 <ul>{currentPreview.map((item, index) => <li key={index}>{label(item.type)} · {item.refs.map(describe).join(' / ')}</li>)}</ul>
-                <button type="button" className="drawing-secondary-button" disabled={!currentPreview.length}
-                    onClick={() => run('autoConstrain', autoInput)}>{t('constraints.ui.apply')}</button>
+                <Button type="button" className="drawing-secondary-button" disabled={!currentPreview.length}
+                    onClick={() => run('autoConstrain', autoInput)}>{t('constraints.ui.apply')}</Button>
             </div>}
         </details>
         {feedback && <p role={feedback.error ? 'alert' : 'status'}>{t(feedback.key, { count: feedback.count })}</p>}
@@ -84,8 +85,8 @@ export default function DrawingConstraintsPanel({ content, selectedIds, onCommit
                 <legend>{label(item.type)}</legend>
                 <small>{t(satisfied ? 'constraints.ui.satisfied' : 'constraints.ui.unsatisfied')}</small>
                 <p>{item.refs.map(describe).join(' / ')}</p>
-                <button type="button" className="drawing-secondary-button" onClick={() => onSelect([...new Set(item.refs.map(ref => ref.entityId))])}>{t('constraints.ui.select')}</button>
-                <button type="button" className="drawing-secondary-button" onClick={() => run('geomConstraint', `DELETE ${JSON.stringify(item.id)}`)}>{t('constraints.ui.remove')}</button>
+                <Button type="button" className="drawing-secondary-button" onClick={() => onSelect([...new Set(item.refs.map(ref => ref.entityId))])}>{t('constraints.ui.select')}</Button>
+                <Button type="button" className="drawing-secondary-button" onClick={() => run('geomConstraint', `DELETE ${JSON.stringify(item.id)}`)}>{t('constraints.ui.remove')}</Button>
             </fieldset>;
         })}</div>
     </section>;

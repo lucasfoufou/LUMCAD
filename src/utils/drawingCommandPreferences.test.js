@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { validateDrawingAliases, expandDrawingAlias, normalizeDrawingShortcut, drawingShortcutFromEvent,
-    validateDrawingCommandShortcuts } from './drawingCommandPreferences.js';
+    validateDrawingCommandShortcuts, formatDrawingShortcut } from './drawingCommandPreferences.js';
 
 test('personal aliases preserve quoted arguments and reject ambiguous or chained definitions', () => {
     const input = [{ alias: ' imageperso ', command: 'PNGOUT' }];
@@ -44,4 +44,12 @@ test('existing actions can be rebound, removed and restored without hidden short
     assert.throws(() => validateDrawingCommandShortcuts([...DEFAULT_DRAWING_SHORTCUTS, { shortcut: 'F8', command: 'line' }]));
     for (const shortcut of ['MOD+Q', 'MOD+W', 'MOD+S', 'ALT+F4']) assert.throws(() => normalizeDrawingShortcut(shortcut));
     assert.throws(() => validateDrawingCommandShortcuts([{ shortcut: 'F6', command: '@missing' }]));
+});
+
+test('shortcut display is localized to platform while persisted bindings remain portable', () => {
+    assert.equal(formatDrawingShortcut('MOD+SHIFT+K', 'MacIntel'), 'Cmd + Shift + K');
+    assert.equal(formatDrawingShortcut('MOD+ALT+K', 'Win32'), 'Ctrl + Alt + K');
+    assert.equal(formatDrawingShortcut('F8', 'Linux'), 'F8');
+    assert.equal(drawingShortcutFromEvent({ key: 'Dead', altKey: true }), null);
+    assert.equal(drawingShortcutFromEvent({ key: 'k', ctrlKey: true, metaKey: true }), null);
 });

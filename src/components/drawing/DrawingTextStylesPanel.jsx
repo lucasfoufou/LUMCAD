@@ -1,3 +1,4 @@
+import { Button, Input, Select } from '~components/ui/Controls';
 import { useEffect, useMemo, useState } from 'react';
 
 import {
@@ -50,7 +51,7 @@ export default function DrawingTextStylesPanel({
         <section className="drawing-text-styles-panel" aria-label={labels.panel}>
             <header className="drawing-text-styles-panel__header">
                 <strong>{labels.title}</strong>
-                <button
+                <Button
                     type="button"
                     aria-label={labels.create}
                     title={labels.create}
@@ -62,13 +63,13 @@ export default function DrawingTextStylesPanel({
                     })}
                 >
                     <span aria-hidden="true">＋</span>
-                </button>
+                </Button>
             </header>
             <div className="drawing-text-styles-panel__body">
                 <ul className="drawing-text-styles-panel__list" aria-label={labels.list}>
                     {normalizedStyles.map(style => (
                         <li key={style.id}>
-                            <button
+                            <Button
                                 type="button"
                                 className={style.id === selected.id ? 'is-selected' : ''}
                                 aria-current={style.id === selected.id || undefined}
@@ -77,14 +78,14 @@ export default function DrawingTextStylesPanel({
                             >
                                 <span>{labels.styleNames?.[style.id] || style.name}</span>
                                 <small>{labels.fonts?.[style.fontFamily] || style.fontFamily}</small>
-                            </button>
+                            </Button>
                         </li>
                     ))}
                 </ul>
                 <div className="drawing-text-styles-panel__editor">
                     <label>
                         <span>{labels.name}</span>
-                        <input
+                        <Input
                             type="text"
                             value={nameDraft}
                             disabled={disabled || typeof onRename !== 'function'}
@@ -104,15 +105,15 @@ export default function DrawingTextStylesPanel({
                     </label>
                     <label>
                         <span>{labels.font}</span>
-                        <select value={selected.fontFamily} disabled={!canUpdate} onChange={event => update({ fontFamily: event.target.value })}>
+                        <Select value={selected.fontFamily} disabled={!canUpdate} onChange={event => update({ fontFamily: event.target.value })}>
                             {DRAWING_TEXT_FONTS.map(font => (
                                 <option key={font.id} value={font.id}>{labels.fonts?.[font.id] || font.id}</option>
                             ))}
-                        </select>
+                        </Select>
                     </label>
                     <label>
                         <span>{labels.fontSize}</span>
-                        <input
+                        <Input
                             type="number"
                             min="0.01"
                             step="0.01"
@@ -126,21 +127,21 @@ export default function DrawingTextStylesPanel({
                     </label>
                     <label>
                         <span>{labels.weight}</span>
-                        <select value={selected.fontWeight} disabled={!canUpdate} onChange={event => update({ fontWeight: Number(event.target.value) })}>
+                        <Select value={selected.fontWeight} disabled={!canUpdate} onChange={event => update({ fontWeight: Number(event.target.value) })}>
                             <option value="400">{labels.normal}</option>
                             <option value="700">{labels.bold}</option>
-                        </select>
+                        </Select>
                     </label>
                     <label>
                         <span>{labels.fontStyle}</span>
-                        <select value={selected.fontStyle} disabled={!canUpdate} onChange={event => update({ fontStyle: event.target.value })}>
+                        <Select value={selected.fontStyle} disabled={!canUpdate} onChange={event => update({ fontStyle: event.target.value })}>
                             <option value="normal">{labels.normal}</option>
                             <option value="italic">{labels.italic}</option>
-                        </select>
+                        </Select>
                     </label>
                     <label>
                         <span>{labels.lineHeight}</span>
-                        <input
+                        <Input
                             type="number"
                             min="0.8"
                             max="4"
@@ -160,7 +161,7 @@ export default function DrawingTextStylesPanel({
                     <div className="drawing-text-styles-panel__preview" aria-label={labels.preview} style={previewStyle}>
                         {labels.previewText}
                     </div>
-                    <button
+                    <Button
                         type="button"
                         className="drawing-text-styles-panel__delete"
                         disabled={disabled
@@ -169,7 +170,7 @@ export default function DrawingTextStylesPanel({
                         onClick={() => onDelete?.(selected.id)}
                     >
                         {labels.delete}
-                    </button>
+                    </Button>
                 </div>
             </div>
         </section>
@@ -179,7 +180,7 @@ export default function DrawingTextStylesPanel({
 function TextStyleToggle({ checked, disabled, label, onChange }) {
     return (
         <label>
-            <input type="checkbox" checked={Boolean(checked)} disabled={disabled} onChange={event => onChange(event.target.checked)} />
+            <Input type="checkbox" checked={Boolean(checked)} disabled={disabled} onChange={event => onChange(event.target.checked)} />
             <span>{label}</span>
         </label>
     );

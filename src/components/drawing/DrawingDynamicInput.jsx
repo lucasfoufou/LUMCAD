@@ -1,3 +1,4 @@
+import { Input } from '~components/ui/Controls';
 import React from 'react';
 
 import { useI18n } from '~i18n/I18nProvider';
@@ -23,7 +24,7 @@ export default function DrawingDynamicInput({
             onPointerDown={event => event.stopPropagation()}
         >
             <span aria-hidden="true">⌖</span>
-            <input
+            <Input
                 type="text"
                 value={value}
                 onChange={event => onChange?.(event.target.value)}

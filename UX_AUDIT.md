@@ -1,14 +1,14 @@
 # UI/UX audit
 
-- Last reviewed: 2026-10-08
+- Last reviewed: 2026-10-09
 - Scope: editor shell, tool configuration surfaces, side panels, dialogs and visual consistency
 - Direction agreed with the maintainer: very modern and lean; no heavy UI dependency (only small, low-level additions)
 
 This audit is the baseline for the UI/UX overhaul. It records what exists today and the problems to solve; target designs are added here as they are validated.
 
-## Configuration surfaces today
+## Historical baseline — before the overhaul (2026-10-08)
 
-The same operation can be configured from up to five places, and their visibility depends on context:
+At the baseline, the same operation could be configured from up to five places. This inventory describes the old interface; the current implementation is recorded in Status below:
 
 | Surface | Component | Shown when | Content |
 | --- | --- | --- | --- |
@@ -76,8 +76,20 @@ Implemented:
 - Status bar with model/layout tabs, snap menu, grid, ortho, polar and tracking toggles, drafting settings, screen scale and zoom.
 - Settings, Plot & Publish and the layout editor restyled with the same tokens.
 
-Remaining:
+Follow-up implemented on 2026-10-09:
 
-- Long option sets (text style options) wrap to several lines in the panel; secondary options could fold into a "More" group.
-- React primitives (Button, Field, Segmented) exist as CSS classes only; components still use native elements styled by the shared rules.
-- Keyboard shortcut editing in Settings still uses raw text such as `MOD+SHIFT+S`.
+- Text mode, content, named style and size stay directly accessible; font, decoration, wrapping and alignment are grouped under “Typography and alignment”, initially collapsed in creation and selection editing.
+- `src/components/ui/Controls.jsx` owns Button, Input, Select, TextArea, Field and Disclosure. All native button/input/select/textarea markup in `src/components/` goes through these primitives. Existing feature classes, native input semantics and ref access are preserved.
+- `src/components/ui/Fields.jsx` owns the reusable decimal, text, multiline, checkbox and custom select fields formerly embedded in DrawingCreationControls. The custom select supports arrows, Home/End, Enter, Escape and focus departure.
+- `ShortcutRecorder` captures portable key combinations, displays Cmd/Option on macOS and Ctrl/Alt elsewhere, rejects reserved/duplicate bindings, and leaves the prior value intact on Escape or Tab. Explicit focus on click is required in WKWebView and was verified natively.
+- Settings and publication share `useDialogFocus`: initial focus, Tab wrapping, Escape and focus restoration. Nested controls can consume Escape.
+- Above 100 selected objects, individual grips are suppressed with an explanation in Properties; selection outlines and all bulk actions remain available.
+- Native macOS drawing actions have an explicit Drawing/Dessin menu; system Edit keeps text-editing semantics.
+
+Native acceptance and platform limitations are tracked in [NATIVE_QA.md](./NATIVE_QA.md). Future specialized form components should build on these primitives; the migration does not merge controls with intentionally different numeric/validation semantics.
+
+## Documentation reconciliation — 2026-10-09
+
+The Claude handoff requested updates to README.md, TOOL_ROADMAP.md and this audit after moving command controls. The current code and native captures establish the final arrangement: one command line in the header, with options below it. The intermediate proposal for a bottom-anchored command area is superseded. README and the roadmap already describe the final arrangement. The inventory above is now explicitly historical. LCAD_FORMAT.md already records compact JSON and the shared 64 MiB manifest limit; AGENTS.md already links the performance and UX documents.
+
+Remaining acceptance: real project drawings, full frontend command scenarios, Windows/Linux and macOS Intel native workflows. Shared React controls, shortcut recording, compact text options and targeted native macOS Apple Silicon acceptance are implemented, as recorded above and in NATIVE_QA.md.

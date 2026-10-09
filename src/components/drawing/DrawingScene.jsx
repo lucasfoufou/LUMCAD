@@ -28,31 +28,34 @@ import {
     formatDrawingDimensionLabel,
     isDrawingDimensionEntity,
 } from '~utils/drawingGeometry';
-import { getEntityGrips } from '~utils/drawingSelection';
+import { DRAWING_GRIP_OBJECT_LIMIT, getEntityGrips } from '~utils/drawingSelection';
 import { canEditEntity, getEntityAppearance } from '~utils/drawingDocument';
 import { DRAWING_QDIM_GRIP_IDS } from '~utils/drawingDimensions';
 import { getDrawingTextLayout } from '~utils/drawingText';
 import { affineMatrixToSvg, getDrawingBlockReferenceBounds, inverseAffineViewBox, resolveDrawingBlockChild } from '~utils/drawingBlocks';
 import { getDrawingEntityRenderMode } from '~utils/drawingInteraction';
-import { drawingEntityRenderBounds, drawingEntityViewportChanged } from '~utils/drawingViewportDependence';
+import { drawingEntityRenderBounds, drawingEntityViewportChanged, drawingEntityUsesDefaultDimensionSize } from '~utils/drawingViewportDependence';
 import { createDrawingIndexCache, createDrawingSpatialIndex } from '~utils/drawingSpatialIndex';
+import { createDrawingBlockSymbols } from '~utils/drawingBlockSymbols';
 import useStableArray from '~hooks/useStableArray';
+
+const EMPTY_ARRAY = Object.freeze([]);
 
 function DrawingScene({
     content,
-    assets = [],
-    selectedIds = [],
+    assets = EMPTY_ARRAY,
+    selectedIds = EMPTY_ARRAY,
     previewSelectedIds = null,
-    highlightedIds = [],
+    highlightedIds = EMPTY_ARRAY,
     interactive = false,
     dimensionTextSize = 0.35,
     draftEntity = null,
-    draftEntities = [],
+    draftEntities = EMPTY_ARRAY,
     showGrips = false,
     gripSize = 0.2,
-    hiddenIds = [],
-    hitOnlyIds = [],
-    hiddenLayerIds = [],
+    hiddenIds = EMPTY_ARRAY,
+    hitOnlyIds = EMPTY_ARRAY,
+    hiddenLayerIds = EMPTY_ARRAY,
     viewBox = null,
     cullArea = null,
 }) {
@@ -64,21 +67,30 @@ function DrawingScene({
     const layerMap = useMemo(() => new Map(content.layers.map(layer => [layer.id, layer])), [content.layers]);
     const entityMap = useMemo(() => createDimensionSourceMap(content.entities, content.blocks, content), [content.entities, content.blocks, content.layers, content.textStyles]);
     const blockMap = useMemo(() => new Map((content.blocks || []).map(block => [block.id, block])), [content.blocks]);
+    const symbolPrefix = `block-symbol-${useId().replace(/:/g, '')}`;
+    const symbols = useMemo(() => interactive
+        ? createDrawingBlockSymbols(content.entities, blockMap, symbolPrefix)
+        : { definitions: [], references: new Map() }, [interactive, content.entities, blockMap, symbolPrefix]);
     const renderEntityMap = useMemo(() => (draftList.length
         ? createDimensionSourceMap([...new Map([...entityMap, ...draftList.map(entity => [entity.id, entity])]).values()], content.blocks, content)
         : entityMap), [draftList, entityMap, content.blocks, content.layers, content.textStyles]);
     const assetMap = useMemo(() => new Map(assets.map(asset => [asset.id, asset])), [assets]);
     const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
+    const gripsEnabled = showGrips && selected.size <= DRAWING_GRIP_OBJECT_LIMIT;
     const selectedQdimGripSeries = useMemo(() => {
-        const seriesIds = new Set(content.entities.flatMap(entity => (
-            selected.has(entity.id) && entity.type === 'linearDimension' && entity.seriesId
-                ? [entity.seriesId]
-                : []
-        )));
-        return new Set([...seriesIds].filter(seriesId => content.entities
-            .filter(entity => entity.type === 'linearDimension' && entity.seriesId === seriesId)
-            .every(entity => canEditEntity(content, entity))));
-    }, [content, selected]);
+        if (!gripsEnabled) return new Set();
+        const series = new Map();
+        for (const entity of content.entities) {
+            if (entity.type !== 'linearDimension' || !entity.seriesId) continue;
+            const entry = series.get(entity.seriesId) || { selected: false, editable: true, count: 0 };
+            entry.selected ||= selected.has(entity.id);
+            entry.editable &&= canEditEntity(content, entity);
+            entry.count += 1;
+            series.set(entity.seriesId, entry);
+        }
+        return new Set([...series].filter(([, entry]) => entry.selected && entry.editable
+            && entry.count <= DRAWING_GRIP_OBJECT_LIMIT).map(([id]) => id));
+    }, [content, selected, gripsEnabled]);
     const previewSelected = useMemo(() => previewSelectedIds ? new Set(previewSelectedIds) : null, [previewSelectedIds]);
     const highlighted = useMemo(() => new Set(highlightedIds), [highlightedIds]);
     const hidden = useMemo(() => new Set(hiddenIds), [hiddenIds]);
@@ -102,6 +114,13 @@ function DrawingScene({
     }, [cullArea, content.entities]);
 
     return (
+        <>
+        {symbols.definitions.length > 0 && <defs>{symbols.definitions.map(({ id, reference, block }) => (
+            <g id={id} key={id}><BlockReferenceGeometry reference={reference} block={block} blockMap={blockMap}
+                assetMap={assetMap} layerMap={layerMap} hiddenLayers={hiddenLayers} dimensionTextSize={dimensionTextSize}
+                locale={locale} t={t} viewBox={null} visitedBlockIds={new Set()} textStyles={content.textStyles}
+                attributeDisplay={content.settings?.attributeDisplay} /></g>
+        ))}</defs>}
         <g className="drawing-scene">
             {content.entities.map((entity, position) => {
                 if (visiblePositions && !visiblePositions.has(position)) return null;
@@ -121,8 +140,9 @@ function DrawingScene({
                         highlighted={highlighted.has(entity.id)}
                         editable={canEditEntity(content, entity)}
                         interactive={interactive}
+                        symbolId={symbols.references.get(entity.id)}
                         dimensionTextSize={dimensionTextSize}
-                        showGrips={showGrips && (
+                        showGrips={gripsEnabled && (
                             selected.has(entity.id)
                             || selectedQdimGripSeries.has(entity.seriesId)
                         )}
@@ -167,18 +187,20 @@ function DrawingScene({
                 />
             ))}
         </g>
+        </>
     );
 }
 
 function DrawingEntity({
     entity,
-    sources = [],
+    sources = EMPTY_ARRAY,
     asset = null,
     appearance,
     selected = false,
     highlighted = false,
     editable = false,
     interactive,
+    symbolId,
     draft = false,
     dimensionTextSize,
     showGrips = false,
@@ -195,7 +217,7 @@ function DrawingEntity({
     nested = false,
     visitedBlockIds = new Set(),
     visualHidden = false,
-    textStyles = [],
+    textStyles = EMPTY_ARRAY,
     attributeDisplay = 'normal',
 }) {
     if (entity[ANNOTATION_HIDDEN]) return null;
@@ -276,7 +298,7 @@ function DrawingEntity({
             />
         );
     } else if (entity.type === 'blockReference') {
-        shape = <BlockReferenceGeometry
+        shape = symbolId ? <use href={`#${symbolId}`} transform={affineMatrixToSvg(entity.transform)} /> : <BlockReferenceGeometry
             reference={entity}
             block={block}
             blockMap={blockMap}
@@ -326,7 +348,7 @@ export const DrawingHighlightLayer = React.memo(function DrawingHighlightLayer({
 });
 
 const VISUAL_PROPS = ['entity', 'asset', 'selected', 'highlighted', 'editable', 'interactive', 'draft', 'showGrips', 'visualHidden',
-    'nested', 'block', 'blockMap', 'assetMap', 'layerMap', 'hiddenLayers', 'textStyles', 'attributeDisplay', 'locale', 't', 'visitedBlockIds'];
+    'symbolId', 'nested', 'block', 'blockMap', 'assetMap', 'layerMap', 'hiddenLayers', 'textStyles', 'attributeDisplay', 'locale', 't', 'visitedBlockIds'];
 const APPEARANCE_FIELDS = ['color', 'lineWeight', 'lineType', 'transparency'];
 
 /**
@@ -341,7 +363,7 @@ function sameDrawingEntityProps(previous, next) {
     const { entity } = next;
     const dimension = isDrawingDimensionEntity(entity);
     if (previous.sources !== next.sources && (dimension || getDrawingEntityDependencyIds(entity).length)) return false;
-    if (previous.dimensionTextSize !== next.dimensionTextSize && (dimension || entity.type === 'blockReference')) return false;
+    if (previous.dimensionTextSize !== next.dimensionTextSize && drawingEntityUsesDefaultDimensionSize(entity, next.blockMap)) return false;
     return !drawingEntityViewportChanged(entity, previous.viewBox, next.viewBox, next.blockMap);
 }
 
