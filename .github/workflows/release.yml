@@ -140,7 +140,11 @@ jobs:
           gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --dir release-assets
 
       - name: Verify installers and signed updater manifest
-        run: node scripts/verify-release-assets.mjs release-assets "$GITHUB_REF_NAME"
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\")" > "$RUNNER_TEMP/release-metadata.json"
+          node scripts/normalize-updater-urls.mjs release-assets/latest.json "$RUNNER_TEMP/release-metadata.json" "$GITHUB_REF_NAME"
+          node scripts/verify-release-assets.mjs release-assets "$GITHUB_REF_NAME"
+          gh release upload "$GITHUB_REF_NAME" release-assets/latest.json --repo "$GITHUB_REPOSITORY" --clobber
 
       - name: Publish release
         run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false

@@ -30,12 +30,14 @@ Never commit, paste into an issue, or attach the private key to a release. Losin
 1. validate the tag against every declared project version, verify the updater secret, and run `npm run check`;
 2. build macOS Apple Silicon, macOS Intel, Linux x64, and Windows x64 sequentially into one draft release;
 3. sign each updater payload and let `tauri-action` merge every platform into `latest.json`;
-4. download the draft assets and run `scripts/verify-release-assets.mjs`;
+4. download the draft assets, normalize updater API URLs to final tagged public download URLs using the release's asset metadata, run `scripts/verify-release-assets.mjs`, and upload the verified manifest;
 5. publish the GitHub release only after the complete manifest passes.
 
 The expected user installers are two `.dmg` files, one NSIS `.exe`, one `.AppImage`, and one `.deb`. The updater additionally requires two macOS `.app.tar.gz` archives, their signatures, signatures for the Windows installer and Linux AppImage, and a `latest.json` containing `darwin-aarch64`, `darwin-x86_64`, `windows-x86_64`, and `linux-x86_64`.
 
 Build jobs remain sequential because every `tauri-action` invocation updates the same draft release and manifest. Parallel jobs can overwrite a platform entry or create competing drafts.
+
+`tauri-action` can emit GitHub API asset URLs while a release is a draft. Draft browser URLs may also contain a temporary `untagged-*` name. `scripts/normalize-updater-urls.mjs` maps only known assets of the matching release to their final public tag URLs, preserving signatures and all platform aliases. Verification remains strict; it is not bypassed to accept API URLs. For a release created with an older workflow, normalize and verify the downloaded assets, upload only the corrected `latest.json`, then rerun the failed publish job.
 
 ## Prepare a version
 
