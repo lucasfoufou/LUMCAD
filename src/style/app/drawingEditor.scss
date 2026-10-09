@@ -176,6 +176,11 @@
 
 // --- Layers -------------------------------------------------------------------
 
+// Panel sections space their children evenly; stand-alone inputs span the panel.
+.drawing-layer-panel { display: grid; gap: 10px; min-width: 0; }
+.drawing-layer-panel > input,
+.drawing-blocks-panel > input { width: 100%; }
+
 .drawing-layer-list { display: grid; gap: 2px; }
 
 .drawing-layer-row {
@@ -234,6 +239,9 @@
     background: transparent;
     font-weight: 600;
   }
+
+  // Protected layer names are read-only, not inactive.
+  input:disabled { opacity: 1; color: var(--ink); }
 
   small { padding-left: 4px; color: var(--muted); font: var(--text-xs) var(--font-num); }
 }
@@ -426,8 +434,6 @@
 .drawing-block-smart-controls { display: flex; flex-wrap: wrap; gap: 4px; }
 
 .drawing-blocks-panel > details { padding-top: 8px; border-top: 1px solid var(--line); }
-.drawing-blocks-panel > details > form,
-.drawing-blocks-panel > details > div { margin-top: 8px; }
 
 .drawing-dimension-styles-panel,
 .drawing-blocks-panel {
@@ -476,13 +482,13 @@
 .drawing-properties-mount:empty { display: none; }
 
 .drawing-annotation-fields {
-  display: grid;
-  gap: 6px;
   font-size: var(--text-sm);
 
   > summary { min-height: 22px; font-weight: 600; }
-  &[open] { padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  &[open] { padding-bottom: 10px; border-bottom: 1px solid var(--line); }
 }
+
+.drawing-annotation-body { display: grid; gap: 8px; padding-top: 8px; }
 
 .drawing-parameters-panel {
   display: grid;
@@ -519,3 +525,17 @@
   > legend { padding: 0 4px; }
   .drawing-sidebar-field { grid-template-columns: auto minmax(0, 1fr); }
 }
+
+// Panel rhythm: the containers' grid gaps set the spacing, so text elements
+// drop their default margins. Grid gaps do not reach into <details>, whose
+// content gets the same spacing explicitly.
+.drawing-sidebar-content,
+.drawing-manager-body {
+  :where(h2, h3, h4, p) { margin: 0; }
+  details > :not(summary) { margin-top: 8px; }
+}
+
+.drawing-selection-panel > h3 { font-size: var(--text-lg); }
+
+// Hints among editing fields span the panel instead of the label column.
+.drawing-properties-mount p.drawing-creation-field { display: block; color: var(--muted); font-size: var(--text-sm); }

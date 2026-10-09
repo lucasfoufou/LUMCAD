@@ -11,6 +11,8 @@ export default function DrawingAnnotationFields({ content, selectedIds, onComman
     const annotation = selected.length === 1 ? normalizeDrawingAnnotation(selected[0].annotation) : null;
     return <details className="drawing-annotation-fields">
         <summary>{t('annotation.current', { scale: current })}</summary>
+        {/* Grid spacing does not apply to the content of <details>, so it is grouped here. */}
+        <div className="drawing-annotation-body">
         {content[ANNOTATION_LIMIT] && <p role="status">{t('annotation.limit')}</p>}
         <label className="drawing-sidebar-field"><span>{t('annotation.currentLabel')}</span>
             <select value={current} onChange={event => onCommand('scaleListEdit', `CURRENT ${event.target.value}`)}>
@@ -37,5 +39,6 @@ export default function DrawingAnnotationFields({ content, selectedIds, onComman
                 <button type="button" onClick={() => onCommand('annotationUpdate', '')}>{t('commands.annotationUpdate')}</button>
             </div>
         </>}
+        </div>
     </details>;
 }
