@@ -100,6 +100,7 @@ test('print rendering waits for fonts and three committed animation frames', asy
     const events = [];
     const targetWindow = {
         document: { fonts: { ready: Promise.resolve().then(() => events.push('fonts')) } },
+        setTimeout, clearTimeout,
         requestAnimationFrame(callback) {
             events.push('frame');
             callback();
@@ -163,4 +164,9 @@ test('print mode is cleaned up when the native print call fails', async () => {
     };
     await assert.rejects(printRenderedLayouts(targetWindow), /Print failed/);
     assert.equal(printClasses.has('is-lumcad-printing'), false);
+});
+
+test('unattended publication settles even when animation frames are suspended', async () => {
+    await waitForPrintRendering({ document: { fonts: { ready: Promise.resolve() } },
+        requestAnimationFrame() {}, setTimeout, clearTimeout });
 });

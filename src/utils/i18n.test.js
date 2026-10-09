@@ -72,3 +72,13 @@ async function sourceFiles(directory) {
     }));
     return nested.flat();
 }
+
+test('command reports interpolate variables instead of showing single-braced placeholders', () => {
+    for (const locale of ['en', 'fr']) {
+        const t = createTranslator(locale);
+        for (const key of ['coordinates.units', 'coordinates.ucs', 'plotStyle.list', 'layerManager.states', 'leader.styles', 'dimensionStyle.list', 'dataExtraction.field.attribute', 'dataExtraction.report', 'boundary.created']) {
+            const values = { display: 'mm', precision: 2, angle: 'degrees', anglePrecision: 1, insertion: 'm', x: 0, y: 0, rotation: 0, names: 'QA', tag: 'QA', count: 2, groups: 1 };
+            assert.doesNotMatch(t(key, values), /\{\w+\}/, `${locale}: ${key}`);
+        }
+    }
+});

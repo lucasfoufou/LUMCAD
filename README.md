@@ -412,3 +412,9 @@ The macOS **Drawing / Dessin** menu invokes the same drawing actions as the edit
 For selections larger than 100 objects, individual grips are hidden and the Properties panel explains how to restore them. Selection outlines and bulk commands remain available. The renderer shares static block geometry in the interactive canvas; exported drawings retain their full geometry.
 
 See [NATIVE_QA.md](./NATIVE_QA.md) for the native acceptance record and pending platforms, and [PERFORMANCE.md](./PERFORMANCE.md) for measured limits. [Desktop checks](./.github/workflows/desktop-checks.yml) runs frontend/Rust tests and compiles the desktop application on macOS, Windows and Linux when a PR is opened or the workflow is dispatched. It does not replace manual platform acceptance.
+
+## Headless automation and frontend E2E
+
+Use the native executable with `--headless` to run without a visible window, then use MCP `open_document`, `save_document` and `export_pdf` for unattended drawing/PDF files. The existing command engine and publication renderer are shared; the runtime still needs the native WebView and a graphical session. See [HEADLESS.md](./HEADLESS.md) for launch, isolation and examples.
+
+`npm run test:e2e` runs real Chromium interaction checks across all 294 catalog commands plus complete geometry/history/file workflows. Entry/precondition coverage is distinguished from full successful-tool coverage in [E2E_TESTING.md](./E2E_TESTING.md). `npm run test:headless` verifies the built native runtime through MCP and checks the resulting multipage PDF.

@@ -864,7 +864,7 @@ pub fn write_lcad_document(
 ) -> Result<SaveResult, String> {
     let target = normalized_save_path(PathBuf::from(path))?;
     atomic_write(&target, &envelope)?;
-    remove_recovery(&app)?;
+    if !crate::runtime::is_headless() { remove_recovery(&app)?; }
     Ok(SaveResult {
         path: Some(target.to_string_lossy().into_owned()),
         saved_at: saved_at_millis(),
@@ -903,7 +903,7 @@ pub fn autosave_lcad_document(
     if let Some(path) = current_path.filter(|path| !path.trim().is_empty()) {
         let target = normalized_save_path(PathBuf::from(path))?;
         atomic_write(&target, &envelope)?;
-        remove_recovery(&app)?;
+        if !crate::runtime::is_headless() { remove_recovery(&app)?; }
         return Ok(SaveResult {
             path: Some(target.to_string_lossy().into_owned()),
             saved_at: saved_at_millis(),
@@ -936,6 +936,7 @@ pub fn load_startup_document(
         return load_from_path(&path, false).map(Some);
     }
 
+    if crate::runtime::is_headless() { return Ok(None); }
     let recovery = recovery_path(&app)?;
     if recovery.exists() {
         return load_from_path(&recovery, true).map(Some);
@@ -945,6 +946,7 @@ pub fn load_startup_document(
 
 #[tauri::command]
 pub fn clear_recovery(app: AppHandle) -> Result<(), String> {
+    if crate::runtime::is_headless() { return Ok(()); }
     remove_recovery(&app)
 }
 

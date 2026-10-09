@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open } from '../utils/nativeDialogs.js';
 import { chooseBrowserFile, isTauriRuntime } from './lcadStorage.js';
 
 const formats = { wmf: { accept: '.wmf,image/wmf,image/x-wmf', command: 'read_drawing_wmf' },

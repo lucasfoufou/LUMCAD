@@ -34,6 +34,9 @@ jobs:
       - run: npm run test:mcp
       - name: Compile the native application
         run: npm run tauri build -- --debug --no-bundle
+      - name: Native unattended MCP and PDF
+        if: runner.os == 'macOS'
+        run: npm run test:headless
 
 # This verifies builds/tests, not manual window interaction or signed installers.
 # Native acceptance for each supported architecture is tracked in NATIVE_QA.md.

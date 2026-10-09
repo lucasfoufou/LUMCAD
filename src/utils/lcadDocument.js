@@ -9,7 +9,7 @@ import {
 export const LCAD_FORMAT = 'lumcad';
 export const LCAD_FORMAT_VERSION = 2;
 export const LCAD_MIN_READABLE_FORMAT_VERSION = 1;
-export const LCAD_APP_VERSION = '0.1.0';
+export const LCAD_APP_VERSION = '0.2.0';
 export const SUPPORTED_LCAD_IMAGE_MIME_TYPES = Object.freeze([
     'image/png',
     'image/jpeg',

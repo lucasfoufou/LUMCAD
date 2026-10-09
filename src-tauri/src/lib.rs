@@ -1,3 +1,4 @@
+mod runtime;
 mod hyperlinks;
 mod clipboard;
 mod image_source;
@@ -13,7 +14,19 @@ use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let mut context = tauri::generate_context!();
+    if runtime::is_headless() {
+        for window in &mut context.config_mut().app.windows {
+            window.visible = false;
+            window.focus = false;
+            window.skip_taskbar = true;
+            window.background_throttling = Some(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
+        }
+    }
     let app = tauri::Builder::default()
+        .append_invoke_initialization_script(if runtime::is_headless() {
+            "Object.defineProperty(window, '__LUMCAD_HEADLESS__', { value: true });"
+        } else { "" })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -21,6 +34,7 @@ pub fn run() {
         .manage(mcp::McpRuntimeState::default())
         .manage(storage::PendingOpen::default())
         .invoke_handler(tauri::generate_handler![
+            runtime::fail_headless_startup,
             transmittal::write_drawing_transmittal,
             storage::resolve_table_csv_path,
             image_source::read_image_source,
@@ -68,7 +82,12 @@ pub fn run() {
                     std::io::Error::other("LUMCAD settings were already initialized").into(),
                 );
             }
-            native_menu::install(app.handle(), &language).map_err(std::io::Error::other)?;
+            if runtime::is_headless() {
+                #[cfg(target_os = "macos")]
+                app.set_activation_policy(tauri::ActivationPolicy::Prohibited);
+            } else {
+                native_menu::install(app.handle(), &language).map_err(std::io::Error::other)?;
+            }
             mcp::start(app.handle().clone());
             Ok(())
         })
@@ -79,16 +98,24 @@ pub fn run() {
                 let _ = app.emit("lumcad://drawing-action", action);
             }
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("failed to build LUMCAD");
 
-    app.run(|app_handle, event| {
+    // Wry currently drops the requested code when translating RequestExit into
+    // ControlFlow::Exit. Preserve it for unattended callers after graceful cleanup.
+    let requested_exit_code = std::sync::Arc::new(std::sync::atomic::AtomicI32::new(0));
+    let event_exit_code = requested_exit_code.clone();
+    let on_event = move |app_handle: &tauri::AppHandle, event| {
+        if let tauri::RunEvent::ExitRequested { code: Some(code), .. } = &event {
+            event_exit_code.store(*code, std::sync::atomic::Ordering::SeqCst);
+        }
         if let tauri::RunEvent::Exit = event {
             app_handle.state::<mcp::McpRuntimeState>().cancel();
         }
 
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Opened { urls } = event {
+            if runtime::is_headless() { return; }
             if let Some(path) = urls
                 .into_iter()
                 .filter_map(|url| url.to_file_path().ok())
@@ -100,5 +127,12 @@ pub fn run() {
                 let _ = app_handle.emit("lumcad://open-file", path.to_string_lossy().into_owned());
             }
         }
-    });
+    };
+    if runtime::is_headless() {
+        let exit_code = app.run_return(on_event);
+        let requested = requested_exit_code.load(std::sync::atomic::Ordering::SeqCst);
+        std::process::exit(if requested != 0 { requested } else { exit_code });
+    } else {
+        app.run(on_event);
+    }
 }

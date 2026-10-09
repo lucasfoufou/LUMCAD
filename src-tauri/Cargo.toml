@@ -1,6 +1,6 @@
 [package]
 name = "lumcad"
-version = "0.1.0"
+version = "0.2.0"
 description = "Open-source, AI-enabled, lightweight 2D CAD software"
 authors = ["Lucas FOUGERAS", "DIGITAL CACTUS"]
 edition = "2021"

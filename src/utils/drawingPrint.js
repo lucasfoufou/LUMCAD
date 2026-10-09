@@ -131,7 +131,10 @@ export async function waitForPrintRendering(targetWindow = window) {
 }
 
 function nextFrame(targetWindow) {
-    return new Promise(resolve => targetWindow.requestAnimationFrame(resolve));
+    return new Promise(resolve => {
+        const timer = targetWindow.setTimeout(resolve, 32);
+        targetWindow.requestAnimationFrame(() => { targetWindow.clearTimeout(timer); resolve(); });
+    });
 }
 
 function physicalMillimetresToCssPixels(millimetres) {

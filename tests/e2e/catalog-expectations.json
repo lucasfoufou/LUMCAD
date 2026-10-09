@@ -1,0 +1,2942 @@
+{
+  "dcAngular": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Use PARAMETERS SET name number|distance|angle \"expression\", or DCALIGNED name \"expression\" [references]. DCLINEAR also requires X or Y. DIMCONSTRAINT supports LIST, SET and DELETE.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "circle": {
+    "activeTool": "circle",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Circle tool active.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "pdf": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "divide": {
+    "activeTool": "select",
+    "operation": "pointPlacement",
+    "stage": "pick",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pick one finite curve or connected path.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "blockVisibility": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select editable dynamic block instances.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "hatch": {
+    "activeTool": "select",
+    "operation": "hatch",
+    "stage": "pick",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pick inside a closed area, enter x,y or change the pattern. Escape cancels.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "referenceBind": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select an external drawing reference.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "textEdit": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select one editable text object first.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "radiusDimension": {
+    "activeTool": "dimension",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "DIMENSION: click a line, rectangle, polygon, circle, or arc, or specify two free points.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "multiLeaderEdit": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Invalid leader input or selection. See command help for options.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "multilineStyle": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Standard",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "new": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "updateField": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select one text for FIELD, or field texts for UPDATEFIELD SELECTED. In paper space, select an existing text.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "arcDimension": {
+    "activeTool": "dimension",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "DIMENSION: click a line, rectangle, polygon, circle, or arc, or specify two free points.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "layerUnisolate": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Invalid layer name, input or protected/locked layer.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dimensionBreak": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select unlocked dimensions.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "arc": {
+    "activeTool": "arc",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Arc tool active.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "xline": {
+    "activeTool": "xline",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Construction line tool active.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "layerStateSave": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Invalid layer name, input or protected/locked layer.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "pageSetup": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "layout",
+    "layoutTool": "select",
+    "message": "Layout opened.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "select": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Selection tool active.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dynamicInput": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "In-canvas dynamic input disabled.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "layerMatch": {
+    "activeTool": "select",
+    "operation": "matchProperties",
+    "stage": "pick",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pick the source object.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "ellipse": {
+    "activeTool": "ellipse",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Ellipse tool active.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "polar": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Polar tracking enabled.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dwfClip": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select one editable DWFx underlay.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "multiLeaderAlign": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Invalid leader input or selection. See command help for options.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "coordinateInquiry": {
+    "activeTool": "select",
+    "operation": "inquiry",
+    "stage": "pick",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pick the next point (angle vertex is the second point).",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "newSheetSet": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Use REPORT, SAVE [path], ADD source layout number title, REMOVE/NUMBER/TITLE index, ORDER indices, PROPERTY PROJECT|ALL|index key value, CHECK, UNDO, REDO or CLOSE [DISCARD].",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "breakLine": {
+    "activeTool": "select",
+    "operation": "revision",
+    "stage": "points",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pick the two breakline endpoints.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "widePolyline": {
+    "activeTool": "select",
+    "operation": "linework",
+    "stage": "vertices",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pick vertices. WIDTH start end sets the next segment; END, CLOSE, UNDO or Escape.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "layerWalk": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Invalid layer name, input or protected/locked layer.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "blockSearch": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "flatten": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select objects to clean, or specify ALL.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "objectTracking": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Object-snap tracking enabled.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "referenceClip": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select an external drawing reference.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "break": {
+    "activeTool": "break",
+    "operation": "break",
+    "stage": "break-first",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "BREAK: click the target at the first break point.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "blockInsert": {
+    "activeTool": "select",
+    "operation": "blockInsert",
+    "stage": "name",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Enter the block name (use quotes for spaces).",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "plotStyle": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Plot styles: ",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "angularDimension": {
+    "activeTool": "dimension",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "DIMENSION: click a line, rectangle, polygon, circle, or arc, or specify two free points.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "textToFront": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Draw order applied.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "gcSymmetric": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select compatible objects; point relations require references such as 1@end 2@start.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "explode": {
+    "activeTool": "select",
+    "operation": "explode",
+    "stage": "select",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "EXPLODE: select objects, then press Enter.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dcRadius": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Use PARAMETERS SET name number|distance|angle \"expression\", or DCALIGNED name \"expression\" [references]. DCLINEAR also requires X or Y. DIMCONSTRAINT supports LIST, SET and DELETE.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "viewGo": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Use VIEW SAVE/RESTORE/DELETE \"name\", RENAME \"name\" \"new name\", LIST or IMPORT.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "blockExport": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select unlocked objects and ensure their dependencies are editable.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "drawingLimits": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Invalid units, coordinate-system or limits input.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "imageAdjust": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "IMAGEADJUST: select one unlocked image.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "quickDimension": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select compatible geometry first, or pick it on the canvas.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "multilineEdit": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select editable linework objects.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "xplode": {
+    "activeTool": "select",
+    "operation": "xplode",
+    "stage": "select",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "XPLODE: select objects, then press Enter.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "countList": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "No objects in this extraction scope.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "areaInquiry": {
+    "activeTool": "select",
+    "operation": "inquiry",
+    "stage": "pick",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pick polygon vertices; Enter or DONE finishes. Escape cancels.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "gcHorizontal": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select compatible objects; point relations require references such as 1@end 2@start.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dimensionReassociate": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select unlocked dimensions.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "purge": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Purge: 0 unused definitions removed; 7 retained.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "wmfImport": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": true
+  },
+  "drawingCompare": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Open a comparison drawing first.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "solid": {
+    "activeTool": "select",
+    "operation": "hatch",
+    "stage": "pick",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pick inside a closed area, enter x,y or change the pattern. Escape cancels.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "revisionProperties": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "REVCLOUD [RECT|POLYGON|OBJECT] [arcLength] [REVERSE]; REVCLOUDPROPERTIES arcLength [NORMAL|REVERSE]; BREAKLINE [size [extension]].",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "isolateObjects": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select editable target objects.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "attributeDisplay": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "ATTDISP expects NORMAL, ALL or OFF.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dcLinear": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Use PARAMETERS SET name number|distance|angle \"expression\", or DCALIGNED name \"expression\" [references]. DCLINEAR also requires X or Y. DIMCONSTRAINT supports LIST, SET and DELETE.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dimensionRegenerate": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select unlocked dimensions.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "svgOut": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "No visible geometry to export.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "mirror": {
+    "activeTool": "select",
+    "operation": "mirror",
+    "stage": "select",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "MIRROR: select objects, then press Enter.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "viewportClip": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select a layout viewport first.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "blockAction": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select editable dynamic block instances.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "saveTemplate": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Template saved. Use NEW TEMPLATE or QNEW to create a drawing from it.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "donut": {
+    "activeTool": "select",
+    "operation": "linework",
+    "stage": "diameters",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Enter inner and outer diameters in metres: 0 <= inner < outer <= 1000000.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "alignSpace": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select an unlocked viewport in a layout.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "drawingStandards": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Load a standards file with STANDARDS LOAD first.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "arrayPath": {
+    "activeTool": "select",
+    "operation": "array",
+    "stage": "select",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "ARRAY: select the pattern objects, then press Enter.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "joggedDimension": {
+    "activeTool": "dimension",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "DIMENSION: click a line, rectangle, polygon, circle, or arc, or specify two free points.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dimensionDisassociate": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select unlocked dimensions.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "matchProperties": {
+    "activeTool": "select",
+    "operation": "matchProperties",
+    "stage": "pick",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pick the source object.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dimensionUpdate": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select unlocked dimensions.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "pdfAll": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "multilineText": {
+    "activeTool": "text",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Multiline text tool active.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "openSheetSet": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": true
+  },
+  "pdfLayers": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select one editable PDF underlay.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "point": {
+    "activeTool": "point",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Point tool active.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "baselineDimension": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select compatible geometry first, or pick it on the canvas.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "convertColorTable": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Plot styles updated.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "sketch": {
+    "activeTool": "select",
+    "operation": "sketch",
+    "stage": "record",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Drag to sketch; release records. Enter ends, Escape cancels the active stroke.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dataExtract": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "No objects in this extraction scope.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "draftingSettings": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Drafting settings opened.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "tableEdit": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select one editable table.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "chamfer": {
+    "activeTool": "chamfer",
+    "operation": "chamfer",
+    "stage": "corner-first",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "CHAMFER (0 m, 0 m): pick the first line. Options [DISTANCE/ANGLE/MULTIPLE/POLYLINE/TRIM/NOTRIM].",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "centerDisassociate": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select unlocked centre marks or centre lines.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "stretch": {
+    "activeTool": "stretch",
+    "operation": "stretch",
+    "stage": "stretch-window-first",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "STRETCH: specify the first corner of the crossing window.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "layout": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "layout",
+    "layoutTool": "select",
+    "message": "Layout opened.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "drawingCheckStandards": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Load a standards file with STANDARDS LOAD first.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "rectangle": {
+    "activeTool": "rectangle",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Rectangle tool active.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "textStyle": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Text-style manager opened.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "ordinateDimension": {
+    "activeTool": "dimension",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "DIMENSION: click a line, rectangle, polygon, circle, or arc, or specify two free points.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "hatchToBack": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Hatches sent to back.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "pdfShxText": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "PDFSHXTEXT [\"font.shx\"|\"font.shp\"] HEIGHT cap-height-metres [ANGLE degrees] [THRESHOLD 80–100]. Select the imported strokes first.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "tableExport": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select one table to export.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "viewportMax": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select a layout viewport first.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "blockDefine": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select unlocked objects and ensure their dependencies are editable.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "pageSetupImport": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": true
+  },
+  "wipeout": {
+    "activeTool": "select",
+    "operation": "wipeout",
+    "stage": "pick",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "WIPEOUT: pick 3–128 polygon vertices; Enter/DONE closes, UNDO removes the last point, Escape cancels. Use FRAME ON/OFF on selected masks.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "externalReference": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Measurement available in the Measurements panel.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "imageSource": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "IMAGEADJUST: select one unlocked image.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "blockCount": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Measurement available in the Measurements panel.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "sheetSetArchive": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Open or create a sheet set first; use valid sheet indices.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "selectCount": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Measurement available in the Measurements panel.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "namedView": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Views: ",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "pdfImport": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": true
+  },
+  "styleManager": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "arcText": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select an arc, then ARCTEXT \"text\" [HEIGHT metres] [OFFSET metres] [SPACING metres] [ALIGN START|CENTER|END] [DIRECTION FORWARD|REVERSE]. Use EDIT \"text\" for a selected label, or DETACH.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "scaleListEdit": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Current annotation scale: 1:100. Available: 1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "multiLeaderStyle": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Leader styles: ",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "centerReassociate": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select unlocked centre marks or centre lines.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dgnImport": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": true
+  },
+  "paperSpace": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "layout",
+    "layoutTool": "select",
+    "message": "Layout opened.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "attributeSync": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select unlocked block references.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "gcEqual": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select compatible objects; point relations require references such as 1@end 2@start.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "field": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "FIELD META key, DOCUMENT property, OBJECT id property, CELL id A1, REF id, DATE format, PAGE property or FORMULA \"expression\" [BIND name \"source\"]. Options: PREFIX, SUFFIX, PRECISION. SHOW or REMOVE for selected text.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "ortho": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Orthogonal mode enabled.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "arrayPolar": {
+    "activeTool": "select",
+    "operation": "array",
+    "stage": "select",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "ARRAY: select the pattern objects, then press Enter.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "blockBase": {
+    "activeTool": "select",
+    "operation": "blockBase",
+    "stage": "base",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pick or type the block base point. Escape cancels.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "hatchEdit": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "HATCHEDIT: select one hatch.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "breakAtPoint": {
+    "activeTool": "break",
+    "operation": "breakAtPoint",
+    "stage": "break-at-point",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "BREAK AT POINT: click the target where it should be split or opened.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "gcConcentric": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select compatible objects; point relations require references such as 1@end 2@start.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "blockConvert": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Use BLOCKDETECT without arguments, BCONVERT \"new name\", or BLOCKREPLACE \"existing name\".",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "annotationReset": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select editable text, dimensions, hatches or block references.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "extend": {
+    "activeTool": "extend",
+    "operation": "extend",
+    "stage": "pick",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "EXTEND: click near an open endpoint to extend it. Hold Shift to trim. Options [EXTENDEDGE/FINITEEDGE/PROJECTNONE].",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dataLinkUpdate": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select editable tables; attach requires one table, update requires linked tables.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "pan": {
+    "activeTool": "pan",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pan tool active.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "referenceCompare": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select an external drawing reference.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "splineEdit": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "SPLINEDIT: select one cubic spline or cubic path.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dcAligned": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Use PARAMETERS SET name number|distance|angle \"expression\", or DCALIGNED name \"expression\" [references]. DCLINEAR also requires X or Y. DIMCONSTRAINT supports LIST, SET and DELETE.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "massProperties": {
+    "activeTool": "select",
+    "operation": "inquiry",
+    "stage": "pick",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pick an object to measure.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "gcParallel": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select compatible objects; point relations require references such as 1@end 2@start.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dimensionInspect": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select unlocked dimensions.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "selectSimilar": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Use TYPE, LAYER, COLOR, LINETYPE, WEIGHT, TRANSPARENCY, BLOCK or LOCKED criteria; FILTER SAVE/APPLY/DELETE \"name\" or LIST.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "rotatedDimension": {
+    "activeTool": "dimension",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "DIMENSION: click a line, rectangle, polygon, circle, or arc, or specify two free points.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "distanceInquiry": {
+    "activeTool": "select",
+    "operation": "inquiry",
+    "stage": "pick",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pick the next point (angle vertex is the second point).",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "imageClip": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "IMAGEADJUST: select one unlocked image.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "region": {
+    "activeTool": "select",
+    "operation": "region",
+    "stage": "pick",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pick inside a closed area or enter x,y. Escape cancels.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "referenceSave": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Open a linked source with REFEDIT first.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "convertPlotStyles": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Plot styles updated.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "attributeDefine": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "table": {
+    "activeTool": "select",
+    "operation": "table",
+    "stage": "point",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pick the table insertion point.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "drawingStatus": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Measurement available in the Measurements panel.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dimensionEdit": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select unlocked dimensions.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "trim": {
+    "activeTool": "trim",
+    "operation": "trim",
+    "stage": "pick",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "TRIM: click a portion, or drag through objects with a freehand cutting fence. Hold Shift to extend. Options [EXTENDEDGE/FINITEEDGE/PROJECTNONE].",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "lengthen": {
+    "activeTool": "lengthen",
+    "operation": "lengthen",
+    "stage": "lengthen-pick",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "LENGTHEN: click near an open endpoint. Options [DELTA/PERCENT/TOTAL/DYNAMIC].",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dataLink": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "No linked tables in this drawing.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "groupEdit": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "No matching group was found.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "temporaryTrackingPoint": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "TRACKPOINT: specify the temporary tracking point.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "linearDimension": {
+    "activeTool": "dimension",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "DIMENSION: click a line, rectangle, polygon, circle, or arc, or specify two free points.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "countArea": {
+    "activeTool": "select",
+    "operation": "countArea",
+    "stage": "pick",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pick two opposite corners of the counting area.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "annotationUpdate": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select editable text, dimensions, hatches or block references.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "countObjects": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Measurement available in the Measurements panel.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "layerIsolate": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Invalid layer name, input or protected/locked layer.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "attributeEdit": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "hyperlink": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Link action failed. Select editable objects and use a valid HTTP/HTTPS address without credentials. Opening requires one linked object.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "changeSpace": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Choose a layout viewport by name or ID; omit it only when the viewport is selected or the layout has just one.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "pageSetupExport": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "There is no saved page setup to export.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "sheetSet": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Open or create a sheet set first; use valid sheet indices.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dwfAttach": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": true
+  },
+  "align": {
+    "activeTool": "select",
+    "operation": "align",
+    "stage": "select",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "ALIGN: select the objects to align, then press Enter.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "text": {
+    "activeTool": "text",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Text tool active.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "modelSpace": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "selectionFilter": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Filters: ",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "fillet": {
+    "activeTool": "fillet",
+    "operation": "fillet",
+    "stage": "corner-first",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "FILLET (radius 0 m): pick the first branch. Options [RADIUS/MULTIPLE/POLYLINE/TRIM/NOTRIM].",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "unisolateObjects": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Temporary object visibility updated.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "redo": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "move": {
+    "activeTool": "select",
+    "operation": "move",
+    "stage": "select",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "MOVE: select objects, then press Enter.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "cutClip": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select at least one object to copy or cut.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "offset": {
+    "activeTool": "select",
+    "operation": "offset",
+    "stage": "select",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "OFFSET: select objects, then press Enter.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "ungroup": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "No matching group was found.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "quickCalc": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Calculator result: 5",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "blockDetect": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select an editable native motif, or editable block instances for replacement.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "multiLeaderCollect": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Invalid leader input or selection. See command help for options.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "resetBlock": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select editable dynamic block instances.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "entityList": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select between 1 and 256 visible objects.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "imageAttach": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Reading linked image files requires the desktop application.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "saveAs": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "New .lcad file created.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "pdfAttach": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": true
+  },
+  "dimension": {
+    "activeTool": "dimension",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "DIMENSION: click a line, rectangle, polygon, circle, or arc, or specify two free points.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "blockSave": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "No block edit session is open.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "referenceClose": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Open a linked source with REFEDIT first.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dgnAttach": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": true
+  },
+  "dgnClip": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select one editable DGN reference.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "blockReplace": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Use BLOCKDETECT without arguments, BCONVERT \"new name\", or BLOCKREPLACE \"existing name\".",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dimConstraint": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Use PARAMETERS SET name number|distance|angle \"expression\", or DCALIGNED name \"expression\" [references]. DCLINEAR also requires X or Y. DIMCONSTRAINT supports LIST, SET and DELETE.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "rotate": {
+    "activeTool": "select",
+    "operation": "rotate",
+    "stage": "select",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "ROTATE: select objects, then press Enter.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "pdfClip": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select one editable PDF underlay.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "layerMerge": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Invalid layer name, input or protected/locked layer.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "pasteBlock": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "The operating system denied clipboard read access.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "viewport": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "layout",
+    "layoutTool": "viewport",
+    "message": "VIEWPORT: specify the first paper corner.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "gcCollinear": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select compatible objects; point relations require references such as 1@end 2@start.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "centerMark": {
+    "activeTool": "dimension",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "DIMENSION: click a line, rectangle, polygon, circle, or arc, or specify two free points.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "multiline": {
+    "activeTool": "select",
+    "operation": "linework",
+    "stage": "vertices",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pick vertices. END finishes, CLOSE closes, UNDO removes the last vertex; Escape cancels.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "geomConstraint": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Use GEOMCONSTRAINT type [references], LIST, or DELETE id|SELECTED|ALL.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "leader": {
+    "activeTool": "select",
+    "operation": "leaderCreation",
+    "stage": "points",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Specify arrow tip, then bend points (x,y).",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "tolerance": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "TOLERANCE symbol value [DIAMETER] [MATERIAL M|L|S] [DATUM A[:M|L|S]] [PROJECTED height] [IDENTIFIER A] [STYLE \"name\"]. EDIT changes a selected frame; STYLE LIST/SET/APPLY/DELETE manages shared styles.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "viewportLayer": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select a layout viewport first.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "creationPanel": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "CREATION PANEL: select exactly one rectangle, circle, regular polygon, arc, or text object.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "undo": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "autoConstrain": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select compatible objects; point relations require references such as 1@end 2@start.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "drawingUnits": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Display: m, precision: 3; angle: degrees, precision: 1; insertion: m.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "blockLookupTable": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select editable dynamic block instances.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "group": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Use GROUP \"name\" / LIST; GROUPEDIT \"name\" ADD, REMOVE, RENAME \"new name\", ON, OFF or SELECT; UNGROUP [\"name\"].",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "copyBase": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select at least one object to copy or cut.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "parameters": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "{\n  \"parameters\": [],\n  \"dimensions\": []\n}",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "ucsIcon": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Invalid units, coordinate-system or limits input.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "copyToLayer": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Use a source object ID, or COPYTOLAYER \"layer name\".",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "layerFilter": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "arrayClose": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "No array preview is active.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "blockParameter": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select editable dynamic block instances.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "objectScale": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select editable text, dimensions, hatches or block references.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "recoveryManager": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Measurement available in the Measurements panel.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "copy": {
+    "activeTool": "select",
+    "operation": "copy",
+    "stage": "select",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "COPY: select objects, then press Enter.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "polygon": {
+    "activeTool": "polygon",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Regular polygon tool active.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "jpegOut": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "No visible geometry to export.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "gcCoincident": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select compatible objects; point relations require references such as 1@end 2@start.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "array": {
+    "activeTool": "select",
+    "operation": "array",
+    "stage": "select",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "ARRAY: select the pattern objects, then press Enter.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "diameterDimension": {
+    "activeTool": "dimension",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "DIMENSION: click a line, rectangle, polygon, circle, or arc, or specify two free points.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "line": {
+    "activeTool": "line",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Line tool active.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "gcPerpendicular": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select compatible objects; point relations require references such as 1@end 2@start.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "scale": {
+    "activeTool": "select",
+    "operation": "scale",
+    "stage": "select",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "SCALE: select objects, then press Enter.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "hideObjects": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select editable target objects.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "viewportMin": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Returned to the full paper layout.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "blockTable": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select editable dynamic block instances.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dimensionSpace": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select unlocked dimensions.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "spline": {
+    "activeTool": "spline",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Spline tool active.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "recoverAll": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Measurement available in the Measurements panel.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "copyClip": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select at least one object to copy or cut.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "audit": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "No integrity issues detected.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dimensionStyle": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Dimension styles: Standard",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "layerState": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Layer states: ",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "zoom": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "tableStyle": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Standard",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "ucs": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "UCS origin: 0, 0; rotation: 0°. Saved: ",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "pngOut": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "No visible geometry to export.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "gcVertical": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select compatible objects; point relations require references such as 1@end 2@start.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "gcSmooth": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select compatible objects; point relations require references such as 1@end 2@start.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "continueDimension": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select compatible geometry first, or pick it on the canvas.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "countTable": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Use [LIST|CSV|JSON|XLS|TABLE x y] [ALL|SELECTED] [NESTED] [GROUP field,...|NONE] [SUM length,area|NONE] [TO \"path\"]. COUNTTABLE starts with x y; add LINKED for automatic quantities.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "drawingCompareImport": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Open a comparison drawing first.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "layerFlags": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Invalid layer name, input or protected/locked layer.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "referenceEdit": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select an external drawing reference.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "measureGeometry": {
+    "activeTool": "select",
+    "operation": "inquiry",
+    "stage": "pick",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pick the next point (angle vertex is the second point).",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "centerLine": {
+    "activeTool": "select",
+    "operation": "centerLineCreation",
+    "stage": "source",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pick the first line segment. Escape cancels.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "contentBrowser": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": true
+  },
+  "publish": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "centerReset": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select unlocked centre marks or centre lines.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "blend": {
+    "activeTool": "blend",
+    "operation": "blend",
+    "stage": "corner-first",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "BLEND: pick near the first open curve endpoint.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "quickSelect": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Use TYPE, LAYER, COLOR, LINETYPE, WEIGHT, TRANSPARENCY, BLOCK or LOCKED criteria; FILTER SAVE/APPLY/DELETE \"name\" or LIST.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "referenceAttach": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": true
+  },
+  "exportLayout": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Layout exported as an editable native drawing.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "gradient": {
+    "activeTool": "select",
+    "operation": "hatch",
+    "stage": "pick",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pick inside a closed area, enter x,y or change the pattern. Escape cancels.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dimensionTextEdit": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select unlocked dimensions.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dcConvert": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select compatible native objects or specify valid point/segment references.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "delete": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "ray": {
+    "activeTool": "ray",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Ray tool active.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "blockImport": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": true
+  },
+  "pasteClip": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "The operating system denied clipboard read access.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "join": {
+    "activeTool": "select",
+    "operation": "join",
+    "stage": "select",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "JOIN: select objects, then press Enter.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "layerCurrent": {
+    "activeTool": "select",
+    "operation": "matchProperties",
+    "stage": "pick",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pick the source object.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dcDiameter": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Use PARAMETERS SET name number|distance|angle \"expression\", or DCALIGNED name \"expression\" [references]. DCLINEAR also requires X or Y. DIMCONSTRAINT supports LIST, SET and DELETE.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "pdfSelected": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "pasteOriginal": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "The operating system denied clipboard read access.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "pointStyle": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "DDPTYPE dot|cross|x|circle|square|circle-cross|square-cross size. Size: 0.000001–1000000 m.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "blockClose": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "No block edit session is open.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "attributeManager": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "boundary": {
+    "activeTool": "select",
+    "operation": "boundary",
+    "stage": "pick",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pick inside a closed area or enter x,y. Escape cancels.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "transparency": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "TRANSPARENCY requires a value from 0 to 90 and an unlocked selection.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "revisionCloud": {
+    "activeTool": "select",
+    "operation": "revision",
+    "stage": "points",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pick rectangle corners or polygon vertices. END closes a polygon; UNDO removes the last vertex.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "alignedDimension": {
+    "activeTool": "dimension",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "DIMENSION: click a line, rectangle, polygon, circle, or arc, or specify two free points.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "recover": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "No ready recovery candidate. Read a source drawing first.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "autoPublish": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "AUTOPUBLISH requires a saved .lcad drawing so the PDF destination is unambiguous.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "aliasEdit": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "overkill": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select objects to clean, or specify ALL.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "open": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": true
+  },
+  "wmfExport": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "No visible objects to export.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "blockEdit": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select one unlocked block reference or provide a block name.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "gcTangent": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select compatible objects; point relations require references such as 1@end 2@start.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "fit": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "measure": {
+    "activeTool": "select",
+    "operation": "pointPlacement",
+    "stage": "pick",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Pick one finite curve or connected path.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "polylineEdit": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select one editable polyline.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "layerTranslate": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Invalid layer name, input or protected/locked layer.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "dwfx": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "quickNew": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "arrayEdit": {
+    "activeTool": "select",
+    "operation": "array",
+    "stage": "select",
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "ARRAYEDIT: select one rectangular, polar or path array, then press Enter.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "drawOrder": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select unlocked objects to change their draw order.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "attributeExtract": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "No attributed block insertions in this scope.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "gcFix": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "Select compatible objects; point relations require references such as 1@end 2@start.",
+    "entities": 0,
+    "fileChooser": false
+  },
+  "plot": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": false
+  }
+}

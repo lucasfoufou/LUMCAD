@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open } from '../utils/nativeDialogs.js';
 
 import { useI18n } from '~i18n/I18nProvider';
 import { createI18nError, localizeError } from '~i18n/translator';

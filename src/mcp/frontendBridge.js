@@ -9,6 +9,13 @@ export async function runMcpFrontendRequest(request, getHandlers, settle = settl
     if (!request || typeof request !== 'object') throw new Error('The MCP request must be an object.');
     if (typeof getHandlers !== 'function') throw new Error('The MCP frontend handlers are unavailable.');
 
+    const fileHandler = { open_document: 'openDocument', save_document: 'saveDocument', export_pdf: 'exportPdf' }[request.kind];
+    if (fileHandler) {
+        const result = await getHandlers()[fileHandler](request.path, request.layoutIds);
+        await settle();
+        return result;
+    }
+
     if (request.kind === MCP_REQUEST_KINDS.getState) return getHandlers().getState();
 
     if (request.kind === MCP_REQUEST_KINDS.replaceDocument) {

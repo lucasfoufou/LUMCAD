@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open } from '../utils/nativeDialogs.js';
 import { chooseBrowserFile, isTauriRuntime } from './lcadStorage.js';
 import { normalizeDrawingTable, parseDrawingTableCsv } from './drawingTables.js';
 import { resolveRecoveredReferencePath } from './lcadRecoveryReferences.js';

@@ -13,6 +13,8 @@ Do not duplicate the project documentation in code or in this file. Use the rele
 - [README.md](./README.md): product goals, supported workflows, development commands, releases, and contribution overview.
 - [TOOL_ROADMAP.md](./TOOL_ROADMAP.md): current CAD capability coverage, known gaps, priorities, and the rule for updating the roadmap.
 - [LCAD_FORMAT.md](./LCAD_FORMAT.md): versioned `.lcad` ZIP structure, manifest semantics, assets, validation limits, and persistence guarantees.
+- [HEADLESS.md](./HEADLESS.md): unattended native runtime, file tools and PDF verification.
+- [E2E_TESTING.md](./E2E_TESTING.md): browser command coverage, successful workflows and remaining acceptance.
 - [MCP.md](./MCP.md): local MCP architecture, command/action contract, security model, client workflow, and MCP-specific tests.
 - [TRANSLATING.md](./TRANSLATING.md): i18n conventions, locale catalogs, error localization, and translation validation.
 - [PERFORMANCE.md](./PERFORMANCE.md): benchmark fixtures and commands, performance budgets, and the current baseline.

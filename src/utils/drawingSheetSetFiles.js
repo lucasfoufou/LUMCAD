@@ -1,4 +1,4 @@
-import { save } from '@tauri-apps/plugin-dialog';
+import { save } from '../utils/nativeDialogs.js';
 import { isTauriRuntime } from './lcadStorage.js';
 import { readDrawingJsonFile } from './drawingJsonFiles.js';
 import { exportDrawingText } from './drawingTextExport.js';

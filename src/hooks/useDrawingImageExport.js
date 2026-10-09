@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { save } from '@tauri-apps/plugin-dialog';
+import { save } from '../utils/nativeDialogs.js';
 import { invoke } from '@tauri-apps/api/core';
 import { isTauriRuntime } from '~utils/lcadStorage';
 import { downloadBrowserBlob } from '~utils/browserDownload';

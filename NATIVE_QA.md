@@ -59,3 +59,7 @@ The new `.github/workflows/desktop-checks.yml` runs frontend/Rust checks and com
 5. Save As, reopen, compare content, export PDF, cancel the system print dialog and then test a real printer when one is available. Include paths with spaces and accented characters.
 6. Run the corrected browser and document benchmarks in PERFORMANCE.md, record sampled JS-heap peak separately from native process memory. Confirm nonempty selection and exact undo/redo restoration. Report all out-of-budget cases.
 7. On macOS Intel specifically repeat menu/accelerator, clipboard and block-rendering acceptance; on Windows/Linux validate their native dialogs and platform clipboard behaviour. Do not mark an unexecuted row as passed.
+
+## Unattended follow-up
+
+The native executable built from the headless implementation was launched with `--headless` on this macOS host. MCP created a line with exact coordinates, saved/reopened a temporary `.lcad` with unchanged geometry, and generated two mixed-format PDF pages. PDF.js independently recovered the expected paper labels and verified reversed page ordering. Relative save paths, missing input files, nonexistent layout IDs and dialog-only Save As were refused. Unknown-layout publication preserved the existing output bytes. An invalid startup drawing exits with a diagnostic and status 1. The process used temporary destinations and was terminated after the test. See `npm run test:headless` and HEADLESS.md for the repeatable check. Windows/Linux headless acceptance remains pending.

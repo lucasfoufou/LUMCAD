@@ -10,7 +10,7 @@ LUMCAD starts a local [Model Context Protocol](https://modelcontextprotocol.io/)
 - MCP protocol: `2026-07-28`, with compatibility for older clients supported by the official Rust SDK
 - Lifetime: the server starts with LUMCAD and stops with it
 
-LUMCAD must be open and its drawing window must have finished loading before tools that access the active document can run. `get_commands` remains self-contained, but document tools return a clear error while the window is unavailable.
+LUMCAD must be running and its editor must have finished loading before tools that access the active document can run. `--headless` runs the same editor in an invisible native WebView; see [HEADLESS.md](./HEADLESS.md) for launch, isolation and unattended PDF output. `get_commands` remains self-contained, but document tools return a clear error while the window is unavailable.
 
 Open **LUMCAD → Settings…** on macOS, or use the gear button in the Windows/Linux header, to see and copy the active endpoint. The preferred port can be changed there without restarting LUMCAD.
 
@@ -149,6 +149,14 @@ Continues the currently active command without restarting it. This is useful whe
 Merges a supplied LUMCAD document object into the active document and normalizes its layers, entities, text styles, settings, metadata, layouts, page setups, and embedded assets. The replacement is added to undo history and is picked up by autosave. MCP exchanges the hydrated in-memory document; persistence converts embedded image data URLs into separate files inside the ZIP-based `.lcad` container described in [LCAD_FORMAT.md](./LCAD_FORMAT.md).
 
 Use `get_state` first, preserve fields you do not intend to change, and prefer regular commands for localized edits. This tool is intended for AI-generated drawings or large deterministic transformations.
+
+## Explicit file tools (interactive and headless)
+
+- `open_document {path}` reads an absolute `.lcad` path and replaces the active session, explicitly discarding unsaved changes. Failure preserves the existing session. Save first if edits must be retained.
+- `save_document {path}` atomically saves the current document to an absolute `.lcad` path and sets the active destination, without a dialog. Protected recovery/template sources remain protected.
+- `export_pdf {path, layoutIds?}` renders layouts and atomically writes an absolute `.pdf` destination, returning path, page count, byte count and ordered layout IDs. Omitted IDs mean all layouts; empty, duplicate or unknown IDs reject. Layouts must contain viewports to show model geometry. A document change during PDF preparation cancels the write.
+
+Existing destinations are replaced explicitly. These tools refuse block-edit sessions and relative/wrong-extension paths. Headless mode disables autosave; call `save_document` when source persistence is needed. File tools finish before replying. The serialized bridge has a 120-second timeout; a timed-out request may still finish, so it blocks later requests until restart rather than allowing overlapping writes.
 
 ## Actions
 

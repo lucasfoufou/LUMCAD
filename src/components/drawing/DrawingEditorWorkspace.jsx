@@ -96,6 +96,8 @@ import useLcadAutosave from '~hooks/useLcadAutosave';
 import useLcadFileCommands from '~hooks/useLcadFileCommands';
 import useDrawingRecovery from '~hooks/useDrawingRecovery';
 import useLocalDrawingImageImport from '~hooks/useLocalDrawingImageImport';
+import useMcpFiles from '~hooks/useMcpFiles';
+import { isHeadlessRuntime } from '~utils/runtimeMode';
 import useLumcadMcpBridge from '~hooks/useLumcadMcpBridge';
 import { useI18n } from '~i18n/I18nProvider';
 import { localizeError } from '~i18n/translator';
@@ -1749,6 +1751,12 @@ export default function DrawingEditorWorkspace({
 
     const submitCommand = async rawValue => {
         rawValue = expandDrawingAlias(rawValue, settings.commandAliases);
+        if (isHeadlessRuntime()) {
+            const command = parseDrawingCommand(rawValue)?.command;
+            if (['new', 'quickNew', 'open', 'saveAs', 'plot', 'pdf', 'pdfAll', 'pdfSelected', 'publish', 'dwfx', 'imageAttach', 'aliasEdit'].includes(command)) {
+                throw new Error(t('headless.dialogUnavailable'));
+            }
+        }
         const immediateCommand = parseDrawingCommand(rawValue);
         if (immediateCommand?.command === 'hyperlink') {
             try {
@@ -2796,8 +2804,12 @@ export default function DrawingEditorWorkspace({
         importImage: () => imageInputRef.current?.click(),
     };
 
+    const mcpFiles = useMcpFiles({ document, blockEditing: Boolean(blockEditor.session), onReplaceSession,
+        setFilePath: handlePathChange, rendererRef: publishRendererRef, protectedPaths: recoverySourcePaths });
     useLumcadMcpBridge({
+        ...mcpFiles,
         getState: () => ({
+            headless: isHeadlessRuntime(),
             document,
             filePath,
             recovered: Boolean(recovered && !filePath),

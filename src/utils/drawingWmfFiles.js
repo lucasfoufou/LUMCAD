@@ -2,7 +2,7 @@ import { readDrawingInterchangeFile } from './drawingInterchangeFiles.js';
 import { downloadBrowserBlob } from './browserDownload.js';
 import { readDrawingWmfRecords } from './drawingWmfRecords.js';
 import { invoke } from '@tauri-apps/api/core';
-import { save } from '@tauri-apps/plugin-dialog';
+import { save } from '../utils/nativeDialogs.js';
 import { isTauriRuntime } from './lcadStorage.js';
 import { tokenizeDrawingAttributeInput } from './drawingBlockAttributes.js';
 

@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open } from '../utils/nativeDialogs.js';
 import { chooseBrowserFile, isTauriRuntime } from './lcadStorage.js';
 import { MAX_SHX_FONT_BYTES, parseDrawingShxFont } from './drawingShxFont.js';
 import { createI18nError } from '../i18n/translator.js';

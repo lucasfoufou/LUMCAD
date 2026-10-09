@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open } from '../utils/nativeDialogs.js';
 import { chooseBrowserFile, isTauriRuntime } from './lcadStorage.js';
 
 /** Shared bounded UTF-8 reading for portable project and resource JSON files. */

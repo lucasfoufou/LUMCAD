@@ -220,6 +220,7 @@ impl AppSettingsState {
 }
 
 pub fn load(app: &AppHandle) -> Result<AppSettingsState, String> {
+    if crate::runtime::is_headless() { return Ok(AppSettingsState::new(AppSettings::default())); }
     let path = settings_path(app)?;
     let settings = match File::open(&path) {
         Ok(file) => match serde_json::from_reader::<_, AppSettings>(BufReader::new(file)) {
@@ -257,10 +258,10 @@ pub fn update_app_settings(
 ) -> Result<AppSettings, String> {
     let previous = state.snapshot();
     let settings = settings.normalized();
-    write_settings(&settings_path(&app)?, &settings)?;
+    if !crate::runtime::is_headless() { write_settings(&settings_path(&app)?, &settings)?; }
     state.replace(settings.clone());
 
-    if previous.language != settings.language {
+    if previous.language != settings.language && !crate::runtime::is_headless() {
         crate::native_menu::install(&app, &settings.language)?;
     }
     if previous.mcp != settings.mcp {

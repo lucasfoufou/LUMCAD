@@ -1,6 +1,6 @@
 {
   "name": "lumcad",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Open-source, AI-enabled, lightweight 2D CAD software",
@@ -26,7 +26,10 @@
     "bench:browser": "node scripts/bench-browser.mjs",
     "test:mcp": "node --test src/utils/mcpBridge.test.js && cargo test --manifest-path src-tauri/Cargo.toml mcp::",
     "tauri": "tauri",
-    "check": "npm test && npm run build && cargo test --manifest-path src-tauri/Cargo.toml"
+    "check": "npm test && npm run build && cargo test --manifest-path src-tauri/Cargo.toml",
+    "dev:e2e": "node scripts/dev-e2e.mjs",
+    "test:e2e": "playwright test",
+    "test:headless": "node scripts/test-headless.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.1",
@@ -43,6 +46,7 @@
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.0",
     "@resvg/resvg-js": "^2.6.2",
     "@tauri-apps/cli": "^2.9.6",
     "@vitejs/plugin-react": "^5.0.4",

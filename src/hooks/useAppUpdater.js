@@ -2,6 +2,7 @@ import { useCallback, useEffect, useReducer, useRef } from 'react';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { check } from '@tauri-apps/plugin-updater';
 
+import { isHeadlessRuntime } from '~utils/runtimeMode';
 import { isTauriRuntime } from '~utils/lcadStorage';
 import {
     APP_UPDATE_CHECK_INTERVAL_MS,
@@ -21,7 +22,7 @@ export default function useAppUpdater({ beforeInstall } = {}) {
     beforeInstallRef.current = beforeInstall;
 
     const checkNow = useCallback(() => {
-        if (!isTauriRuntime()) return Promise.resolve(null);
+        if (!isTauriRuntime() || isHeadlessRuntime()) return Promise.resolve(null);
         if (installPromiseRef.current) return Promise.resolve(updateRef.current);
         if (checkPromiseRef.current) return checkPromiseRef.current;
         if (mountedRef.current) dispatch({ type: 'check-started' });
@@ -81,7 +82,7 @@ export default function useAppUpdater({ beforeInstall } = {}) {
 
     useEffect(() => {
         mountedRef.current = true;
-        if (!isTauriRuntime()) return () => { mountedRef.current = false; };
+        if (!isTauriRuntime() || isHeadlessRuntime()) return () => { mountedRef.current = false; };
         checkNow();
         const interval = window.setInterval(checkNow, APP_UPDATE_CHECK_INTERVAL_MS);
         return () => {

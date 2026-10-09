@@ -1,7 +1,7 @@
 import { flattenDrawingSvgGroups } from './drawingSvgGroups.js';
 import { applyImageAdjustmentsToPixels, hasImageAdjustments } from './drawingImageAdjustments.js';
 import { invoke } from '@tauri-apps/api/core';
-import { save } from '@tauri-apps/plugin-dialog';
+import { save } from '../utils/nativeDialogs.js';
 import { strToU8, unzipSync, zipSync } from 'fflate';
 
 import { getDrawingPaperSize } from './drawingLayouts.js';

@@ -839,3 +839,9 @@ Next work explicitly requested by the maintainer, in separate projects:
 2. DXF and DWG import/export.
 3. Frontend end-to-end coverage for the 200+ CAD tools.
 4. Explore a plugin contract, then a first photovoltaic string-design plugin. No extensibility API or compatibility promise is introduced by this hardening pass.
+
+### Headless and frontend regression coverage — 2026-10-09
+
+Implemented a windowless Tauri mode (`--headless`) with process-local settings, no GUI recovery/autosave or update checks, and explicit MCP open/save/PDF tools. It reuses the existing editor and native atomic file writers; Linux still requires a graphical session or Xvfb. Native macOS integration exercises drawing creation, LCAD round-trip and multipage PDF output. See HEADLESS.md for the contract and platform limits.
+
+The Playwright suite now covers entry/preconditions for all 294 canonical commands, with a separately identified set of successful geometry, history, file and pointer workflows. This is not exhaustive validation of every option of all tools; E2E_TESTING.md records the distinction and remaining deeper cases. Headless/E2E work is active; DWG/DXF and plugin exploration remain deferred, as does P5.

@@ -3,7 +3,7 @@ use std::{
     env, io,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, OnceLock,
     },
     time::Duration,
@@ -36,7 +36,7 @@ use url::Url;
 const DEFAULT_MCP_PORT: u16 = 43_622;
 const MCP_FALLBACK_SCAN: u16 = 20;
 const MCP_REQUEST_EVENT: &str = "lumcad://mcp-request";
-const MCP_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const MCP_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 const MCP_PROTOCOL_VERSION: &str = "2026-07-28";
 
 pub const MCP_TOOL_NAMES: &[&str] = &[
@@ -45,6 +45,9 @@ pub const MCP_TOOL_NAMES: &[&str] = &[
     "execute_command",
     "interact",
     "replace_document",
+    "open_document",
+    "save_document",
+    "export_pdf",
 ];
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -113,6 +116,23 @@ struct ReplaceDocumentParams {
     document: Value,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct FileParams {
+    /// Absolute .lcad source or destination path.
+    path: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+struct ExportPdfParams {
+    /// Absolute .pdf destination path.
+    path: String,
+    /// PDF layout IDs in output order; omitted means all layouts. Never empty.
+    #[serde(default)]
+    layout_ids: Option<Vec<String>>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct FrontendRequestPayload {
@@ -126,6 +146,7 @@ struct McpBridgeInner {
     pending: Mutex<HashMap<String, oneshot::Sender<Value>>>,
     serial: AsyncMutex<()>,
     next_id: AtomicU64,
+    timed_out: AtomicBool,
 }
 
 #[derive(Clone, Default)]
@@ -153,6 +174,9 @@ impl McpBridge {
 
     async fn dispatch(&self, app: &AppHandle, request: Value) -> Result<Value, String> {
         let _serial = self.0.serial.lock().await;
+        if self.0.timed_out.load(Ordering::SeqCst) {
+            return Err("A previous MCP request timed out and may still be executing. Restart LUMCAD before sending more requests; do not automatically retry writes.".into());
+        }
         let ready = self
             .0
             .ready_clients
@@ -198,11 +222,12 @@ impl McpBridge {
                 )
             }
             Err(_) => {
+                self.0.timed_out.store(true, Ordering::SeqCst);
                 if let Ok(mut pending) = self.0.pending.lock() {
                     pending.remove(&id);
                 }
                 return Err(
-                    "The LUMCAD drawing window did not answer the MCP request within 30 seconds."
+                    "The LUMCAD drawing window did not answer the MCP request within 120 seconds."
                         .into(),
                 );
             }
@@ -243,6 +268,7 @@ impl LumcadMcpServer {
     }
 
     async fn dispatch(&self, request: Value) -> CallToolResult {
+        if let Err(error) = validate_file_request(&request) { return tool_error(error); }
         let Some(dispatcher) = &self.dispatcher else {
             return tool_error("The LUMCAD drawing window is unavailable.");
         };
@@ -311,6 +337,21 @@ impl LumcadMcpServer {
         self.dispatch(json!({ "kind": "replace_document", "document": params.document }))
             .await
     }
+    #[tool(description = "Open an absolute .lcad path without a dialog. Replaces the active session, discarding unsaved edits; save_document first if needed.")]
+    async fn open_document(&self, Parameters(params): Parameters<FileParams>) -> CallToolResult {
+        self.dispatch(json!({"kind": "open_document", "path": params.path})).await
+    }
+
+    #[tool(description = "Atomically save the active document to an absolute .lcad path without a dialog. Replaces an existing destination.")]
+    async fn save_document(&self, Parameters(params): Parameters<FileParams>) -> CallToolResult {
+        self.dispatch(json!({"kind": "save_document", "path": params.path})).await
+    }
+
+    #[tool(description = "Render and atomically write a PDF to an absolute path without preview or dialog. Optional layoutIds specifies output order; omitted exports all layouts. Returns path and page count after writing.")]
+    async fn export_pdf(&self, Parameters(params): Parameters<ExportPdfParams>) -> CallToolResult {
+        self.dispatch(json!({"kind": "export_pdf", "path": params.path, "layoutIds": params.layout_ids})).await
+    }
+
 }
 
 #[tool_handler(
@@ -420,6 +461,7 @@ impl McpRuntimeState {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpStatus {
+    headless: bool,
     enabled: bool,
     running: bool,
     starting: bool,
@@ -435,6 +477,7 @@ pub struct McpStatus {
 impl McpStatus {
     fn stopped(enabled: bool, preferred_port: u16) -> Self {
         Self {
+            headless: crate::runtime::is_headless(),
             enabled,
             running: false,
             starting: false,
@@ -546,6 +589,7 @@ async fn serve(
         .local_addr()
         .map_err(|error| format!("cannot read the MCP server address: {error}"))?;
     runtime.mark_running(generation, preferred_port, actual_address.port());
+    eprintln!("LUMCAD MCP endpoint: http://127.0.0.1:{}/mcp (headless={})", actual_address.port(), crate::runtime::is_headless());
 
     axum::serve(listener, router)
         .with_graceful_shutdown(cancellation.cancelled_owned())
@@ -674,6 +718,21 @@ fn tool_error(error: impl Into<String>) -> CallToolResult {
     result
 }
 
+fn validate_file_request(request: &Value) -> Result<(), String> {
+    let extension = match request.get("kind").and_then(Value::as_str) {
+        Some("open_document" | "save_document") => "lcad",
+        Some("export_pdf") => "pdf",
+        _ => return Ok(()),
+    };
+    let value = request.get("path").and_then(Value::as_str).unwrap_or("");
+    let path = std::path::Path::new(value);
+    if value.contains('\0') || !path.is_absolute()
+        || !path.extension().and_then(|ext| ext.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case(extension)) {
+        return Err(format!("Expected an absolute .{extension} path for this operating system."));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -682,6 +741,19 @@ mod tests {
         transport::StreamableHttpClientTransport,
         ServiceExt,
     };
+
+    #[test]
+    fn file_tools_validate_native_paths_before_dispatch() {
+        let root = std::env::temp_dir();
+        assert!(validate_file_request(&json!({"kind":"save_document", "path":root.join("plan.lcad")})).is_ok());
+        assert!(validate_file_request(&json!({"kind":"export_pdf", "path":root.join("plan.PDF")})).is_ok());
+        for path in ["relative.lcad", "", "bad\0.lcad"] {
+            assert!(validate_file_request(&json!({"kind":"save_document", "path":path})).is_err());
+        }
+        assert!(validate_file_request(&json!({"kind":"export_pdf", "path":root.join("plan.lcad")})).is_err());
+        #[cfg(not(target_os = "windows"))]
+        assert!(validate_file_request(&json!({"kind":"open_document", "path":r"C:\plan.lcad"})).is_err());
+    }
 
     #[test]
     fn shared_command_manifest_is_unique_and_complete() {
@@ -731,7 +803,7 @@ mod tests {
             MCP_TOOL_NAMES.iter().copied().collect::<HashSet<_>>().len(),
             MCP_TOOL_NAMES.len()
         );
-        assert_eq!(MCP_TOOL_NAMES.len(), 5);
+        assert_eq!(MCP_TOOL_NAMES.len(), 8);
     }
 
     #[test]

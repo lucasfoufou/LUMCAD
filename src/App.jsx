@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
 import DrawingEditorWorkspace from '~components/drawing/DrawingEditorWorkspace';
@@ -8,6 +9,8 @@ import { useAppSettings } from '~settings/AppSettingsProvider';
 import { localizeError } from '~i18n/translator';
 import { createLcadDocument } from '~utils/lcadDocument';
 import { clearLcadRecovery, isTauriRuntime, loadStartupLcad, openLcadDocument } from '~utils/lcadStorage';
+
+import { isHeadlessRuntime } from '~utils/runtimeMode';
 
 const BENCHMARK_HARNESS_ENABLED = import.meta.env.DEV || import.meta.env.VITE_LUMCAD_BENCH === '1';
 
@@ -39,7 +42,10 @@ export default function App() {
                     : { document: createLocalizedDocument(initialTranslatorRef.current, initialDrawingDefaultsRef.current), path: null, recovered: false });
             })
             .catch(error => {
-                if (!cancelled) setStartupError(error);
+                if (!cancelled) {
+                    setStartupError(error);
+                    if (isHeadlessRuntime()) invoke('fail_headless_startup', { error: String(error) }).catch(() => {});
+                }
             });
         return () => { cancelled = true; };
     }, [replaceSession]);
@@ -121,7 +127,7 @@ export default function App() {
             initialRecoveryGraph={session.recoveryGraph}
             initialTemplateSourcePath={session.templateSourcePath}
             initialMessage={session.initialMessage}
-            sandbox={Boolean(session.sandbox)}
+            sandbox={Boolean(session.sandbox) || isHeadlessRuntime()}
             onReplaceSession={replaceSession}
             onOpenSettings={() => setSettingsOpen(true)}
         />;

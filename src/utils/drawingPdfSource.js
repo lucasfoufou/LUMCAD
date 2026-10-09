@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open } from '../utils/nativeDialogs.js';
 import { chooseBrowserFile, isTauriRuntime } from './lcadStorage.js';
 import { drawingPdfBytes, drawingPdfDataUrl, MAX_PDF_SOURCE_BYTES } from './drawingPdfReader.js';
 import { createI18nError } from '../i18n/translator.js';

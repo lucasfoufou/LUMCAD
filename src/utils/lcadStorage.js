@@ -1,7 +1,7 @@
 import { downloadBrowserBlob } from './browserDownload.js';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { open, save } from '@tauri-apps/plugin-dialog';
+import { open, save } from '../utils/nativeDialogs.js';
 
 import { createI18nError } from '../i18n/translator.js';
 import { createLcadArchive, readLcadArchive } from './lcadArchive.js';

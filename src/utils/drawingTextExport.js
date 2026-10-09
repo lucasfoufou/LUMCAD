@@ -1,6 +1,6 @@
 import { downloadBrowserBlob } from './browserDownload.js';
 import { invoke } from '@tauri-apps/api/core';
-import { save } from '@tauri-apps/plugin-dialog';
+import { save } from '../utils/nativeDialogs.js';
 import { isTauriRuntime } from './lcadStorage.js';
 
 /** Shared atomic desktop export and browser download for UTF-8 CSV/JSON and binary XLS reports. */

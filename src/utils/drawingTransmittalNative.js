@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { save } from '@tauri-apps/plugin-dialog';
+import { save } from '../utils/nativeDialogs.js';
 import { strToU8 } from 'fflate';
 import { isTauriRuntime } from './lcadStorage.js';
 import { createDrawingTransmittal } from './drawingTransmittal.js';
