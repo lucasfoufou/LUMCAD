@@ -1,6 +1,5 @@
-import { DRAWING_UNITS } from './drawingCoordinates.js';
+import { DRAWING_IMPORT_UNITS as units } from './drawingCoordinates.js';
 
-const units = Object.freeze({ ...DRAWING_UNITS, 'us-ft': 1200 / 3937 });
 const normalizedUnit = value => typeof value === 'string' ? value.trim().toLowerCase() : '';
 
 /** Labels are user-editable in V7: unknown or inconsistent labels require an explicit unit. */

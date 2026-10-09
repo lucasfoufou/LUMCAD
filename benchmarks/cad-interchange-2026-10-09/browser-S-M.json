@@ -1,0 +1,178 @@
+{
+  "date": "2026-10-09T11:47:31.466Z",
+  "environment": {
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36",
+    "devicePixelRatio": 1,
+    "viewport": {
+      "width": 1440,
+      "height": 813
+    },
+    "mode": "production"
+  },
+  "fixtures": {
+    "S": {
+      "entities": 1099,
+      "loadMs": 87.7,
+      "domNodes": 4853,
+      "jsHeapMiB": 19.1,
+      "peakJsHeapMiB": 41.1,
+      "scenarios": {
+        "hoverSelect": {
+          "samples": 60,
+          "median": 16.6,
+          "p95": 18.9,
+          "max": 49.3,
+          "longTasks": 0,
+          "longTaskMs": 0
+        },
+        "hoverLineWithSnaps": {
+          "samples": 60,
+          "median": 16.7,
+          "p95": 18.7,
+          "max": 43.4,
+          "checks": {
+            "lineToolActive": true,
+            "snapMarkers": 59
+          },
+          "longTasks": 0,
+          "longTaskMs": 0
+        },
+        "wheelZoom": {
+          "samples": 20,
+          "median": 16.7,
+          "p95": 24.5,
+          "max": 24.5,
+          "longTasks": 0,
+          "longTaskMs": 0
+        },
+        "pan": {
+          "samples": 30,
+          "median": 16.7,
+          "p95": 18.7,
+          "max": 24.8,
+          "longTasks": 0,
+          "longTaskMs": 0
+        },
+        "windowSelect": {
+          "samples": 11,
+          "median": 16.8,
+          "p95": 18.5,
+          "max": 18.5,
+          "checks": {
+            "selected": 1075
+          },
+          "longTasks": 0,
+          "longTaskMs": 0
+        },
+        "deleteUndoRedo": {
+          "samples": 5,
+          "median": 33.2,
+          "p95": 33.5,
+          "max": 33.5,
+          "checks": {
+            "before": 1099,
+            "afterDelete": 23,
+            "afterUndo": 1099,
+            "afterRedo": 23,
+            "restored": 1099
+          },
+          "longTasks": 0,
+          "longTaskMs": 0
+        },
+        "zoomedIn": {
+          "samples": 50,
+          "median": 16.7,
+          "p95": 18,
+          "max": 18.9,
+          "checks": {
+            "domNodes": 1305
+          },
+          "longTasks": 0,
+          "longTaskMs": 0
+        }
+      }
+    },
+    "M": {
+      "entities": 5024,
+      "loadMs": 203.7,
+      "domNodes": 20650,
+      "jsHeapMiB": 112.3,
+      "peakJsHeapMiB": 125.5,
+      "scenarios": {
+        "hoverSelect": {
+          "samples": 60,
+          "median": 16.6,
+          "p95": 18.6,
+          "max": 22.7,
+          "longTasks": 0,
+          "longTaskMs": 0
+        },
+        "hoverLineWithSnaps": {
+          "samples": 60,
+          "median": 16.3,
+          "p95": 20.7,
+          "max": 57.9,
+          "checks": {
+            "lineToolActive": true,
+            "snapMarkers": 59
+          },
+          "longTasks": 0,
+          "longTaskMs": 0
+        },
+        "wheelZoom": {
+          "samples": 20,
+          "median": 16.3,
+          "p95": 51.3,
+          "max": 51.3,
+          "longTasks": 0,
+          "longTaskMs": 0
+        },
+        "pan": {
+          "samples": 30,
+          "median": 16.9,
+          "p95": 29.5,
+          "max": 48.2,
+          "longTasks": 0,
+          "longTaskMs": 0
+        },
+        "windowSelect": {
+          "samples": 11,
+          "median": 22.9,
+          "p95": 30.7,
+          "max": 30.7,
+          "checks": {
+            "selected": 4880
+          },
+          "longTasks": 0,
+          "longTaskMs": 0
+        },
+        "deleteUndoRedo": {
+          "samples": 5,
+          "median": 63.7,
+          "p95": 151.1,
+          "max": 151.1,
+          "checks": {
+            "before": 5024,
+            "afterDelete": 144,
+            "afterUndo": 5024,
+            "afterRedo": 144,
+            "restored": 5024
+          },
+          "longTasks": 4,
+          "longTaskMs": 248
+        },
+        "zoomedIn": {
+          "samples": 50,
+          "median": 16.6,
+          "p95": 19,
+          "max": 32.6,
+          "checks": {
+            "domNodes": 2948
+          },
+          "longTasks": 1,
+          "longTaskMs": 90
+        }
+      }
+    }
+  }
+}

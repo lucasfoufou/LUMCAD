@@ -1,4 +1,5 @@
 mod runtime;
+mod cad_interchange;
 mod hyperlinks;
 mod clipboard;
 mod image_source;
@@ -35,6 +36,9 @@ pub fn run() {
         .manage(storage::PendingOpen::default())
         .invoke_handler(tauri::generate_handler![
             runtime::fail_headless_startup,
+            cad_interchange::read_drawing_cad,
+            cad_interchange::write_drawing_cad,
+            cad_interchange::locate_libredwg,
             transmittal::write_drawing_transmittal,
             storage::resolve_table_csv_path,
             image_source::read_image_source,

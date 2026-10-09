@@ -839,3 +839,7 @@ For example: `JPGOUT WIDTH 1600 BACKGROUND #ffffff QUALITY 0.9` or `EXPORT SVG W
 
 
 `ARCTEXT` creates a linked label from one circular arc in `selection` and input `"text" [HEIGHT metres] [OFFSET metres] [SPACING metres] [ALIGN START|CENTER|END] [DIRECTION FORWARD|REVERSE]`. Without preselection, follow it with a point action containing the arc's `targetId`; Escape cancels. `ARCTEXT EDIT "text"` with the same options edits a selected unlocked label. `ARCTEXT DETACH` removes only the association. The result is a generated polyline carrying `arcText` and `sourceId`; source changes refresh its native text parts in the same undo step. Invalid text/size/spacing/arc fit is atomic. Available in model space, including local block editing; file exports use the normal native export commands.
+
+### DXF and DWG interchange
+
+The shared commands DXFIN, DXFOUT, DWGIN and DWGOUT use `execute_command` with the command name in `command` and the quoted absolute file path/options in `input`. Headless execution requires explicit paths. Import appends model geometry in one undo entry; export atomically writes the complete supported model subset. DWG requires external LibreDWG (found through `LUMCAD_LIBREDWG_DIR`, Settings, `PATH` or standard install folders) and uses experimental R2000 export. See [CAD_INTERCHANGE.md](./CAD_INTERCHANGE.md) for units, supported entities and refusals. These commands do not change the active `.lcad` file path.

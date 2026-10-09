@@ -6,7 +6,7 @@ import React, { useEffect, useState } from 'react';
 
 import { useI18n } from '~i18n/I18nProvider';
 import { useAppSettings } from '~settings/AppSettingsProvider';
-import { getMcpStatus, normalizeAppSettings } from '~settings/appSettings';
+import { getMcpStatus, locateLibreDwg, normalizeAbsolutePath, normalizeAppSettings } from '~settings/appSettings';
 
 export default function AppSettingsDialog({ open, onClose }) {
     const { locale, setLocale, t } = useI18n();
@@ -17,7 +17,9 @@ export default function AppSettingsDialog({ open, onClose }) {
     const [saveError, setSaveError] = useState(false);
     const [shortcutError, setShortcutError] = useState(false);
     const [aliasError, setAliasError] = useState(false);
+    const [converterLocation, setConverterLocation] = useState(undefined);
     const dialogRef = useDialogFocus(open, onClose, saving);
+    const libredwgDirectory = draft?.cadInterchange?.libredwgDirectory || '';
     const [copied, setCopied] = useState(false);
 
     useEffect(() => {
@@ -40,6 +42,19 @@ export default function AppSettingsDialog({ open, onClose }) {
         };
     }, [onClose, open, settings]);
 
+    useEffect(() => {
+        if (!open) return undefined;
+        let disposed = false;
+        // Debounced so typing a folder does not probe the filesystem on every key.
+        const timer = window.setTimeout(() => locateLibreDwg(libredwgDirectory)
+            .then(location => { if (!disposed) setConverterLocation(location); })
+            .catch(() => { if (!disposed) setConverterLocation(null); }), 250);
+        return () => {
+            disposed = true;
+            window.clearTimeout(timer);
+        };
+    }, [libredwgDirectory, open]);
+
     if (!open) return null;
 
     const update = patch => setDraft(current => ({ ...current, ...patch }));
@@ -48,6 +63,7 @@ export default function AppSettingsDialog({ open, onClose }) {
         drawingDefaults: { ...current.drawingDefaults, ...patch },
     }));
     const updateMcp = patch => setDraft(current => ({ ...current, mcp: { ...current.mcp, ...patch } }));
+    const updateCadInterchange = patch => setDraft(current => ({ ...current, cadInterchange: { ...current.cadInterchange, ...patch } }));
 
     const save = async event => {
         event.preventDefault();
@@ -202,6 +218,14 @@ export default function AppSettingsDialog({ open, onClose }) {
                             </SettingsField>
                             <McpStatus status={mcpStatus} copied={copied} onCopy={copyEndpoint} t={t} />
                         </SettingsSection>
+
+                        <SettingsSection title={t('settings.interchangeTitle')} description={t('settings.interchangeDescription')}>
+                            <SettingsField label={t('settings.libredwgDirectory')} hint={t('settings.libredwgDirectoryHint')}>
+                                <Input type="text" value={libredwgDirectory} placeholder={t('settings.libredwgDirectoryAutomatic')}
+                                    onChange={event => updateCadInterchange({ libredwgDirectory: event.target.value })} />
+                            </SettingsField>
+                            <ConverterStatus location={converterLocation} directory={libredwgDirectory} t={t} />
+                        </SettingsSection>
                     </div>
 
                     <footer className="lumcad-settings-footer">
@@ -259,13 +283,13 @@ function McpStatus({ status, copied, onCopy, t }) {
     else if (status?.lastError) state = 'error';
     else if (status?.enabled === false) state = 'disabled';
     return (
-        <div className={`lumcad-mcp-status is-${state}`}>
-            <div className="lumcad-mcp-status-heading">
-                <span className="lumcad-mcp-status-dot" aria-hidden="true" />
+        <div className={`lumcad-service-status is-${state}`}>
+            <div className="lumcad-service-status-heading">
+                <span className="lumcad-service-status-dot" aria-hidden="true" />
                 <strong>{t(`settings.mcpStatus.${state}`)}</strong>
             </div>
             {status?.endpoint && (
-                <div className="lumcad-mcp-endpoint">
+                <div className="lumcad-service-endpoint">
                     <code>{status.endpoint}</code>
                     <Button type="button" onClick={onCopy}>{copied ? t('settings.copied') : t('settings.copy')}</Button>
                 </div>
@@ -274,6 +298,26 @@ function McpStatus({ status, copied, onCopy, t }) {
                 <p>{t('settings.mcpFallbackDetail', { preferred: status.preferredPort, actual: status.actualPort })}</p>
             )}
             {state === 'error' && <p>{t('settings.mcpErrorDetail')}</p>}
+        </div>
+    );
+}
+
+/** LibreDWG lookup result for the folder being edited, with install guidance when it is missing. */
+function ConverterStatus({ location, directory, t }) {
+    const explicit = Boolean(directory.trim());
+    let state = 'found';
+    if (location === undefined) state = 'desktopOnly';
+    else if (explicit && !normalizeAbsolutePath(directory)) state = 'invalid';
+    else if (!location) state = explicit ? 'missingFolder' : 'missing';
+    const tone = { found: 'running', desktopOnly: 'stopped' }[state] || 'error';
+    return (
+        <div className={`lumcad-service-status is-${tone}`} role="status">
+            <div className="lumcad-service-status-heading">
+                <span className="lumcad-service-status-dot" aria-hidden="true" />
+                <strong>{t(`settings.libredwgStatus.${state}`)}</strong>
+            </div>
+            {state === 'found' && <div className="lumcad-service-endpoint"><code>{location}</code></div>}
+            {(state === 'missing' || state === 'missingFolder') && <p>{t('settings.libredwgInstall')}</p>}
         </div>
     );
 }

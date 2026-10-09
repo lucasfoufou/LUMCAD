@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createDrawingLayout, createDrawingViewport } from '../src/utils/drawingLayouts.js';
 import { buildDrawingEntity } from '../src/utils/drawingEntityFactory.js';
+import { materializeDrawingBlockReference } from '../src/utils/drawingBlocks.js';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 const binary = resolve(process.argv[2] || `src-tauri/target/debug/lumcad${process.platform === 'win32' ? '.exe' : ''}`);
@@ -90,6 +91,39 @@ try {
     await assert.rejects(call('execute_command', { command: 'saveAs' }), /dialog/);
     assert.deepEqual((await call('get_state')).document.content.entities, drawn.document.content.entities);
     console.log('PASS: native headless MCP create → save → delete → open → PDF, geometry and refusal checks.');
+    // DWG needs LibreDWG: LUMCAD_LIBREDWG_DIR, or LUMCAD_TEST_DWG=1 to rely on automatic lookup.
+    const dwg = process.env.LUMCAD_LIBREDWG_DIR || process.env.LUMCAD_TEST_DWG === '1';
+    for (const format of ['dxf', ...(dwg ? ['dwg'] : [])]) {
+        const cadPath = join(work, `épreuve.${format}`);
+        const block = { id: 'cad-block', name: 'Roof', basePoint: { x: 0, y: 0 }, entities: [
+            { id: 'cad-child', type: 'line', layerId: 'geometry', x1: 0, y1: 0, x2: 2, y2: 0 },
+        ] };
+        const fixture = [...drawn.document.content.entities,
+            { id: 'cad-circle', type: 'circle', layerId: 'geometry', cx: 5, cy: 6, r: 3 },
+            { id: 'cad-insert', type: 'blockReference', layerId: 'geometry', blockId: block.id,
+                transform: { a: 0, b: 2, c: -3, d: 0, e: 10, f: 20 } },
+        ];
+        await call('replace_document', { document: { content: { ...drawn.document.content, entities: fixture, blocks: [block] } } });
+        await call('execute_command', { command: `${format.toUpperCase()}OUT`, input: JSON.stringify(cadPath) });
+        const exportedBytes = await readFile(cadPath);
+        assert.ok(exportedBytes.length > 100);
+        if (format === 'dwg') assert.equal(exportedBytes.subarray(0, 6).toString(), 'AC1015');
+        const ids = (await call('get_state')).document.content.entities.map(entity => entity.id);
+        await call('execute_command', { command: 'delete', selection: ids });
+        const importedResult = await call('execute_command', { command: `${format.toUpperCase()}IN`, input: JSON.stringify(cadPath) });
+        const importedContent = (await call('get_state')).document.content;
+        const imported = importedContent.entities;
+        assert.equal(imported.length, 3, importedResult.editor.message);
+        assert.equal(imported[1].r, 3);
+        const child = materializeDrawingBlockReference(imported[2], importedContent.blocks)[0];
+        for (const [key, value] of Object.entries({ x1: 10, y1: 20, x2: 10, y2: 24 })) assert.ok(Math.abs(child[key] - value) < 1e-8);
+        assert.equal(imported[0].type, 'line');
+        assert.deepEqual([imported[0].x1, imported[0].y1, imported[0].x2, imported[0].y2], [0, 0, 10, 0]);
+        await call('execute_command', { command: 'undo' });
+        assert.equal((await call('get_state')).document.content.entities.length, 0);
+        await call('open_document', { path });
+        console.log(`PASS: native ${format.toUpperCase()} export → import → undo through MCP.`);
+    }
 } finally {
     if (child.exitCode === null) {
         child.kill();

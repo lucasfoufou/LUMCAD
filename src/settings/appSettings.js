@@ -26,6 +26,9 @@ export const DEFAULT_APP_SETTINGS = Object.freeze({
         enabled: true,
         preferredPort: 43622,
     }),
+    cadInterchange: Object.freeze({
+        libredwgDirectory: '',
+    }),
 });
 
 export function normalizeAppSettings(value) {
@@ -34,6 +37,7 @@ export function normalizeAppSettings(value) {
         ? source.drawingDefaults
         : {};
     const mcp = source.mcp && typeof source.mcp === 'object' ? source.mcp : {};
+    const cadInterchange = source.cadInterchange && typeof source.cadInterchange === 'object' ? source.cadInterchange : {};
     return {
         version: 1,
         commandAliases: normalizeAliases(source.commandAliases),
@@ -54,6 +58,9 @@ export function normalizeAppSettings(value) {
         mcp: {
             enabled: source.mcp ? mcp.enabled !== false : true,
             preferredPort: clampFiniteInteger(mcp.preferredPort, 1_024, 65_535, 43_622),
+        },
+        cadInterchange: {
+            libredwgDirectory: normalizeAbsolutePath(cadInterchange.libredwgDirectory),
         },
     };
 }
@@ -109,11 +116,22 @@ export async function getMcpStatus() {
     return invoke('get_mcp_status');
 }
 
-export function normalizeTemplatePath(value) {
+/** Absolute POSIX, drive or UNC path without control characters; otherwise empty. */
+export function normalizeAbsolutePath(value) {
     if (typeof value !== 'string') return '';
     const path = value.trim();
-    return path.length <= 4096 && !/[\u0000-\u001f]/.test(path)
-        && /^(?:\/|[a-z]:[\\/]|\\\\)/i.test(path) && /\.lcad$/i.test(path) ? path : '';
+    return path.length <= 4096 && !/[\u0000-\u001f]/.test(path) && /^(?:\/|[a-z]:[\\/]|\\\\)/i.test(path) ? path : '';
+}
+
+export function normalizeTemplatePath(value) {
+    const path = normalizeAbsolutePath(value);
+    return /\.lcad$/i.test(path) ? path : '';
+}
+
+/** Folder holding LibreDWG for a candidate Settings value, `null` when absent, `undefined` in the browser. */
+export async function locateLibreDwg(directory) {
+    if (!isTauriRuntime()) return undefined;
+    return invoke('locate_libredwg', { directory: normalizeAbsolutePath(directory) });
 }
 
 function clampFiniteInteger(value, minimum, maximum, fallback) {

@@ -48,3 +48,7 @@ npm run test:headless
 `test:headless` launches the native binary with an isolated port and temporary files, then checks drawing creation, explicit save, delete/reopen with exact geometry, two mixed-size PDF pages with extractible labels, reversed page order, invalid-path/unknown-layout refusals and preservation of an existing PDF on invalid input. It stops its own process and removes temporary files. The executable can be passed as an argument.
 
 Verified locally on macOS Apple Silicon. Windows/Linux native execution remains to be checked on those platforms; browser E2E does not validate WebView2/WebKitGTK or native dialogs.
+
+## CAD interchange
+
+Use DXFIN/DXFOUT/DWGIN/DWGOUT through `execute_command`, placing the absolute path in `input`. See [CAD_INTERCHANGE.md](./CAD_INTERCHANGE.md). The integration script also checks DXF export → import → undo; setting `LUMCAD_LIBREDWG_DIR` (or `LUMCAD_TEST_DWG=1` to exercise automatic lookup) enables the same real DWG round trip. Without either variable the DWG case is skipped, not reported as validated. Headless runs ignore the GUI settings file, so DWG conversion finds LibreDWG through `LUMCAD_LIBREDWG_DIR`, `PATH` or the standard install folders listed in CAD_INTERCHANGE.md.

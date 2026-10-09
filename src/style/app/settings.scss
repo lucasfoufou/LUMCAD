@@ -163,7 +163,7 @@
   &:focus-visible { outline: 2px solid rgba($lum_orange, 0.42); outline-offset: 2px; }
 }
 
-.lumcad-mcp-status {
+.lumcad-service-status {
   display: grid;
   gap: 0.55rem;
   padding: 0.75rem;
@@ -172,15 +172,15 @@
   background: var(--panel);
 
   p { margin: 0; color: var(--muted); font-size: 0.7rem; line-height: 1.4; }
-  &.is-running .lumcad-mcp-status-dot { background: var(--success); }
-  &.is-fallback .lumcad-mcp-status-dot { background: $lum_orange; }
-  &.is-error .lumcad-mcp-status-dot { background: var(--danger); }
+  &.is-running .lumcad-service-status-dot { background: var(--success); }
+  &.is-fallback .lumcad-service-status-dot { background: $lum_orange; }
+  &.is-error .lumcad-service-status-dot { background: var(--danger); }
 }
 
-.lumcad-mcp-status-heading { display: flex; align-items: center; gap: 0.45rem; font-size: 0.78rem; }
-.lumcad-mcp-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.lumcad-service-status-heading { display: flex; align-items: center; gap: 0.45rem; font-size: 0.78rem; }
+.lumcad-service-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
 
-.lumcad-mcp-endpoint {
+.lumcad-service-endpoint {
   display: flex;
   align-items: center;
   gap: 0.45rem;

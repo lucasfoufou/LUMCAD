@@ -32,6 +32,7 @@
     "test:headless": "node scripts/test-headless.mjs"
   },
   "dependencies": {
+    "@tarikjabiri/dxf": "^2.9.0",
     "@tauri-apps/api": "^2.9.1",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-process": "^2.3.1",

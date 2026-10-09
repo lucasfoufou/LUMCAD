@@ -55,6 +55,7 @@ import { exportDrawingAttributes } from '~utils/drawingAttributeExport';
 import useDrawingTableFiles from '~hooks/useDrawingTableFiles';
 import useDrawingWmf from '~hooks/useDrawingWmf';
 import useDrawingDgn from '~hooks/useDrawingDgn';
+import useDrawingCad from '~hooks/useDrawingCad';
 import useDrawingDataExtraction from '~hooks/useDrawingDataExtraction';
 import { manageDrawingAttributes, parseDrawingAttributeManagerInput } from '~utils/drawingAttributeManager';
 import { defineDrawingAttribute, editDrawingAttribute, syncDrawingAttributes } from '~utils/drawingAttributeOperations';
@@ -376,6 +377,11 @@ export default function DrawingEditorWorkspace({
     const dgn = useDrawingDgn({ documentId: document.id, assets, setAssets, history, selectedIds, setSelectedIds, setMessage, t,
         enabled: workspaceMode === 'model' && !blockEditor.session,
         cancel: () => { canvasRef.current?.cancel?.(); setInteractiveOperation(null); setActiveTool('select'); } });
+    const cadOptions = { documentId: document.id, name, assets, setAssets, history, setSelectedIds, setMessage, t,
+        enabled: workspaceMode === 'model' && !blockEditor.session,
+        cancel: () => { canvasRef.current?.cancel?.(); setInteractiveOperation(null); setActiveTool('select'); } };
+    const dxf = useDrawingCad(cadOptions, 'dxf');
+    const dwg = useDrawingCad(cadOptions, 'dwg');
     const wmf = useDrawingWmf({ documentId: document.id, name, locale, assets, setAssets, history, setSelectedIds, setMessage, t,
         enabled: workspaceMode === 'model' && !blockEditor.session,
         cancel: () => { canvasRef.current?.cancel?.(); setInteractiveOperation(null); setActiveTool('select'); } });
@@ -2292,6 +2298,10 @@ export default function DrawingEditorWorkspace({
             const input = getDrawingCommandInput(rawValue);
             await imageExport.run(format, imageFormat ? input : input.slice(exportFormat[1].length).trim()); return;
         }
+        if (parsed.command === 'dxfImport') { await dxf.run(getDrawingCommandInput(rawValue)); return; }
+        if (parsed.command === 'dxfExport') { await dxf.exportFile(getDrawingCommandInput(rawValue)); return; }
+        if (parsed.command === 'dwgImport') { await dwg.run(getDrawingCommandInput(rawValue)); return; }
+        if (parsed.command === 'dwgExport') { await dwg.exportFile(getDrawingCommandInput(rawValue)); return; }
         if (parsed.command === 'wmfExport') { await wmf.exportFile(getDrawingCommandInput(rawValue)); return; }
         if (parsed.command === 'dgnImport') { await dgn.run(getDrawingCommandInput(rawValue)); return; }
         if (parsed.command === 'dgnAttach') { await dgn.attach(getDrawingCommandInput(rawValue)); return; }

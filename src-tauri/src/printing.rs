@@ -581,7 +581,7 @@ fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
             .any(|window| window == needle)
 }
 
-fn atomic_write_plot_file(path: &Path, bytes: &[u8]) -> Result<bool, String> {
+pub(crate) fn atomic_write_plot_file(path: &Path, bytes: &[u8]) -> Result<bool, String> {
     let parent = path
         .parent()
         .filter(|value| !value.as_os_str().is_empty())

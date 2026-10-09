@@ -23,6 +23,7 @@ pub struct AppSettings {
     pub command_aliases: Vec<CommandAlias>,
     pub command_shortcuts: Vec<CommandShortcut>,
     pub mcp: McpPreferences,
+    pub cad_interchange: CadInterchangePreferences,
 }
 
 impl Default for AppSettings {
@@ -35,6 +36,7 @@ impl Default for AppSettings {
             command_aliases: Vec::new(),
             command_shortcuts: default_command_shortcuts(),
             mcp: McpPreferences::default(),
+            cad_interchange: CadInterchangePreferences::default(),
         }
     }
 }
@@ -48,6 +50,7 @@ impl AppSettings {
         self.autosave_delay_ms = self.autosave_delay_ms.clamp(300, 10_000);
         self.drawing_defaults = self.drawing_defaults.normalized();
         self.mcp = self.mcp.normalized();
+        self.cad_interchange = self.cad_interchange.normalized();
         self.command_aliases = normalize_command_aliases(self.command_aliases);
         self.command_shortcuts = normalize_command_shortcuts(self.command_shortcuts);
         self
@@ -156,11 +159,7 @@ impl DrawingDefaults {
     fn normalized(mut self) -> Self {
         self.designer = self.designer.trim().chars().take(120).collect();
         self.template_path = self.template_path.trim().to_string();
-        let bytes = self.template_path.as_bytes();
-        let absolute = self.template_path.starts_with('/') || self.template_path.starts_with("\\\\")
-            || (bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && matches!(bytes[2], b'/' | b'\\'));
-        if !absolute || self.template_path.encode_utf16().count() > 4096
-            || self.template_path.chars().any(|c| c <= '\u{1f}')
+        if !is_safe_absolute_path(&self.template_path)
             || !self.template_path.to_ascii_lowercase().ends_with(".lcad") {
             self.template_path.clear();
         }
@@ -170,6 +169,31 @@ impl DrawingDefaults {
         self.grid_spacing = self.grid_spacing.clamp(0.0001, 1_000.0);
         if !matches!(self.angle_unit.as_str(), "degrees" | "radians" | "gradians") {
             self.angle_unit = "degrees".into();
+        }
+        self
+    }
+}
+
+/// Absolute POSIX, drive or UNC path without control characters, bounded like the frontend.
+fn is_safe_absolute_path(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    let absolute = path.starts_with('/') || path.starts_with("\\\\")
+        || (bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && matches!(bytes[2], b'/' | b'\\'));
+    absolute && path.encode_utf16().count() <= 4096 && !path.chars().any(|c| c <= '\u{1f}')
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CadInterchangePreferences {
+    /// Folder containing LibreDWG `dwgread`/`dwgwrite`; empty means automatic lookup.
+    pub libredwg_directory: String,
+}
+
+impl CadInterchangePreferences {
+    pub(crate) fn normalized(mut self) -> Self {
+        self.libredwg_directory = self.libredwg_directory.trim().to_string();
+        if !is_safe_absolute_path(&self.libredwg_directory) {
+            self.libredwg_directory.clear();
         }
         self
     }
@@ -348,6 +372,19 @@ mod tests {
     }
 
     #[test]
+    fn libredwg_directory_is_optional_and_must_be_absolute() {
+        let mut stored = serde_json::to_value(AppSettings::default()).unwrap();
+        stored.as_object_mut().unwrap().remove("cadInterchange");
+        let loaded: AppSettings = serde_json::from_value(stored).unwrap();
+        assert_eq!(loaded.cad_interchange.libredwg_directory, "");
+        for (input, expected) in [(" /opt/libredwg/bin ", "/opt/libredwg/bin"), ("C:\\Tools\\LibreDWG", "C:\\Tools\\LibreDWG"),
+            ("bin", ""), ("/opt/bad\nname", "")] {
+            let preferences = CadInterchangePreferences { libredwg_directory: input.into() }.normalized();
+            assert_eq!(preferences.libredwg_directory, expected);
+        }
+    }
+
+    #[test]
     fn shortcut_preferences_preserve_rebindings_and_explicit_empty_lists() {
         assert_eq!(normalize_command_shortcuts(default_command_shortcuts()), default_command_shortcuts());
         assert!(normalize_command_shortcuts(Vec::new()).is_empty());
@@ -391,6 +428,7 @@ mod tests {
                 enabled: true,
                 preferred_port: 80,
             },
+            cad_interchange: CadInterchangePreferences { libredwg_directory: "relative/bin".into() },
         }
         .normalized();
 
@@ -399,6 +437,7 @@ mod tests {
         assert_eq!(settings.autosave_delay_ms, 300);
         assert_eq!(settings.drawing_defaults.designer.len(), 120);
         assert_eq!(settings.drawing_defaults.template_path, "");
+        assert_eq!(settings.cad_interchange.libredwg_directory, "");
         assert_eq!(settings.drawing_defaults.grid_spacing, 0.5);
         assert_eq!(settings.drawing_defaults.angle_unit, "degrees");
         assert!(settings.drawing_defaults.clockwise_angles);

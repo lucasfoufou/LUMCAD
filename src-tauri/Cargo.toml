@@ -27,6 +27,7 @@ tauri-plugin-process = "2"
 tauri-plugin-updater = "2"
 tokio = { version = "1", features = ["net", "sync", "time"] }
 tokio-util = "0.7"
+tempfile = "3"
 url = "2"
 zip = { version = "8.6.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
@@ -37,4 +38,3 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 [dev-dependencies]
 rmcp = { version = "3.0.0", features = ["client", "transport-streamable-http-client-reqwest"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
-tempfile = "3"

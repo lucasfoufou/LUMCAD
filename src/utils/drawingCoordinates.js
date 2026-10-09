@@ -1,6 +1,8 @@
 import { resolveDrawingPointInput } from './drawingPrecisionInput.js';
 
 export const DRAWING_UNITS = Object.freeze({ mm: 0.001, cm: 0.01, m: 1, km: 1000, in: 0.0254, ft: 0.3048, yd: 0.9144 });
+// Source units accepted by file imports: display units plus the US survey foot.
+export const DRAWING_IMPORT_UNITS = Object.freeze({ ...DRAWING_UNITS, 'us-ft': 1200 / 3937 });
 export const DEFAULT_DRAWING_UNITS = Object.freeze({ display: 'm', precision: 3, angle: 'degrees', anglePrecision: 1, clockwise: false, angleBase: 0, alternate: null, insertion: 'm' });
 
 export function normalizeDrawingUnits(value = {}) {

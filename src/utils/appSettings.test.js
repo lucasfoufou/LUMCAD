@@ -42,6 +42,7 @@ test('application settings normalize persisted and user-entered values', () => {
             mirrorText: true,
         },
         mcp: { enabled: false, preferredPort: 1024 },
+        cadInterchange: { libredwgDirectory: '' },
         commandAliases: [],
         commandShortcuts: DEFAULT_APP_SETTINGS.commandShortcuts,
     });
@@ -64,6 +65,15 @@ test('quick-new templates persist only bounded absolute .lcad locations', () => 
     }
     for (const path of [null, {}, 'office.lcad', '/templates/file.dwt', '/bad\u0000.lcad', `/${'a'.repeat(4096)}.lcad`]) {
         assert.equal(normalizeTemplatePath(path), '');
+    }
+});
+
+test('the LibreDWG folder preference keeps only absolute directories', () => {
+    for (const path of ['/opt/homebrew/bin', 'C:\\Tools\\LibreDWG']) {
+        assert.equal(normalizeAppSettings({ cadInterchange: { libredwgDirectory: ` ${path} ` } }).cadInterchange.libredwgDirectory, path);
+    }
+    for (const path of ['bin', '/bad\nfolder', 42]) {
+        assert.equal(normalizeAppSettings({ cadInterchange: { libredwgDirectory: path } }).cadInterchange.libredwgDirectory, '');
     }
 });
 

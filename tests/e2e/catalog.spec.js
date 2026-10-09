@@ -1,11 +1,15 @@
 import { test, expect } from '@playwright/test';
 import expectations from './catalog-expectations.json' with { type: 'json' };
 import manifest from '../../src/mcp/commands.json' with { type: 'json' };
-import { start, command, state } from './helpers.js';
+import en from '../../src/i18n/locales/en.js';
+import fr from '../../src/i18n/locales/fr.js';
+import { start, command, state, messageMatchesKeys } from './helpers.js';
 
-// Baseline coverage for EVERY registered command. Exact observed prompts/stages
-// are reviewed snapshots; these are entry/precondition tests, not geometry proofs.
-// Behavioral workflows are in workflows.spec.js and are reported separately.
+// Baseline coverage for EVERY registered command. Observed tools/stages are
+// reviewed snapshots; the visible message is checked through its translation
+// key(s), so rewording a catalog entry does not break the suite. These are
+// entry/precondition tests, not geometry proofs: behavioural workflows are in
+// workflows.spec.js and the remaining plan in workflow-plan.spec.js.
 const inputs = {
     pngOut: 'WIDTH 64', jpegOut: 'WIDTH 64', svgOut: 'WIDTH 64',
     drawingCompare: 'REPORT', contentBrowser: 'OPEN', layerFilter: 'DIM', recover: 'REPORT', recoverAll: 'REPORT',
@@ -14,6 +18,9 @@ const inputs = {
 
 test('catalog coverage has an explicit reviewed expectation for every command', () => {
     expect(Object.keys(expectations).sort()).toEqual(manifest.map(item => item.command).sort());
+    const missing = Object.values(expectations).flatMap(item => item.messageKeys || [])
+        .filter(key => typeof en[key] !== 'string' || typeof fr[key] !== 'string');
+    expect(missing).toEqual([]);
 });
 
 for (const definition of manifest) {
@@ -56,10 +63,17 @@ for (const definition of manifest) {
             stage: current.editor.interactiveOperation?.stage || null,
             workspace: current.editor.workspaceMode,
             layoutTool: current.editor.layoutTool,
-            message: current.editor.message.replace(/\b\d{4}-\d\d-\d\d[^ ]*/g, '<date>'),
             entities: current.document.content.entities.length,
             fileChooser,
         };
-        expect(result).toEqual(expectations[definition.command]);
+        const { messageKeys, message, ...expected } = expectations[definition.command];
+        expect(result).toEqual(expected);
+        if (messageKeys) {
+            expect(messageMatchesKeys(current.editor.message, messageKeys),
+                `"${current.editor.message}" should render one of ${messageKeys.join(', ')}`).toBe(true);
+        } else {
+            // Empty prompts and untranslated data output (PARAMETERS JSON) stay literal.
+            expect(current.editor.message.replace(/\b\d{4}-\d\d-\d\d[^ ]*/g, '<date>')).toBe(message);
+        }
     });
 }

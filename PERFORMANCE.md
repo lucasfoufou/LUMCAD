@@ -205,3 +205,7 @@ XL overview interaction remains outside the comfort budget: window selection rea
 ### Headless/E2E regression check — 2026-10-09
 
 After adding unattended file APIs and the E2E state probe, the document benchmarks completed for S/M/L/XL and the browser L scenario restored all 20,096 entities through delete/undo/redo. L retained 81,824 DOM nodes; load was 952 ms, bulk undo/redraw maximum 921 ms and window-selection maximum 140 ms. Zoomed-in p95 was 17.5 ms; overview hover p95 was 23.5 ms, still above the 20 ms budget. These verification runs overlapped other validation work, so they do not replace the isolated before/after baseline or establish a new native RAM peak.
+
+### DXF/DWG regression check — 2026-10-09
+
+The [document pipeline](./benchmarks/cad-interchange-2026-10-09/document.json) completed for S/M/L/XL (XL archive open p95 275 ms, save p95 300 ms). The [browser S/M run](./benchmarks/cad-interchange-2026-10-09/browser-S-M.json) restored the full scene after bulk edits: M loads in 204 ms, hover p95 18.6 ms, snapping p95 20.7 ms, pan p95 29.5 ms and wheel zoom p95 51.3 ms. M bulk edit/undo/redo peaks at 151 ms. These results still exceed several interaction budgets; they do not establish that the overview/memory work is complete. Validation ran concurrently, so this is a regression check, not an isolated before/after performance claim. It does not measure large DXF/DWG conversion latency or native converter RAM.

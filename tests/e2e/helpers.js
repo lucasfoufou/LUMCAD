@@ -1,4 +1,19 @@
 import { expect } from '@playwright/test';
+import en from '../../src/i18n/locales/en.js';
+
+const templatePatterns = new Map();
+
+/** Matches a rendered message against translation templates, treating {{values}} as wildcards. */
+export function messageMatchesKeys(message, keys, catalog = en) {
+    return keys.some(key => {
+        if (typeof catalog[key] !== 'string') return false;
+        if (!templatePatterns.has(catalog[key])) {
+            const escaped = catalog[key].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            templatePatterns.set(catalog[key], new RegExp(`^${escaped.replace(/\\\{\\\{\w+\\\}\\\}/g, '[\\s\\S]*?')}$`));
+        }
+        return templatePatterns.get(catalog[key]).test(message);
+    });
+}
 
 export async function state(page) {
     return page.evaluate(() => window.__LUMCAD_E2E_STATE__?.getState());
