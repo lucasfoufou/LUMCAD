@@ -75,7 +75,12 @@ jobs:
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
               --title "LUMCAD $GITHUB_REF_NAME" --generate-notes "${options[@]}"
           fi
-          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\") | .id")
+          # A just-created draft can take a few seconds to appear in the release list.
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\") | .id")
+            [[ "$release_id" =~ ^[0-9]+$ ]] && break
+            sleep 3
+          done
           [[ "$release_id" =~ ^[0-9]+$ ]] || { echo 'Expected exactly one release ID'; exit 1; }
           echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
 
