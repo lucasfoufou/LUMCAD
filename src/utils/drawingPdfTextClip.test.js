@@ -11,7 +11,8 @@ import { drawingClipShapeContainsPoint } from './drawingClipPaths.js';
 import { createLcadDocument, createLcadEnvelope } from './lcadDocument.js';
 import { createLcadArchive, readLcadArchive } from './lcadArchive.js';
 
-const resourceOptions = { standardFontDataUrl: fileURLToPath(new URL('../../node_modules/pdfjs-dist/standard_fonts/',import.meta.url)) };
+// PDF.js requires a trailing '/', which fileURLToPath turns into a backslash on Windows.
+const resourceOptions = { standardFontDataUrl: `${fileURLToPath(new URL('../../node_modules/pdfjs-dist/standard_fonts', import.meta.url))}/` };
 
 test('real PDF text masks retain glyph contours and holes for imported fills, images and vector snaps', async () => {
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');

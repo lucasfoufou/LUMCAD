@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
     BASE_LOCALE,
@@ -43,7 +44,7 @@ test('translations interpolate values, pluralize, and localize structured errors
 });
 
 test('every literal translation key used by the interface exists in English', async () => {
-    const sourceRoot = new URL('../', import.meta.url).pathname;
+    const sourceRoot = fileURLToPath(new URL('../', import.meta.url));
     const files = await sourceFiles(sourceRoot);
     const keys = new Set();
     for (const file of files) {
