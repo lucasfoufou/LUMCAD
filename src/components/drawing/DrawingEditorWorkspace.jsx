@@ -1760,7 +1760,9 @@ export default function DrawingEditorWorkspace({
         rawValue = expandDrawingAlias(rawValue, settings.commandAliases);
         if (isHeadlessRuntime()) {
             const command = parseDrawingCommand(rawValue)?.command;
-            if (['new', 'quickNew', 'open', 'saveAs', 'plot', 'pdf', 'pdfAll', 'pdfSelected', 'publish', 'dwfx', 'imageAttach', 'aliasEdit'].includes(command)) {
+            // IMAGEATTACH reads an explicit path without a dialog; only its picker form is refused.
+            const pickerOnly = command === 'imageAttach' && !getDrawingCommandInput(rawValue).trim();
+            if (pickerOnly || ['new', 'quickNew', 'open', 'saveAs', 'plot', 'pdf', 'pdfAll', 'pdfSelected', 'publish', 'dwfx', 'aliasEdit'].includes(command)) {
                 throw new Error(t('headless.dialogUnavailable'));
             }
         }

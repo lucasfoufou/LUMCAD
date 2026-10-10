@@ -20,7 +20,7 @@ This is a **windowless Tauri runtime**, backed by an invisible native WebView. I
 - Uses default in-memory app settings. Changes made through this process do not persist into the GUI settings file. `LUMCAD_MCP_PORT` still selects the port.
 - Autosave and update checks are disabled. Geometry lives in memory until an explicit save; closing the process loses unsaved work.
 - File reads/writes retain the existing archive limits and atomic native writers. A save/export explicitly replaces its destination. The GUI recovery file is not removed by headless saves.
-- Dialog-only commands reject; file import/export helpers require explicit paths instead of opening invisible native dialogs. Use the dedicated tools below for session files and final PDF.
+- Dialog-only commands reject; file import/export helpers require explicit paths instead of opening invisible native dialogs (for example `IMAGEATTACH "/absolute/photo.png"`; without a path it rejects). Use the dedicated tools below for session files and final PDF.
 - MCP remains localhost-only with the existing origin checks. No new network transport or authentication bypass is introduced.
 
 ## MCP workflow
@@ -45,7 +45,7 @@ npm run tauri build -- --debug --no-bundle
 npm run test:headless
 ```
 
-`test:headless` launches the native binary with an isolated port and temporary files, then checks drawing creation, explicit save, delete/reopen with exact geometry, two mixed-size PDF pages with extractible labels, reversed page order, invalid-path/unknown-layout refusals and preservation of an existing PDF on invalid input. It stops its own process and removes temporary files. The executable can be passed as an argument.
+`test:headless` launches the native binary with an isolated port and temporary files, then checks drawing creation, explicit save, delete/reopen with exact geometry, two mixed-size PDF pages with extractible labels, reversed page order, invalid-path/unknown-layout refusals and preservation of an existing PDF on invalid input. It also covers the desktop-only file workflows: AUTOPUBLISH beside the saved drawing, an ETRANSMIT package (copied drawing, rewritten index), REFEDIT/REFSAVE writing a linked source and REFCLOSE DISCARD leaving it untouched, IMAGEATTACH from an explicit path, and RECOVERALL/RECOVERYMANAGER on a damaged root with its reference. It stops its own process and removes temporary files. The executable can be passed as an argument; rebuild it after frontend changes, since it embeds the built frontend.
 
 Verified locally on macOS Apple Silicon. Windows/Linux native execution remains to be checked on those platforms; browser E2E does not validate WebView2/WebKitGTK or native dialogs.
 

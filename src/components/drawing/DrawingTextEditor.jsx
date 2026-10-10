@@ -597,7 +597,12 @@ function DrawingTextRuns({ draft, baseStyle, fallbackColor, selection, showSelec
         );
     }
     let textOffset = 0;
-    return draft.runs.flatMap((run, index) => {
+    // A trailing newline has no line box to hold the caret, so browsers move the
+    // caret back before it. An empty sentinel gives the new line a caret position.
+    const trailingLine = draft.textMode !== 'singleLine' && draft.text.endsWith('\n')
+        ? [<span key="run-trailing" data-drawing-text-run="true" data-drawing-text-empty="true">{EMPTY_EDITOR_SENTINEL}</span>]
+        : [];
+    return [...draft.runs.flatMap((run, index) => {
         const runStyle = resolveDrawingTextRunStyle(baseStyle, run.marks, fallbackColor);
         const style = {
             color: runStyle.color || undefined,
@@ -633,7 +638,7 @@ function DrawingTextRuns({ draft, baseStyle, fallbackColor, selection, showSelec
                 </span>
             )];
         });
-    });
+    }), ...trailingLine];
 }
 
 function initialEditorSelection(text, requestedSelection) {
@@ -721,6 +726,11 @@ function editorDomPointAtOffset(root, requestedOffset) {
                 const value = node.nodeValue || '';
                 const emptySentinel = node.parentElement?.hasAttribute('data-drawing-text-empty');
                 const length = emptySentinel ? value.replaceAll(EMPTY_EDITOR_SENTINEL, '').length : value.length;
+                // After a trailing newline, place the caret in the following sentinel.
+                if (remaining === length && value.endsWith('\n') && !emptySentinel && hasFollowingSentinel(node)) {
+                    remaining -= length;
+                    continue;
+                }
                 if (remaining <= length) return {
                     node,
                     offset: emptySentinel ? editorSentinelDomOffset(value, remaining) : remaining,
@@ -739,6 +749,12 @@ function editorDomPointAtOffset(root, requestedOffset) {
         return null;
     };
     return locate(root) || { node: root, offset: root.childNodes.length };
+}
+
+function hasFollowingSentinel(node) {
+    let element = node.parentElement;
+    while (element && !element.nextElementSibling && element.parentElement) element = element.parentElement;
+    return Boolean(element?.nextElementSibling?.hasAttribute('data-drawing-text-empty'));
 }
 
 function readEditableText(root) {

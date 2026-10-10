@@ -35,6 +35,9 @@ test('raster sizing respects requested DPI and hard canvas budgets', () => {
         requestedDpi: 300,
         width: 3508,
     });
+    // Rendered pages pass their paper in mm; it must not fall back to the default A0 format.
+    assert.deepEqual(getDrawingRasterSize({ width: 297, height: 210 }, 300),
+        getDrawingRasterSize({ format: 'A4', orientation: 'landscape' }, 300));
     const a0 = getDrawingRasterSize({ format: 'A0', orientation: 'landscape' }, 1200);
     assert.ok(a0.dpi < 1200);
     assert.ok(a0.width <= 16_384);

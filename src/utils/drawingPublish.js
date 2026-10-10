@@ -224,7 +224,9 @@ export function safeDrawingPublishFilename(value, format = 'pdf') {
 }
 
 export function getDrawingRasterSize(paperOrLayout, requestedDpi = 300) {
-    const paper = normalizePaper(getDrawingPaperSize(paperOrLayout));
+    // Rendered pages carry their paper size in mm; layouts and page setups carry a format.
+    const isPaperSize = Number.isFinite(paperOrLayout?.width) && Number.isFinite(paperOrLayout?.height) && paperOrLayout.format === undefined;
+    const paper = normalizePaper(isPaperSize ? paperOrLayout : getDrawingPaperSize(paperOrLayout));
     const dpi = clampFinite(requestedDpi, 72, 1_200, 300);
     const requestedWidth = paper.width / 25.4 * dpi;
     const requestedHeight = paper.height / 25.4 * dpi;

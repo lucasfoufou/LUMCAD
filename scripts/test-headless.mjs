@@ -2,13 +2,17 @@
 // Native integration test: launches only the supplied binary, on an isolated port.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createDrawingLayout, createDrawingViewport } from '../src/utils/drawingLayouts.js';
 import { buildDrawingEntity } from '../src/utils/drawingEntityFactory.js';
 import { materializeDrawingBlockReference } from '../src/utils/drawingBlocks.js';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { createLcadDocument, createLcadEnvelope } from '../src/utils/lcadDocument.js';
+import { createLcadArchive, LCAD_MANIFEST_PATH, readLcadArchive } from '../src/utils/lcadArchive.js';
+import { strFromU8, unzipSync, zipSync } from 'fflate';
+import { pngBytes } from '../tests/e2e/fixtures.js';
 
 const binary = resolve(process.argv[2] || `src-tauri/target/debug/lumcad${process.platform === 'win32' ? '.exe' : ''}`);
 const work = await mkdtemp(join(tmpdir(), 'lumcad-headless-'));
@@ -123,6 +127,105 @@ try {
         assert.equal((await call('get_state')).document.content.entities.length, 0);
         await call('open_document', { path });
         console.log(`PASS: native ${format.toUpperCase()} export → import → undo through MCP.`);
+    }
+    await nativePublication();
+    await nativeFileReferences();
+
+    async function nativePublication() {
+        const run = (command, input) => call('execute_command', { command, ...(input === undefined ? {} : { input }) });
+        await call('open_document', { path });
+        // AUTOPUBLISH writes every layout, without a dialog, beside the saved drawing.
+        const autoPath = join(work, 'auto.lcad');
+        await call('save_document', { path: autoPath });
+        await run('AUTOPUBLISH');
+        const autoTask = getDocument({ data: new Uint8Array(await readFile(join(work, 'auto.pdf'))), useSystemFonts: true });
+        assert.equal((await autoTask.promise).numPages, 2);
+        await autoTask.destroy();
+        console.log('PASS: native AUTOPUBLISH writes every layout beside the saved drawing.');
+        // ETRANSMIT packages the saved sheet set index with its source drawing.
+        const state = await call('get_state');
+        await run('NEWSHEETSET', '"Projet"');
+        await run('SHEETSET', `ADD CURRENT ${state.document.layouts[0].id} 1 "Plan"`);
+        const indexPath = join(work, 'projet.json');
+        await run('SHEETSET', `SAVE ${JSON.stringify(indexPath)}`);
+        assert.equal(JSON.parse(await readFile(indexPath, 'utf8')).name, 'Projet');
+        const zipPath = join(work, 'projet.zip');
+        await run('ETRANSMIT', JSON.stringify(zipPath));
+        const packaged = unzipSync(new Uint8Array(await readFile(zipPath)));
+        const drawings = Object.keys(packaged).filter(name => name.endsWith('.lcad'));
+        assert.equal(drawings.length, 1, Object.keys(packaged).join(', '));
+        assert.deepEqual(readLcadArchive(packaged[drawings[0]]).document.content.entities, state.document.content.entities);
+        // Paths are rewritten in the packaged index only.
+        assert.ok(strFromU8(packaged['sheet-set.json']).includes(drawings[0]));
+        assert.ok((await readFile(indexPath, 'utf8')).includes('auto.lcad'));
+        console.log('PASS: native ETRANSMIT packages the sheet set index with its source drawing.');
+    }
+
+    async function nativeFileReferences() {
+        const run = (command, input, extra = {}) => call('execute_command', { command, ...(input === undefined ? {} : { input }), ...extra });
+        const content = async () => (await call('get_state')).document.content;
+        const sourceEntities = async file => readLcadArchive(new Uint8Array(await readFile(file))).document.content.entities;
+        const source = createLcadDocument({ name: 'Référence' });
+        source.content.entities = [{ id: 'src-line', type: 'line', layerId: 'geometry', x1: 0, y1: 0, x2: 4, y2: 0 }];
+        const sourcePath = join(work, 'référence.lcad');
+        await writeFile(sourcePath, createLcadArchive(createLcadEnvelope(source)));
+        await call('open_document', { path });
+        await run('XATTACH', `${JSON.stringify(sourcePath)} 20 0`);
+        const reference = (await content()).entities.find(entity => entity.externalReference);
+        assert.equal(reference.transform.e, 20);
+
+        // REFEDIT edits the linked source; REFSAVE writes it and reloads the host cache.
+        assert.match((await run('REFEDIT', reference.id)).editor.message, /Référence/);
+        await call('execute_command', { command: 'line', actions: [{ type: 'point', x: 0, y: 5 }, { type: 'point', x: 4, y: 5 }, { type: 'escape' }] });
+        await run('REFSAVE');
+        const written = await sourceEntities(sourcePath);
+        assert.deepEqual(written.map(entity => entity.type), ['line', 'line']);
+        assert.equal(written[0].id, 'src-line');
+        assert.deepEqual([written[1].y1, written[1].y2], [5, 5]);
+        await run('REFCLOSE');
+        let host = await content();
+        const reloaded = host.entities.find(entity => entity.id === reference.id);
+        assert.equal(host.blocks.find(block => block.id === reloaded.blockId).entities.length, 2);
+        // REFCLOSE DISCARD leaves the source untouched.
+        await run('REFEDIT', reference.id);
+        await call('execute_command', { command: 'line', actions: [{ type: 'point', x: 0, y: 9 }, { type: 'point', x: 4, y: 9 }, { type: 'escape' }] });
+        const savedSource = await readFile(sourcePath);
+        await run('REFCLOSE', 'DISCARD');
+        assert.deepEqual(await readFile(sourcePath), savedSource);
+        assert.deepEqual((await content()).entities, host.entities);
+        console.log('PASS: native REFEDIT → REFSAVE writes the source, REFCLOSE DISCARD keeps it unchanged.');
+
+        // IMAGEATTACH reads an explicit path into a linked image with an embedded snapshot.
+        const pngPath = join(work, 'photo.png');
+        await writeFile(pngPath, pngBytes(8, 8));
+        await run('IMAGEATTACH', JSON.stringify(pngPath));
+        host = await content();
+        const image = host.entities.find(entity => entity.type === 'image');
+        assert.ok(image.imageSource.path.endsWith('/photo.png'));
+        const imageAsset = (await call('get_state')).document.assets.find(asset => asset.id === image.assetId);
+        assert.equal(imageAsset.width, 8);
+        console.log('PASS: native IMAGEATTACH links the image file and embeds its snapshot.');
+
+        // RECOVERALL inspects a damaged root and its reference; RECOVERYMANAGER opens the repaired copy.
+        await call('save_document', { path: join(work, 'hôte.lcad') });
+        const files = unzipSync(new Uint8Array(await readFile(join(work, 'hôte.lcad'))));
+        const manifest = JSON.parse(strFromU8(files[LCAD_MANIFEST_PATH]));
+        delete files[manifest.document.assets.find(asset => asset.id === image.assetId).path];
+        const damagedPath = join(work, 'sinistré.lcad');
+        await writeFile(damagedPath, zipSync(files));
+        const batch = (await run('RECOVERALL', `FROM ${JSON.stringify(damagedPath)}`)).editor.inquiryResult;
+        assert.equal(batch.mode, 'recoveryManager');
+        assert.equal(batch.entries.length, 2);
+        assert.ok(batch.entries.some(entry => entry.path.endsWith('référence.lcad')));
+        const selected = (await run('RECOVERYMANAGER', 'SELECT 1')).editor.inquiryResult;
+        assert.match(JSON.stringify(selected), /quarantin/i);
+        await run('RECOVERYMANAGER', 'OPEN 1');
+        const recovered = await call('get_state');
+        assert.equal(recovered.filePath, null);
+        assert.equal(recovered.recovered, true);
+        assert.deepEqual(recovered.document.content.entities.map(entity => entity.id),
+            host.entities.filter(entity => entity.id !== image.id).map(entity => entity.id));
+        console.log('PASS: native RECOVERALL → RECOVERYMANAGER SELECT/OPEN recovers a damaged root with its reference.');
     }
 } finally {
     if (child.exitCode === null) {
