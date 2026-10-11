@@ -85,3 +85,23 @@ test('similarity transforms retain mirrored image frames and scale inherited/ric
     assert.equal(result.runs[0].marks.fontSize, 1.6);
     assert.deepEqual(result.runs[1].marks, {});
 });
+
+test('snapping after an edit matches a fresh index over the same drawing', () => {
+    const base = createDefaultDrawingContent();
+    const line = (id, y) => ({ id, type: 'line', layerId: base.activeLayerId, x1: 0, y1: y, x2: 10, y2: y });
+    let drawing = { ...base, entities: Array.from({ length: 300 }, (_, index) => line(`l${index}`, index * 2)) };
+    const probe = current => [{ x: 10, y: 20.05 }, { x: 5, y: 40.02 }, { x: 10, y: 601 }, { x: 0, y: 7.01 }]
+        .map(point => snapDrawingPoint(point, current, 0.2)).map(result => [result.type, result.x, result.y]);
+    probe(drawing);
+    const edits = [
+        entities => [...entities, line('new', 601)],
+        entities => entities.map((entity, index) => index === 10 ? { ...entity, y1: 21, y2: 21 } : entity),
+        entities => [line('first', 7), ...entities.slice(1)],
+        entities => entities.slice(0, -1),
+    ];
+    for (const edit of edits) {
+        drawing = { ...drawing, entities: edit(drawing.entities) };
+        const fresh = { ...drawing, entities: drawing.entities.map(entity => ({ ...entity })) };
+        assert.deepEqual(probe(drawing), probe(fresh));
+    }
+});

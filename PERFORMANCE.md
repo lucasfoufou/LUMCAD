@@ -1,6 +1,6 @@
 # Performance and reliability baseline
 
-- Last measured: 2026-10-09 (overview and bulk-edit pass)
+- Last measured: 2026-10-10 (editing pass)
 - Scope: editor responsiveness, memory, and document size limits for large 2D drawings
 
 This document defines how LUMCAD performance is measured, the budgets that changes must respect, and the current baseline. Re-run the benchmarks and update the baseline when a change targets performance or alters rendering, snapping, selection, history, or persistence.
@@ -47,6 +47,7 @@ Scenarios, all timed from the dispatched input to the next painted frame:
 | `pan` | Middle-button drag, 30 moves | — |
 | `windowSelect` | Click, 10 moves, click (CAD selection window) | Selected entity count |
 | `deleteUndoRedo` | Delete, undo, redo, undo | Entity counts before/after each step |
+| `lineRubberBand` | LINE active, first point clicked, then 30 pointer moves dragging the rubber band | No segment committed |
 | `lineClicks` | LINE active, 20 rapid vertex clicks, Escape, then undo of the last segment | Segments added |
 | `zoomedIn` | Zoom in 16 steps, 30 pointer moves and a 20-move pan, zoom back out | DOM nodes while zoomed in |
 
@@ -257,3 +258,36 @@ The sampled JS-heap peak fell from 608 to 490 MiB at L. At XL it varied between 
 - XL window-selection preview re-renders thousands of decorations per pointer move.
 - Native WKWebView timings and resident memory have not been re-measured; the figures above are headless Chrome.
 
+
+## Editing pass — 2026-10-10
+
+Drafting on a large plan re-derived everything that depends on the entity list after each click, and drew the rubber band inside the drawing.
+
+### Changes
+
+- **Incremental spatial indexes.** `createDrawingSpatialIndex` can derive an index from the previous one when only a few entities were replaced, appended or removed (identity comparison; beyond 1/64 of the items, or 64, it rebuilds). Shared cells are copied before writing, so older indexes stay valid for history snapshots. The selection, snap, tracking and render-culling indexes use it; `createDrawingIndexCache` hands the most recent value to the builder. Entities drawn through other entities re-measure only when one of the entities they read was replaced (`drawingEntitySourcesChanged`).
+- **One source map per edit.** The canvas, the selection index and annotation resolution share `getDrawingDimensionSourceMap`, which is itself derived from the previous map after small edits. Annotation resolution builds it only for annotative dimensions that need a label anchor.
+- **Snap entries.** Entries of the unchanged leading entities are copied from the previous snap index instead of being expanded again.
+- **Chunk-level memoization.** Each scene chunk (`drawingSceneChunks.js`) is a memoized component. An edit re-renders the chunk it touches; dimensions and associative objects re-render only when an entity they read was replaced, instead of after every edit. In an overview the render cull is skipped instead of building a set of every position.
+- **Previews in the pointer overlay.** Rubber bands and move/copy/insert previews (`DrawingDraftLayer`) are drawn in the overlay SVG, so moving the pointer during a command no longer repaints the drawing.
+
+### Before / after, same harness
+
+Headless Chrome 154, 1440 × 813, production bundles; the before column is the previous commit with this harness. Raw results: [before](./benchmarks/perf-pass-3-2026-10-10/before-L-XL.json), [after](./benchmarks/perf-pass-3-2026-10-10/after-L-XL.json). Values are median / p95 / max in milliseconds.
+
+| Measure | L before | L after | XL before | XL after |
+| --- | ---: | ---: | ---: | ---: |
+| LINE rubber band, per pointer move | 49 / 68 / 118 | 17 / 17 / 23 | 119 / 145 / 347 | 17 / 23 / 43 |
+| LINE vertex click | 122 / 136 / 139 | 37 / 42 / 44 | 290 / 377 / 384 | 90 / 103 / 306 |
+| Window selection | 89 / 110 / 110 | 55 / 80 / 80 | 247 / 352 / 352 | 151 / 253 / 253 |
+| Delete / undo / redo | 92 / 348 / 348 | 88 / 376 / 376 | 172 / 879 / 879 | 187 / 808 / 808 |
+| Wheel zoom (p95 = settle) | 17 / 147 / 147 | 17 / 154 / 154 | 17 / 300 / 300 | 17 / 282 / 282 |
+| Sampled peak JS heap | 799 MiB | 262 MiB | 1,758 MiB | 880 MiB |
+
+Document pipeline, measured back to back on the same machine ([before](./benchmarks/perf-pass-3-2026-10-10/document-before.json), [after](./benchmarks/perf-pass-3-2026-10-10/document-after.json)): the first snap after an edit fell from 12.4 to 1.8 ms at L and from 28.8 to 12.2 ms at XL (median); open, save, serialization and commits are unchanged. This machine was under memory pressure during the pass, so absolute values vary between runs; compare only columns measured together.
+
+### Remaining findings
+
+- An XL vertex click (about 90 ms) is now mostly native: painting and layerizing the single 65,000-node scene SVG (about 40 + 20 ms per click). SVG elements cannot get their own paint layer, so this needs several scene SVGs or a canvas renderer.
+- The settle after pan or zoom is native layout: every shape uses `vector-effect: non-scaling-stroke`, so a view-scale change re-lays out each visible shape (about 150 ms at L and 280 ms at XL in a full overview). Alternatives with world-unit strokes need the same per-shape update; a canvas renderer or a level of detail that omits sub-pixel shapes would change this.
+- XL window-selection preview and bulk undo remain DOM-bound (thousands of outlines or shapes created at once).

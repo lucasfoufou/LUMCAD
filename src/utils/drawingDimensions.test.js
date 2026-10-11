@@ -590,3 +590,24 @@ test('manual dimension labels interpolate live measurements and retain inspectio
     const changed = { ...dimension, p2: { x: 8, y: 0 } };
     assert.equal(formatDrawingDimensionLabel(getDimensionGeometry(changed), changed).lines[1], 'Opening: 8 m');
 });
+
+test('source changes are detected only through the entities a dimension reads', async () => {
+    const { drawingEntitySourcesChanged } = await import('./drawingDimensions.js');
+    const line = { id: 'line', type: 'line', x1: 0, y1: 0, x2: 4, y2: 0 };
+    const other = { id: 'other', type: 'line', x1: 0, y1: 2, x2: 4, y2: 2 };
+    const attached = { id: 'attached', type: 'linearDimension', sourceId: 'line' };
+    const chained = { id: 'chained', type: 'linearDimension', sourceId: 'attached' };
+    const breaking = { id: 'breaking', type: 'linearDimension', dimensionAutoBreak: { gap: 0.2, sourceIds: ['other'] } };
+    const free = { id: 'free', type: 'linearDimension' };
+    const before = new Map([line, other, attached, chained, breaking, free].map(entity => [entity.id, entity]));
+    const movedLine = new Map(before).set('line', { ...line, x2: 6 });
+    const movedOther = new Map(before).set('other', { ...other, y1: 3 });
+    const appended = new Map(before).set('new', { id: 'new', type: 'point', x: 1, y: 1 });
+    assert.equal(drawingEntitySourcesChanged(attached, before, before), false);
+    assert.equal(drawingEntitySourcesChanged(attached, before, movedLine), true);
+    assert.equal(drawingEntitySourcesChanged(chained, before, movedLine), true, 'a dimension of a dimension follows the first source');
+    assert.equal(drawingEntitySourcesChanged(breaking, before, movedOther), true, 'automatic break sources are read too');
+    assert.equal(drawingEntitySourcesChanged(free, before, movedLine), false);
+    assert.equal(drawingEntitySourcesChanged(attached, before, appended), false);
+    assert.equal(drawingEntitySourcesChanged(attached, before, [line]), true, 'non-map sources stay conservative');
+});

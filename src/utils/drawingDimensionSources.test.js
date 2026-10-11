@@ -66,3 +66,28 @@ test('wide empty nested block trees exhaust a shared traversal budget instead of
     assert.equal(display.lines.filter(line => line.role === 'dimension').length, 2);
     assert.equal(display.value, 10);
 });
+
+test('the shared source map is derived after small edits and matches a full build', async () => {
+    const { getDrawingDimensionSourceMap } = await import('./drawingDimensionSources.js');
+    const base = { blocks: [], layers: [{ id: 'geometry' }], textStyles: [] };
+    const line = id => ({ id, type: 'line', layerId: 'geometry', x1: 0, y1: 0, x2: 1, y2: 0 });
+    let entities = Array.from({ length: 500 }, (_, index) => line(`e${index}`));
+    getDrawingDimensionSourceMap({ ...base, entities });
+    const edits = [
+        list => [...list, line('added')],
+        list => list.map((entity, index) => index === 7 ? { ...entity, x2: 5 } : entity),
+        list => list.slice(0, -2),
+        list => [line('front'), ...list.slice(1)],
+    ];
+    for (const edit of edits) {
+        entities = edit(entities);
+        const derived = getDrawingDimensionSourceMap({ ...base, entities });
+        const expected = new Map(entities.map(entity => [entity.id, entity]));
+        assert.equal(derived.size, expected.size);
+        for (const [id, entity] of expected) assert.equal(derived.get(id), entity);
+        assert.equal(typeof derived.dimensionBlockCurves, 'function');
+    }
+    // Duplicate IDs fall back to a full build where the last entity wins.
+    const duplicated = [...entities, { ...entities[3] }];
+    assert.equal(getDrawingDimensionSourceMap({ ...base, entities: duplicated }).get(entities[3].id), duplicated.at(-1));
+});

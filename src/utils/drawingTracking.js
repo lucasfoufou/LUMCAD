@@ -140,7 +140,7 @@ export function resolveTrackingPoint(
     const visibleLayers = new Set(content.layers.filter(layer => isDrawingLayerVisible(layer)).map(layer => layer.id));
     // Accepted guide/entity intersections lie within the threshold of the
     // pointer, so only entities whose bounds reach that box are tested.
-    const index = trackingIndexCache([content.entities], () => createDrawingSpatialIndex(content.entities, trackingEntityBounds));
+    const index = trackingIndexCache([content.entities], previous => createDrawingSpatialIndex(content.entities, trackingEntityBounds, { previous }));
     const entities = index.query({ minX: point.x - threshold, minY: point.y - threshold, maxX: point.x + threshold, maxY: point.y + threshold })
         .map(position => content.entities[position])
         .filter(entity => visibleLayers.has(entity.layerId) && !excluded.has(entity.id));

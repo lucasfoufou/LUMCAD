@@ -21,7 +21,7 @@ import DrawingInteractionOverlay from '~components/drawing/DrawingInteractionOve
 import DrawingCreationControls from '~components/drawing/DrawingCreationControls';
 import DrawingDynamicInput from '~components/drawing/DrawingDynamicInput';
 import DrawingGrid from '~components/drawing/DrawingGrid';
-import DrawingScene, { DrawingHighlightLayer } from '~components/drawing/DrawingScene';
+import DrawingScene, { DrawingDraftLayer, DrawingHighlightLayer } from '~components/drawing/DrawingScene';
 import { DrawingTextEditor } from '~components/drawing/DrawingTextEditor';
 import { useI18n } from '~i18n/I18nProvider';
 import { createArrayDraftEntities, createMirrorDraftEntities } from '~utils/drawingCompoundOperations';
@@ -1705,7 +1705,6 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                     interactive
                     hitShapes={false}
                     dimensionTextSize={Math.max(0.18, renderedViewBox.width / 85)}
-                    draftEntities={sceneDraftEntities}
                     showGrips={activeTool === 'select' && !interactiveOperation}
                     gripSize={gripSize}
                     hiddenIds={sceneHiddenIds}
@@ -1721,6 +1720,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 preserveAspectRatio="xMidYMid meet"
                 aria-hidden="true"
             >
+                <DrawingDraftLayer content={sceneContent} assets={clipboardPreview?.assets || assets} draftEntities={sceneDraftEntities}
+                    dimensionTextSize={Math.max(0.18, viewBox.width / 85)} viewBox={viewBox} />
                 <DrawingHighlightLayer content={sceneContent} entityId={hoverHighlightId} viewBox={viewBox} />
                 <DrawingInteractionOverlay
                     selectionWindow={selectionWindow}

@@ -177,6 +177,22 @@ const SCENARIOS = {
         timings.push(await timed(() => key('Escape')));
         return { timings, checks: counts };
     },
+    lineRubberBand: async svg => {
+        // After the first LINE point, every pointer move redraws the rubber-band
+        // segment: the most frequent feedback while drafting on a large plan.
+        clickTool('line');
+        await settle();
+        const before = entityCount();
+        const points = path(svg, 31);
+        click(svg, points[0]);
+        await settle();
+        const timings = await timeSequence(points.slice(1), point => pointer(svg, 'pointermove', point));
+        const committed = entityCount() - before;
+        key('Escape');
+        await settle();
+        if (committed) throw new Error('Pointer moves committed LINE segments.');
+        return { timings, checks: { committed } };
+    },
     lineClicks: async svg => {
         // Rapid LINE vertices: each click must add its segment within the next frame.
         clickTool('line');

@@ -210,6 +210,43 @@ export function getDrawingEntityDependencyIds(entity) {
     return [...new Set(candidates.filter(id => typeof id === 'string' && id.trim()).map(id => id.trim()))];
 }
 
+/** Entities drawn from other entities (dimensions, associative objects) through a source map. */
+export function drawingEntityUsesSources(entity) {
+    return isDrawingDimensionEntity(entity) || getDrawingEntityDependencyIds(entity).length > 0;
+}
+
+// Entities are immutable, so the IDs each one reads are computed once; the
+// canvas asks for every visible entity after each edit.
+const sourceReads = new WeakMap();
+
+function entitySourceReads(entity) {
+    if (!entity || typeof entity !== 'object') return [];
+    let ids = sourceReads.get(entity);
+    if (!ids) {
+        const breakIds = Array.isArray(entity.dimensionAutoBreak?.sourceIds) ? entity.dimensionAutoBreak.sourceIds : [];
+        ids = [...getDrawingEntityDependencyIds(entity), ...breakIds];
+        sourceReads.set(entity, ids);
+    }
+    return ids;
+}
+
+/**
+ * Whether an entity drawn through a source map may draw differently with
+ * `next` than with `previous`: one of the entities it reads (its sources and
+ * automatic break sources, recursively) was replaced. Block definitions are
+ * compared separately by callers.
+ */
+export function drawingEntitySourcesChanged(entity, previous, next, depth = 0) {
+    if (previous === next) return false;
+    if (!(previous instanceof Map) || !(next instanceof Map) || depth > 4) return drawingEntityUsesSources(entity);
+    return entitySourceReads(entity).some(id => {
+        const after = next.get(id);
+        if (previous.get(id) !== after) return true;
+        return Boolean(after && after !== entity && drawingEntityUsesSources(after)
+            && drawingEntitySourcesChanged(after, previous, next, depth + 1));
+    });
+}
+
 export function drawingEntityDependsOn(entity, sourceId) {
     return typeof sourceId === 'string' && getDrawingEntityDependencyIds(entity).includes(sourceId);
 }

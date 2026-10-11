@@ -1,10 +1,10 @@
-import { createDimensionSourceMap } from './drawingDimensionSources.js';
+import { getDrawingDimensionSourceMap } from './drawingDimensionSources.js';
 import { canSelectEntity, getLayer } from './drawingDocument.js';
 import { isDrawingLayerVisible } from './drawingLayers.js';
 import { entityHitsPoint, entityMatchesSelectionWindow, getDrawingDimensionSelectionBounds } from './drawingSelection.js';
 import { isDrawingObjectHidden } from './drawingObjectVisibility.js';
 import { isConstructionLine } from './drawingConstructionLines.js';
-import { isDrawingDimensionEntity } from './drawingDimensions.js';
+import { drawingEntitySourcesChanged, isDrawingDimensionEntity } from './drawingDimensions.js';
 import { getEntityBounds } from './drawingGeometry.js';
 import { createDrawingIndexCache, createDrawingSpatialIndex } from './drawingSpatialIndex.js';
 
@@ -53,9 +53,16 @@ export function isDimensionPointSnap(point) {
 const selectionIndexCache = createDrawingIndexCache();
 
 function selectionIndex(content) {
-    return selectionIndexCache([content.entities, content.blocks, content.layers, content.textStyles], () => {
-        const sources = createDimensionSourceMap(content.entities, content.blocks, content);
-        return { entityMap: sources, index: createDrawingSpatialIndex(content.entities, entity => selectionEntityBounds(entity, sources)) };
+    return selectionIndexCache([content.entities, content.blocks, content.layers, content.textStyles], previous => {
+        const sources = getDrawingDimensionSourceMap(content);
+        // Entities resolved through other entities can change bounds while keeping
+        // their identity: an edit re-measures those whose sources were replaced.
+        const reusable = previous?.blocks === content.blocks && previous.layers === content.layers && previous.textStyles === content.textStyles;
+        return { entityMap: sources, blocks: content.blocks, layers: content.layers, textStyles: content.textStyles,
+            index: createDrawingSpatialIndex(content.entities, entity => selectionEntityBounds(entity, sources), {
+                previous: reusable ? previous.index : null,
+                refresh: entity => drawingEntitySourcesChanged(entity, previous.entityMap, sources),
+            }) };
     });
 }
 

@@ -1,7 +1,7 @@
 import { DRAWING_LEADER_PRESENTATION, drawingLeaderGeometry, drawingLeaderTextAnnotation } from './drawingLeaders.js';
 import { drawingAffineFrame, framedDrawingPoint } from './drawingAffineFrame.js';
 import { resolveDrawingTextStyle } from './drawingText.js';
-import { createDimensionSourceMap } from './drawingDimensionSources.js';
+import { getDrawingDimensionSourceMap } from './drawingDimensionSources.js';
 import { isDrawingDimensionEntity, getDimensionGeometry } from './drawingDimensions.js';
 import { transformDrawingEntityAffine, refreshDrawingBlockBounds } from './drawingBlocks.js';
 import { translateEntity } from './drawingPrimitives.js';
@@ -60,7 +60,8 @@ export function resolveDrawingAnnotationContent(input, scale = currentAnnotation
     const content = input[CONTENT_SOURCE] ? restoreDrawingAnnotationContent(input) : input;
     if (!validAnnotationScale(scale)) return content;
     let annotated = false;
-    const sources = createDimensionSourceMap(content.entities, content.blocks, content);
+    // Only annotative dimensions without a placed label need their sources.
+    let sources = null;
     const definitions = new Map((content.blocks || []).map(block => [block.id, block]));
     const leaderDefinitions = new Map();
     let generatedEntities = 0;
@@ -73,7 +74,7 @@ export function resolveDrawingAnnotationContent(input, scale = currentAnnotation
         const offset = representation?.offset || { x: 0, y: 0 };
         const factor = scale / annotation.baseScale;
         const record = { source: entity, factor, offset, textStyles: content.textStyles,
-            labelAnchor: isDrawingDimensionEntity(entity) ? entity.dimensionTextPosition || getDimensionGeometry(entity, sources)?.label?.point : null };
+            labelAnchor: isDrawingDimensionEntity(entity) ? entity.dimensionTextPosition || getDimensionGeometry(entity, sources ??= getDrawingDimensionSourceMap(content))?.label?.point : null };
         const unavailable = () => {
             limited = true;
             return { ...entity, [SOURCE]: { ...record, factor: 1, offset: { x: 0, y: 0 } }, [ANNOTATION_HIDDEN]: true };

@@ -1066,7 +1066,7 @@ export function snapDrawingPoint(point, content, threshold, { excludeIds = [] } 
     const excluded = new Set(excludeIds);
     const snaps = content.settings?.snaps || {};
     const aperture = Number.isFinite(Number(threshold)) ? Math.max(0, Number(threshold)) : 0;
-    const { entries, index } = snapIndexCache([content.entities, content.blocks, content.settings?.attributeDisplay], () => createSnapIndex(content));
+    const { entries, index } = snapIndexCache([content.entities, content.blocks, content.settings?.attributeDisplay], previous => createSnapIndex(content, previous));
     const layers = new Map(content.layers.map(layer => [layer.id, layer]));
     const visibleLayers = new Map();
     const layerVisible = layerId => {
@@ -1156,15 +1156,27 @@ const snapIndexCache = createDrawingIndexCache();
 // after an edit only expands the entities that changed.
 const rootSnapEntries = new WeakMap();
 
-function createSnapIndex(content) {
-    const entries = [];
-    for (const root of content.entities) {
-        for (const entry of snapEntriesForRoot(content, root)) {
+function createSnapIndex(content, previous = null) {
+    const attributeDisplay = content.settings?.attributeDisplay;
+    // Unchanged roots reuse their cached entries, so an edit derives the index
+    // from the previous one when block definitions and attribute display match.
+    const reusable = previous?.blocks === content.blocks && previous.attributeDisplay === attributeDisplay;
+    const roots = content.entities;
+    // Entries of the unchanged leading roots are copied rather than re-expanded.
+    let start = 0;
+    if (reusable) while (start < roots.length && start < previous.roots.length && roots[start] === previous.roots[start]) start += 1;
+    const entries = start ? previous.entries.slice(0, previous.ends[start - 1]) : [];
+    const ends = new Uint32Array(roots.length);
+    if (start) ends.set(previous.ends.subarray(0, start));
+    for (let position = start; position < roots.length; position += 1) {
+        for (const entry of snapEntriesForRoot(content, roots[position])) {
             if (entries.length >= SNAP_EXPANSION_LIMIT) break;
             entries.push(entry);
         }
+        ends[position] = entries.length;
     }
-    return { entries, index: createDrawingSpatialIndex(entries, entry => entry.bounds) };
+    return { entries, roots, ends, blocks: content.blocks, attributeDisplay,
+        index: createDrawingSpatialIndex(entries, entry => entry.bounds, { previous: reusable ? previous.index : null }) };
 }
 
 function snapEntriesForRoot(content, root) {

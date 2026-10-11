@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import {
     start, state, command, cancel, entities, openDrawing, withContent, fit, pickEntities,
-    runSteps, expectUndoRedo, typeInTextEditor,
+    runSteps, expectUndoRedo, typeInTextEditor, screenPoint,
 } from './helpers.js';
 
 // Successful creation workflows: real command line, pointer and editor input,
@@ -22,6 +22,29 @@ async function openSources(page) {
     await fit(page);
     return entities(page);
 }
+
+test('LINE shows its rubber band in the pointer overlay and it follows the pointer', async ({ page }) => {
+    await start(page);
+    const before = (await openDrawing(page, sources)).content.entities;
+    await fit(page);
+    await command(page, 'LINE');
+    await command(page, '2,2');
+    const preview = page.locator('.drawing-canvas-overlay .drawing-draft-layer .is-draft');
+    const moveTo = async point => {
+        const target = await screenPoint(page, point);
+        await page.mouse.move(target.x, target.y);
+    };
+    await moveTo({ x: 6, y: 2.5 });
+    await expect(preview).toHaveCount(1);
+    const first = await preview.boundingBox();
+    await moveTo({ x: 8, y: 3.5 });
+    await expect.poll(async () => (await preview.boundingBox()).width).toBeGreaterThan(first.width);
+    // Previews never enter the drawing until a point is committed.
+    expect(await page.locator('svg .drawing-scene .is-draft').count()).toBe(0);
+    await cancel(page);
+    await expect(preview).toHaveCount(0);
+    expect(await entities(page)).toEqual(before);
+});
 
 test('TEXT creates a single-line label typed in the in-place editor', async ({ page }) => {
     const before = await openSources(page);

@@ -7,7 +7,7 @@ import { ANNOTATION_HIDDEN } from '~utils/drawingAnnotations';
 import { resolveDrawingPlotEntityDetails } from '~utils/drawingPlotStyles';
 import { isDrawingLayerVisible } from '~utils/drawingLayers';
 import { isDrawingObjectHidden } from '~utils/drawingObjectVisibility';
-import { createDimensionSourceMap } from '~utils/drawingDimensionSources';
+import { createDimensionSourceMap, getDrawingDimensionSourceMap } from '~utils/drawingDimensionSources';
 import { applyCurrentStyleToNewDimensions } from '~utils/drawingDimensionStyles';
 import { presentDrawingDimension } from '~utils/drawingDimensionPresentation';
 import { drawingRectTransform } from '~utils/drawingAffineFrame';
@@ -22,7 +22,6 @@ import {
     getArcPath,
     getCircleViewportGeometry,
     getDimensionGeometry,
-    getDrawingEntityDependencyIds,
     getRectangleOutlinePath,
     getRegularPolygonVertices,
     formatDrawingDimensionLabel,
@@ -30,7 +29,7 @@ import {
 } from '~utils/drawingGeometry';
 import { DRAWING_GRIP_OBJECT_LIMIT, getEntityGrips } from '~utils/drawingSelection';
 import { canEditEntity, getEntityAppearance } from '~utils/drawingDocument';
-import { DRAWING_QDIM_GRIP_IDS } from '~utils/drawingDimensions';
+import { DRAWING_QDIM_GRIP_IDS, drawingEntitySourcesChanged, drawingEntityUsesSources } from '~utils/drawingDimensions';
 import { getDrawingTextLayout } from '~utils/drawingText';
 import { affineMatrixToSvg, getDrawingBlockReferenceBounds, inverseAffineViewBox, resolveDrawingBlockChild } from '~utils/drawingBlocks';
 import { getDrawingEntityRenderMode } from '~utils/drawingInteraction';
@@ -41,6 +40,7 @@ import { createDrawingBlockSymbols } from '~utils/drawingBlockSymbols';
 import useStableArray from '~hooks/useStableArray';
 
 const EMPTY_ARRAY = Object.freeze([]);
+const EMPTY_SET = new Set();
 
 function DrawingScene({
     content,
@@ -54,8 +54,6 @@ function DrawingScene({
     // plain entities then also drop their wrapper group, halving the DOM.
     hitShapes = true,
     dimensionTextSize = 0.35,
-    draftEntity = null,
-    draftEntities = EMPTY_ARRAY,
     showGrips = false,
     gripSize = 0.2,
     hiddenIds = EMPTY_ARRAY,
@@ -65,20 +63,13 @@ function DrawingScene({
     cullArea = null,
 }) {
     const { locale, t } = useI18n();
-    const stableDraftEntities = useStableArray(draftEntities);
-    const draftList = useMemo(() => (draftEntity || stableDraftEntities.length
-        ? applyCurrentStyleToNewDimensions({ ...content, entities: [...(draftEntity ? [draftEntity] : []), ...stableDraftEntities] }, content).entities
-        : []), [content, stableDraftEntities, draftEntity]);
     const layerMap = useMemo(() => new Map(content.layers.map(layer => [layer.id, layer])), [content.layers]);
-    const entityMap = useMemo(() => createDimensionSourceMap(content.entities, content.blocks, content), [content.entities, content.blocks, content.layers, content.textStyles]);
+    const entityMap = useMemo(() => getDrawingDimensionSourceMap(content), [content.entities, content.blocks, content.layers, content.textStyles]);
     const blockMap = useMemo(() => new Map((content.blocks || []).map(block => [block.id, block])), [content.blocks]);
     const symbolPrefix = `block-symbol-${useId().replace(/:/g, '')}`;
     const symbols = useMemo(() => interactive
         ? createDrawingBlockSymbols(content.entities, blockMap, symbolPrefix)
         : { definitions: [], references: new Map() }, [interactive, content.entities, blockMap, symbolPrefix]);
-    const renderEntityMap = useMemo(() => (draftList.length
-        ? createDimensionSourceMap([...new Map([...entityMap, ...draftList.map(entity => [entity.id, entity])]).values()], content.blocks, content)
-        : entityMap), [draftList, entityMap, content.blocks, content.layers, content.textStyles]);
     const assetMap = useMemo(() => new Map(assets.map(asset => [asset.id, asset])), [assets]);
     const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
     const gripsEnabled = showGrips && selected.size <= DRAWING_GRIP_OBJECT_LIMIT;
@@ -103,7 +94,6 @@ function DrawingScene({
     const hiddenLayers = useMemo(() => new Set(hiddenLayerIds), [hiddenLayerIds]);
     const circleGeometryCache = useMemo(() => new WeakMap(), [
         content.entities,
-        draftList,
         viewBox?.x,
         viewBox?.y,
         viewBox?.width,
@@ -112,10 +102,13 @@ function DrawingScene({
 
     const visiblePositions = useMemo(() => {
         if (!cullArea) return null;
-        const index = cullIndexCache([content.entities], () => createDrawingSpatialIndex(content.entities, drawingEntityRenderBounds));
+        const index = cullIndexCache([content.entities], previous => createDrawingSpatialIndex(content.entities, drawingEntityRenderBounds, { previous }));
         const marginX = cullArea.width * CULL_MARGIN_RATIO;
         const marginY = cullArea.height * CULL_MARGIN_RATIO;
-        return new Set(index.query({ minX: cullArea.x - marginX, minY: cullArea.y - marginY, maxX: cullArea.x + cullArea.width + marginX, maxY: cullArea.y + cullArea.height + marginY }));
+        const area = { minX: cullArea.x - marginX, minY: cullArea.y - marginY, maxX: cullArea.x + cullArea.width + marginX, maxY: cullArea.y + cullArea.height + marginY };
+        // An overview shows everything: skip building a set of every position.
+        if (index.covers(area)) return null;
+        return new Set(index.query(area));
     }, [cullArea, content.entities]);
 
     // Model canvas: shapes never change with selection; outlines and grips live
@@ -123,55 +116,37 @@ function DrawingScene({
     const bare = interactive && !hitShapes;
     const isSelected = id => (previewSelected ? previewSelected.has(id) : selected.has(id));
     const gripsFor = entity => gripsEnabled && (selected.has(entity.id) || selectedQdimGripSeries.has(entity.seriesId));
+    const chunks = useMemo(() => chunkDrawingEntities(content.entities), [content.entities]);
+    const selection = useMemo(() => (bare ? null : { selected, previewSelected, highlighted, gripsEnabled, selectedQdimGripSeries }),
+        [bare, selected, previewSelected, highlighted, gripsEnabled, selectedQdimGripSeries]);
     const decorated = [];
-    const entityElements = content.entities.map((entity, position) => {
-        if (visiblePositions && !visiblePositions.has(position)) return null;
-        const renderMode = getDrawingEntityRenderMode(entity.id, hidden, hitOnly);
-        if (renderMode === 'hidden' || isDrawingObjectHidden(content, entity.id)) return null;
-        const visualHidden = renderMode === 'hit-only';
-        const layer = layerMap.get(entity.layerId);
-        if (!isDrawingLayerVisible(layer) || hiddenLayers.has(entity.layerId)) return null;
-        const editable = canEditEntity(content, entity);
-        if (bare && !visualHidden && (isSelected(entity.id) || highlighted.has(entity.id) || (editable && gripsFor(entity)))) {
-            decorated.push({ entity, editable });
+    let renderedEntities = 0;
+    const visibleChunks = [];
+    for (const chunk of chunks) {
+        const entities = [];
+        for (const position of chunk.positions) {
+            if (visiblePositions && !visiblePositions.has(position)) continue;
+            const entity = content.entities[position];
+            const renderMode = getDrawingEntityRenderMode(entity.id, hidden, hitOnly);
+            if (renderMode === 'hidden' || isDrawingObjectHidden(content, entity.id)) continue;
+            const layer = layerMap.get(entity.layerId);
+            if (!isDrawingLayerVisible(layer) || hiddenLayers.has(entity.layerId)) continue;
+            entities.push(entity);
+            if (bare && renderMode !== 'hit-only' && (isSelected(entity.id) || highlighted.has(entity.id) || gripsFor(entity))) {
+                const editable = canEditEntity(content, entity);
+                if (isSelected(entity.id) || highlighted.has(entity.id) || editable) decorated.push({ entity, editable });
+            }
         }
-        return (
-            <MemoDrawingEntity
-                key={entity.id}
-                entity={entity}
-                sources={entityMap}
-                asset={entity.assetId ? assetMap.get(entity.assetId) : null}
-                appearance={getEntityAppearance(content, entity)}
-                selected={!bare && isSelected(entity.id)}
-                highlighted={!bare && highlighted.has(entity.id)}
-                editable={editable}
-                interactive={interactive}
-                hitShape={interactive && hitShapes}
-                bare={bare}
-                symbolId={symbols.references.get(entity.id)}
-                dimensionTextSize={dimensionTextSize}
-                showGrips={!bare && gripsFor(entity)}
-                gripSize={gripSize}
-                locale={locale}
-                t={t}
-                viewBox={viewBox}
-                circleGeometryCache={circleGeometryCache}
-                block={entity.blockId ? blockMap.get(entity.blockId) : null}
-                blockMap={blockMap}
-                assetMap={assetMap}
-                layerMap={layerMap}
-                hiddenLayers={hiddenLayers}
-                visualHidden={visualHidden}
-                textStyles={content.textStyles}
-                attributeDisplay={content.settings?.attributeDisplay}
-            />
-        );
-    });
-    // Rendered model entity count, readable without per-entity wrapper elements.
-    const renderedEntities = entityElements.reduce((count, element) => count + (element ? 1 : 0), 0);
-    const entityChunks = chunkDrawingEntities(content.entities)
-        .map(chunk => ({ key: chunk.key, elements: chunk.positions.map(position => entityElements[position]).filter(Boolean) }))
-        .filter(chunk => chunk.elements.length);
+        renderedEntities += entities.length;
+        if (entities.length) visibleChunks.push({ key: chunk.key, entities });
+    }
+    // Everything a chunk draws with besides its entities. Chunks compare it field
+    // by field (sameSceneChunkProps), so an edit re-renders only the chunks it touches.
+    const scene = {
+        content, sources: entityMap, assetMap, blockMap, layerMap, hiddenLayers, hitOnly, symbolReferences: symbols.references,
+        interactive, hitShapes, bare, dimensionTextSize, gripSize, locale, t, viewBox, circleGeometryCache,
+        selection,
+    };
 
     return (
         <>
@@ -182,31 +157,7 @@ function DrawingScene({
                 attributeDisplay={content.settings?.attributeDisplay} /></g>
         ))}</defs>}
         <g className="drawing-scene" data-rendered-entities={renderedEntities}>
-            {entityChunks.map(chunk => <g key={chunk.key}>{chunk.elements}</g>)}
-            {draftList.map((entity, index) => (
-                <DrawingEntity
-                    key={entity.id || `draft-${index}`}
-                    entity={entity}
-                    sources={renderEntityMap}
-                    asset={entity.assetId ? assetMap.get(entity.assetId) : null}
-                    appearance={getEntityAppearance(content, entity)}
-                    interactive={false}
-                    draft
-                    selected={entity.previewMode === 'copy'}
-                    dimensionTextSize={dimensionTextSize}
-                    locale={locale}
-                    t={t}
-                    viewBox={viewBox}
-                    circleGeometryCache={circleGeometryCache}
-                    block={entity.blockId ? blockMap.get(entity.blockId) : null}
-                    blockMap={blockMap}
-                    assetMap={assetMap}
-                    layerMap={layerMap}
-                    hiddenLayers={hiddenLayers}
-                    textStyles={content.textStyles}
-                    attributeDisplay={content.settings?.attributeDisplay}
-                />
-            ))}
+            {visibleChunks.map(chunk => <SceneChunk key={chunk.key} entities={chunk.entities} scene={scene} />)}
         </g>
         {decorated.length > 0 && (
             <g className="drawing-scene-decorations">
@@ -377,9 +328,63 @@ export default React.memo(DrawingScene);
 const CULL_MARGIN_RATIO = 0.1;
 const cullIndexCache = createDrawingIndexCache();
 
+/**
+ * In-progress geometry (rubber bands, previews of moves, copies and inserts).
+ * The model canvas draws it in its pointer overlay, so a pointer move redraws
+ * these few shapes instead of repainting the whole drawing.
+ */
+export const DrawingDraftLayer = React.memo(function DrawingDraftLayer({
+    content, assets = EMPTY_ARRAY, draftEntities = EMPTY_ARRAY, dimensionTextSize = 0.35, viewBox = null,
+}) {
+    const { locale, t } = useI18n();
+    const drafts = useStableArray(draftEntities);
+    const draftList = useMemo(() => (drafts.length
+        ? applyCurrentStyleToNewDimensions({ ...content, entities: drafts }, content).entities
+        : EMPTY_ARRAY), [content, drafts]);
+    const entityMap = useMemo(() => getDrawingDimensionSourceMap(content), [content.entities, content.blocks, content.layers, content.textStyles]);
+    // Most previews draw from their own geometry; only those reading sources
+    // (dimension previews) need drafts merged into the drawing's source map.
+    const sources = useMemo(() => (draftList.some(drawingEntityUsesSources)
+        ? createDimensionSourceMap([...new Map([...entityMap, ...draftList.map(entity => [entity.id, entity])]).values()], content.blocks, content)
+        : entityMap), [draftList, entityMap, content.blocks, content.layers, content.textStyles]);
+    const layerMap = useMemo(() => new Map(content.layers.map(layer => [layer.id, layer])), [content.layers]);
+    const blockMap = useMemo(() => new Map((content.blocks || []).map(block => [block.id, block])), [content.blocks]);
+    const assetMap = useMemo(() => new Map(assets.map(asset => [asset.id, asset])), [assets]);
+    if (!draftList.length) return null;
+    const circleGeometryCache = new WeakMap();
+    return (
+        <g className="drawing-draft-layer" pointerEvents="none">
+            {draftList.map((entity, index) => (
+                <DrawingEntity
+                    key={entity.id || `draft-${index}`}
+                    entity={entity}
+                    sources={sources}
+                    asset={entity.assetId ? assetMap.get(entity.assetId) : null}
+                    appearance={getEntityAppearance(content, entity)}
+                    interactive={false}
+                    draft
+                    selected={entity.previewMode === 'copy'}
+                    dimensionTextSize={dimensionTextSize}
+                    locale={locale}
+                    t={t}
+                    viewBox={viewBox}
+                    circleGeometryCache={circleGeometryCache}
+                    block={entity.blockId ? blockMap.get(entity.blockId) : null}
+                    blockMap={blockMap}
+                    assetMap={assetMap}
+                    layerMap={layerMap}
+                    hiddenLayers={EMPTY_SET}
+                    textStyles={content.textStyles}
+                    attributeDisplay={content.settings?.attributeDisplay}
+                />
+            ))}
+        </g>
+    );
+});
+
 /** Pointer-hover outline drawn above the scene, independent of its memoized entities. */
 export const DrawingHighlightLayer = React.memo(function DrawingHighlightLayer({ content, entityId, viewBox }) {
-    const entityMap = useMemo(() => createDimensionSourceMap(content.entities, content.blocks, content), [content.entities, content.blocks, content.layers, content.textStyles]);
+    const entityMap = useMemo(() => getDrawingDimensionSourceMap(content), [content.entities, content.blocks, content.layers, content.textStyles]);
     const entity = entityId ? content.entities.find(item => item.id === entityId) : null;
     if (!entity) return null;
     return (
@@ -389,6 +394,86 @@ export const DrawingHighlightLayer = React.memo(function DrawingHighlightLayer({
         </g>
     );
 });
+
+/** One contiguous group of model entities (see drawingSceneChunks.js). */
+const SceneChunk = React.memo(function SceneChunk({ entities, scene }) {
+    const { content, selection } = scene;
+    const isSelected = id => (selection?.previewSelected ? selection.previewSelected.has(id) : selection?.selected.has(id) || false);
+    const gripsFor = entity => Boolean(selection?.gripsEnabled
+        && (selection.selected.has(entity.id) || selection.selectedQdimGripSeries.has(entity.seriesId)));
+    return (
+        <g>
+            {entities.map(entity => {
+                const editable = canEditEntity(content, entity);
+                return (
+                    <MemoDrawingEntity
+                        key={entity.id}
+                        entity={entity}
+                        sources={scene.sources}
+                        asset={entity.assetId ? scene.assetMap.get(entity.assetId) : null}
+                        appearance={getEntityAppearance(content, entity)}
+                        selected={!scene.bare && isSelected(entity.id)}
+                        highlighted={!scene.bare && Boolean(selection?.highlighted.has(entity.id))}
+                        editable={editable}
+                        interactive={scene.interactive}
+                        hitShape={scene.interactive && scene.hitShapes}
+                        bare={scene.bare}
+                        symbolId={scene.symbolReferences.get(entity.id)}
+                        dimensionTextSize={scene.dimensionTextSize}
+                        showGrips={!scene.bare && gripsFor(entity)}
+                        gripSize={scene.gripSize}
+                        locale={scene.locale}
+                        t={scene.t}
+                        viewBox={scene.viewBox}
+                        circleGeometryCache={scene.circleGeometryCache}
+                        block={entity.blockId ? scene.blockMap.get(entity.blockId) : null}
+                        blockMap={scene.blockMap}
+                        assetMap={scene.assetMap}
+                        layerMap={scene.layerMap}
+                        hiddenLayers={scene.hiddenLayers}
+                        visualHidden={scene.hitOnly.has(entity.id)}
+                        textStyles={content.textStyles}
+                        attributeDisplay={content.settings?.attributeDisplay}
+                    />
+                );
+            })}
+        </g>
+    );
+}, sameSceneChunkProps);
+
+const SCENE_KEYS = ['assetMap', 'blockMap', 'layerMap', 'hiddenLayers', 'hitOnly', 'interactive', 'hitShapes', 'bare',
+    'gripSize', 'locale', 't', 'selection'];
+
+/**
+ * A chunk re-renders when one of its entities changed, when shared drawing
+ * context changed, or when a zoom-, source- or dimension-size-dependent value
+ * changed for an entity that uses it (the same rules as sameDrawingEntityProps).
+ */
+function sameSceneChunkProps(previous, next) {
+    const before = previous.entities;
+    const after = next.entities;
+    if (before.length !== after.length || before.some((entity, index) => entity !== after[index])) return false;
+    const old = previous.scene;
+    const scene = next.scene;
+    if (old === scene) return true;
+    if (SCENE_KEYS.some(key => old[key] !== scene[key])) return false;
+    if (!sameContentContext(old.content, scene.content)) return false;
+    // Block symbols are rebuilt with the entity list; compare this chunk's references only.
+    if (old.symbolReferences !== scene.symbolReferences
+        && after.some(entity => old.symbolReferences.get(entity.id) !== scene.symbolReferences.get(entity.id))) return false;
+    if (old.sources !== scene.sources && after.some(entity => drawingEntitySourcesChanged(entity, old.sources, scene.sources))) return false;
+    if (old.dimensionTextSize !== scene.dimensionTextSize && after.some(entity => drawingEntityUsesDefaultDimensionSize(entity, scene.blockMap))) return false;
+    return !after.some(entity => drawingEntityViewportChanged(entity, old.viewBox, scene.viewBox, scene.blockMap));
+}
+
+// Layers, styles, settings and hidden-object marks are read through the
+// content; only its entity list may differ for a chunk to be reused.
+function sameContentContext(previous, next) {
+    if (previous === next) return true;
+    const keys = Reflect.ownKeys(next);
+    if (keys.length !== Reflect.ownKeys(previous).length) return false;
+    return keys.every(key => key === 'entities' || previous[key] === next[key]);
+}
 
 const VISUAL_PROPS = ['entity', 'asset', 'selected', 'highlighted', 'editable', 'interactive', 'hitShape', 'bare', 'draft', 'showGrips', 'visualHidden',
     'symbolId', 'nested', 'block', 'blockMap', 'assetMap', 'layerMap', 'hiddenLayers', 'textStyles', 'attributeDisplay', 'locale', 't', 'visitedBlockIds'];
@@ -404,8 +489,7 @@ function sameDrawingEntityProps(previous, next) {
     if (APPEARANCE_FIELDS.some(key => previous.appearance?.[key] !== next.appearance?.[key])) return false;
     if (next.showGrips && previous.gripSize !== next.gripSize) return false;
     const { entity } = next;
-    const dimension = isDrawingDimensionEntity(entity);
-    if (previous.sources !== next.sources && (dimension || getDrawingEntityDependencyIds(entity).length)) return false;
+    if (drawingEntitySourcesChanged(entity, previous.sources, next.sources)) return false;
     if (previous.dimensionTextSize !== next.dimensionTextSize && drawingEntityUsesDefaultDimensionSize(entity, next.blockMap)) return false;
     return !drawingEntityViewportChanged(entity, previous.viewBox, next.viewBox, next.blockMap);
 }
@@ -424,7 +508,7 @@ const EntityDecoration = React.memo(function EntityDecoration({ entity, sources,
     );
 }, (previous, next) => ['entity', 'selected', 'highlighted', 'grips', 't'].every(key => previous[key] === next[key])
     && (!next.grips || previous.gripSize === next.gripSize)
-    && (previous.sources === next.sources || !(isDrawingDimensionEntity(next.entity) || getDrawingEntityDependencyIds(next.entity).length))
+    && !drawingEntitySourcesChanged(next.entity, previous.sources, next.sources)
     && !drawingEntityViewportChanged(next.entity, previous.viewBox, next.viewBox, next.blockMap));
 
 function BlockReferenceGeometry({

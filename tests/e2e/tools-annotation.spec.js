@@ -64,6 +64,20 @@ test('DIMENSION on a picked line creates an associative dimension that follows M
     await expectUndoRedo(page, before, created);
 });
 
+test('an associative dimension is redrawn on the canvas when only its source moves', async ({ page }) => {
+    await open(page);
+    await createDimension(page, 'DIMENSION', { x: 3, y: 0 });
+    const label = page.locator('svg .drawing-scene text').filter({ hasText: /^\s*10 m\s*$/ });
+    const before = await label.boundingBox();
+    const dimension = (await entities(page)).at(-1);
+    await command(page, 'QSELECT TYPE line');
+    await runSteps(page, ['MOVE', '0,0', '0,5']);
+    await cancel(page);
+    // The dimension object is unchanged; only the line it reads was replaced.
+    expect(await byId(page, dimension.id)).toEqual(dimension);
+    await expect.poll(async () => Math.abs((await label.boundingBox()).y - before.y)).toBeGreaterThan(10);
+});
+
 test('DIMLINEAR measures an inclined line horizontally', async ({ page }) => {
     const before = await open(page);
     await createDimension(page, 'DIMLINEAR', { x: 21.5, y: 2 });
