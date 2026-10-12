@@ -189,3 +189,62 @@ test('TRACKPOINT acquires a tracking origin without adding a vertex', async ({ p
     expect(added).toHaveLength(1);
     expect(added[0]).toMatchObject({ type: 'line', x1: 1, y1: 1, x2: 4, y2: 1 });
 });
+
+test('zoomed out, sub-pixel objects are drawn as dots and stay selectable', async ({ page }) => {
+    await start(page);
+    await openDrawing(page, withContent({ entities: [
+        { id: 'span', type: 'line', x1: 0, y1: 0, x2: 1000, y2: 0 },
+        { id: 'tiny', type: 'circle', cx: 500, cy: 20, r: 0.1, color: '#ff0000' },
+    ] }));
+    await fit(page);
+    const dots = page.locator('svg .drawing-scene .drawing-entity-dots');
+    await expect(dots).toHaveCount(1);
+    await expect(dots).toHaveAttribute('stroke', '#ff0000');
+    expect(await page.locator('svg .drawing-scene .drawing-linework[stroke="#ff0000"]').count()).toBe(0);
+    // Picking goes through the spatial index, not the drawn shape.
+    await pickEntities(page, [{ x: 500, y: 20 }]);
+    expect((await state(page)).selection).toEqual(['tiny']);
+    await cancel(page);
+    // Close enough, the circle is drawn as itself again.
+    const target = await screenPoint(page, { x: 500, y: 20 });
+    await page.mouse.move(target.x, target.y);
+    for (let step = 0; step < 30; step += 1) await page.mouse.wheel(0, -240);
+    await expect.poll(async () => (await state(page)).editor.viewport.width).toBeLessThan(40);
+    await expect(dots).toHaveCount(0);
+    // Drawn again as a circle, merged with the plain linework of its colour.
+    await expect(page.locator('svg .drawing-scene .drawing-linework[stroke="#ff0000"]')).toHaveAttribute('d', /A 0\.1 0\.1/);
+});
+
+test('plain linework is drawn in shared paths; transparent, rotated and text objects keep their own elements', async ({ page }) => {
+    await start(page);
+    const panel = { id: 'panel', name: 'Panel', basePoint: { x: 0, y: 0 }, entities: [
+        { id: 'frame', type: 'rectangle', layerId: 'geometry', x: 0, y: 0, width: 1, height: 2 },
+        { id: 'cell', type: 'line', layerId: 'geometry', x1: 0, y1: 1, x2: 1, y2: 1 },
+    ] };
+    await openDrawing(page, withContent({ blocks: [panel], entities: [
+        { id: 'plain', type: 'line', x1: 0, y1: 0, x2: 10, y2: 0, color: '#123456' },
+        { id: 'dashed', type: 'line', x1: 0, y1: 2, x2: 10, y2: 2, color: '#00aa00', lineType: 'dashed' },
+        { id: 'faded', type: 'line', x1: 0, y1: 4, x2: 10, y2: 4, color: '#0000ff', transparency: 50 },
+        { id: 'turned', type: 'rectangle', x: 12, y: 0, width: 2, height: 1, rotation: 30, color: '#123456' },
+        { id: 'p1', type: 'blockReference', blockId: 'panel', transform: { a: 1, b: 0, c: 0, d: 1, e: 20, f: 0 }, color: '#123456' },
+        { id: 'p2', type: 'blockReference', blockId: 'panel', transform: { a: 1, b: 0, c: 0, d: 1, e: 22, f: 0 }, color: '#123456' },
+        { id: 'label', type: 'text', x: 0, y: 6, width: 4, height: 1, text: 'Roof', textMode: 'singleLine' },
+    ] }));
+    await fit(page);
+    const scene = page.locator('svg .drawing-scene');
+    const dashed = scene.locator('.drawing-linework[stroke="#00aa00"]');
+    await expect(dashed).toHaveCount(1);
+    await expect(dashed).toHaveAttribute('stroke-dasharray', /\d/);
+    // Transparent strokes would not darken where they overlap inside one path.
+    await expect(scene.locator('line[stroke="#0000ff"]')).toHaveAttribute('opacity', '0.5');
+    await expect(scene.locator('rect[transform*="rotate"]')).toHaveCount(1);
+    await expect(scene.locator('text')).toHaveCount(1);
+    // Both panel references are drawn from their children, without block instances.
+    expect(await scene.locator('use').count()).toBe(0);
+    const panels = await scene.locator('.drawing-linework').evaluateAll(paths => paths.map(path => path.getAttribute('d')).join(' '));
+    expect(panels).toContain('M 20 0 L 21 0 L 21 2 L 20 2 Z');
+    expect(panels).toContain('M 22 1 L 23 1');
+    await pickEntities(page, [{ x: 20, y: 0.5 }]);
+    expect((await state(page)).selection).toEqual(['p1']);
+    await expect(page.locator('svg .drawing-scene-decorations .is-selected')).toHaveCount(1);
+});

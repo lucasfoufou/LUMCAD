@@ -1711,6 +1711,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                     hitOnlyIds={sceneHitOnlyIds}
                     viewBox={renderedViewBox}
                     cullArea={renderedArea}
+                    pixelSize={renderedUnitsPerPixel}
                 />
             </svg>
             {/* Pointer feedback lives in its own SVG so hover changes never repaint the drawing. */}

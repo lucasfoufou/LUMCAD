@@ -4,7 +4,7 @@ import { drawingPointPath, drawingPointSvgTransform, normalizeDrawingPointStyle 
 import { drawingBlockInstanceEntities } from '~utils/drawingDynamicBlocks';
 import { drawingBlockClipShape } from '~utils/drawingBlockClip';
 import { ANNOTATION_HIDDEN } from '~utils/drawingAnnotations';
-import { resolveDrawingPlotEntityDetails } from '~utils/drawingPlotStyles';
+import { DRAWING_PLOT_PRESENTATION, resolveDrawingPlotEntityDetails } from '~utils/drawingPlotStyles';
 import { isDrawingLayerVisible } from '~utils/drawingLayers';
 import { isDrawingObjectHidden } from '~utils/drawingObjectVisibility';
 import { createDimensionSourceMap, getDrawingDimensionSourceMap } from '~utils/drawingDimensionSources';
@@ -32,6 +32,7 @@ import { canEditEntity, getEntityAppearance } from '~utils/drawingDocument';
 import { DRAWING_QDIM_GRIP_IDS, drawingEntitySourcesChanged, drawingEntityUsesSources } from '~utils/drawingDimensions';
 import { getDrawingTextLayout } from '~utils/drawingText';
 import { affineMatrixToSvg, getDrawingBlockReferenceBounds, inverseAffineViewBox, resolveDrawingBlockChild } from '~utils/drawingBlocks';
+import { drawingLineworkBlockChildren, drawingLineworkDependsOnViewport, drawingLineworkPath } from '~utils/drawingLineworkBatch';
 import { getDrawingEntityRenderMode } from '~utils/drawingInteraction';
 import { drawingEntityRenderBounds, drawingEntityViewportChanged, drawingEntityUsesDefaultDimensionSize } from '~utils/drawingViewportDependence';
 import { createDrawingIndexCache, createDrawingSpatialIndex } from '~utils/drawingSpatialIndex';
@@ -61,6 +62,9 @@ function DrawingScene({
     hiddenLayerIds = EMPTY_ARRAY,
     viewBox = null,
     cullArea = null,
+    // World units per screen pixel of the model canvas. Entities smaller than a
+    // pixel are then drawn as dots grouped by appearance (level of detail).
+    pixelSize = null,
 }) {
     const { locale, t } = useI18n();
     const layerMap = useMemo(() => new Map(content.layers.map(layer => [layer.id, layer])), [content.layers]);
@@ -92,6 +96,7 @@ function DrawingScene({
     const hidden = useMemo(() => new Set(hiddenIds), [hiddenIds]);
     const hitOnly = useMemo(() => new Set(hitOnlyIds), [hitOnlyIds]);
     const hiddenLayers = useMemo(() => new Set(hiddenLayerIds), [hiddenLayerIds]);
+    const lineworkViewportCache = useMemo(() => new WeakMap(), [viewBox?.x, viewBox?.y, viewBox?.width, viewBox?.height]);
     const circleGeometryCache = useMemo(() => new WeakMap(), [
         content.entities,
         viewBox?.x,
@@ -122,8 +127,10 @@ function DrawingScene({
     const decorated = [];
     let renderedEntities = 0;
     const visibleChunks = [];
+    const dotLimit = pixelSize > 0 ? pixelSize * LOD_DOT_PIXELS : 0;
     for (const chunk of chunks) {
         const entities = [];
+        const dots = [];
         for (const position of chunk.positions) {
             if (visiblePositions && !visiblePositions.has(position)) continue;
             const entity = content.entities[position];
@@ -131,20 +138,21 @@ function DrawingScene({
             if (renderMode === 'hidden' || isDrawingObjectHidden(content, entity.id)) continue;
             const layer = layerMap.get(entity.layerId);
             if (!isDrawingLayerVisible(layer) || hiddenLayers.has(entity.layerId)) continue;
-            entities.push(entity);
+            if (dotLimit && renderMode !== 'hit-only' && drawingEntityBelowSize(entity, dotLimit)) dots.push(entity);
+            else entities.push(entity);
             if (bare && renderMode !== 'hit-only' && (isSelected(entity.id) || highlighted.has(entity.id) || gripsFor(entity))) {
                 const editable = canEditEntity(content, entity);
                 if (isSelected(entity.id) || highlighted.has(entity.id) || editable) decorated.push({ entity, editable });
             }
         }
-        renderedEntities += entities.length;
-        if (entities.length) visibleChunks.push({ key: chunk.key, entities });
+        renderedEntities += entities.length + dots.length;
+        if (entities.length || dots.length) visibleChunks.push({ key: chunk.key, entities, dots });
     }
     // Everything a chunk draws with besides its entities. Chunks compare it field
     // by field (sameSceneChunkProps), so an edit re-renders only the chunks it touches.
     const scene = {
         content, sources: entityMap, assetMap, blockMap, layerMap, hiddenLayers, hitOnly, symbolReferences: symbols.references,
-        interactive, hitShapes, bare, dimensionTextSize, gripSize, locale, t, viewBox, circleGeometryCache,
+        interactive, hitShapes, bare, dimensionTextSize, gripSize, locale, t, viewBox, circleGeometryCache, pixelSize, lineworkViewportCache,
         selection,
     };
 
@@ -157,7 +165,7 @@ function DrawingScene({
                 attributeDisplay={content.settings?.attributeDisplay} /></g>
         ))}</defs>}
         <g className="drawing-scene" data-rendered-entities={renderedEntities}>
-            {visibleChunks.map(chunk => <SceneChunk key={chunk.key} entities={chunk.entities} scene={scene} />)}
+            {visibleChunks.map(chunk => <SceneChunk key={chunk.key} entities={chunk.entities} dots={chunk.dots} scene={scene} />)}
         </g>
         {decorated.length > 0 && (
             <g className="drawing-scene-decorations">
@@ -396,14 +404,12 @@ export const DrawingHighlightLayer = React.memo(function DrawingHighlightLayer({
 });
 
 /** One contiguous group of model entities (see drawingSceneChunks.js). */
-const SceneChunk = React.memo(function SceneChunk({ entities, scene }) {
+const SceneChunk = React.memo(function SceneChunk({ entities, dots, scene }) {
     const { content, selection } = scene;
     const isSelected = id => (selection?.previewSelected ? selection.previewSelected.has(id) : selection?.selected.has(id) || false);
     const gripsFor = entity => Boolean(selection?.gripsEnabled
         && (selection.selected.has(entity.id) || selection.selectedQdimGripSeries.has(entity.seriesId)));
-    return (
-        <g>
-            {entities.map(entity => {
+    const renderEntity = entity => {
                 const editable = canEditEntity(content, entity);
                 return (
                     <MemoDrawingEntity
@@ -436,7 +442,36 @@ const SceneChunk = React.memo(function SceneChunk({ entities, scene }) {
                         attributeDisplay={content.settings?.attributeDisplay}
                     />
                 );
-            })}
+    };
+    // Consecutive plain linework is merged into one path per appearance; any
+    // other entity ends the run, so painter order between runs is preserved.
+    const items = [];
+    let run = null;
+    for (const entity of entities) {
+        const parts = scene.bare && !scene.hitOnly.has(entity.id) ? batchedLinework(entity, scene) : null;
+        if (!parts) {
+            run = null;
+            items.push(renderEntity(entity));
+            continue;
+        }
+        if (!run) {
+            run = new Map();
+            items.push(run);
+        }
+        for (const part of parts) {
+            const group = run.get(part.key);
+            if (group) group.paths.push(part.d);
+            else run.set(part.key, { appearance: part.appearance, paths: [part.d] });
+        }
+    }
+    return (
+        <g>
+            {items.map((item, index) => (item instanceof Map ? [...item.values()].map(({ appearance, paths }, groupIndex) => (
+                <path key={`run-${index}-${groupIndex}`} className="drawing-linework" d={paths.join(' ')} fill="none"
+                    stroke={appearance.color} strokeWidth={appearance.lineWeight} vectorEffect="non-scaling-stroke"
+                    {...lineTypeStrokeProps(appearance.lineType, appearance.lineWeight)} />
+            )) : item))}
+            {dots.length > 0 && <EntityDots entities={dots} content={content} pixelSize={scene.pixelSize} />}
         </g>
     );
 }, sameSceneChunkProps);
@@ -450,9 +485,10 @@ const SCENE_KEYS = ['assetMap', 'blockMap', 'layerMap', 'hiddenLayers', 'hitOnly
  * changed for an entity that uses it (the same rules as sameDrawingEntityProps).
  */
 function sameSceneChunkProps(previous, next) {
+    if (!sameItems(previous.dots, next.dots)) return false;
     const before = previous.entities;
     const after = next.entities;
-    if (before.length !== after.length || before.some((entity, index) => entity !== after[index])) return false;
+    if (!sameItems(before, after)) return false;
     const old = previous.scene;
     const scene = next.scene;
     if (old === scene) return true;
@@ -464,6 +500,84 @@ function sameSceneChunkProps(previous, next) {
     if (old.sources !== scene.sources && after.some(entity => drawingEntitySourcesChanged(entity, old.sources, scene.sources))) return false;
     if (old.dimensionTextSize !== scene.dimensionTextSize && after.some(entity => drawingEntityUsesDefaultDimensionSize(entity, scene.blockMap))) return false;
     return !after.some(entity => drawingEntityViewportChanged(entity, old.viewBox, scene.viewBox, scene.blockMap));
+}
+
+// Plain opaque linework is merged into one path per appearance and chunk run
+// (drawingLineworkBatch.js): a plan holds far fewer elements to lay out and
+// paint, while each subpath draws exactly what the entity's element drew.
+const lineworkCache = new WeakMap();
+
+function lineworkKey(appearance) {
+    return `${appearance.color}|${appearance.lineWeight}|${appearance.lineType}`;
+}
+
+/** Subpaths and appearance of an entity drawable as shared opaque linework, or null. */
+function batchedLinework(entity, scene) {
+    const { content } = scene;
+    const viewportDependent = scene.lineworkViewportCache;
+    const cached = lineworkCache.get(entity) || viewportDependent.get(entity);
+    if (cached && cached.blocks === content.blocks && cached.layers === content.layers) return cached.parts;
+    const opaque = appearance => transparencyToOpacity(appearance.transparency) === 1;
+    const plain = item => !scene.layerMap.get(item.layerId)?.[DRAWING_PLOT_PRESENTATION];
+    let parts = null;
+    let dependsOnViewport = drawingLineworkDependsOnViewport(entity);
+    if (entity.type === 'blockReference') {
+        const block = scene.blockMap.get(entity.blockId);
+        const children = plain(entity) && drawingLineworkBlockChildren(entity, block, {
+            layerVisible: layerId => isDrawingLayerVisible(scene.layerMap.get(layerId)) && !scene.hiddenLayers.has(layerId),
+            viewBox: scene.viewBox, textStyles: content.textStyles, attributeDisplay: content.settings?.attributeDisplay,
+        });
+        if (children) {
+            dependsOnViewport = children.some(child => drawingLineworkDependsOnViewport(child.entity));
+            const layers = { layers: content.layers };
+            parts = children.map(child => ({ d: child.d, appearance: getEntityAppearance(layers, child.entity) }));
+            if (!parts.every(part => opaque(part.appearance))) parts = null;
+        }
+    } else if (plain(entity)) {
+        const d = drawingLineworkPath(entity, scene.viewBox);
+        const appearance = d === null ? null : getEntityAppearance(content, entity);
+        if (appearance && opaque(appearance)) parts = [{ d, appearance }];
+    }
+    parts = parts?.filter(part => part.d).map(part => ({ ...part, key: lineworkKey(part.appearance) })) || null;
+    (dependsOnViewport ? viewportDependent : lineworkCache).set(entity, { blocks: content.blocks, layers: content.layers, parts });
+    return parts;
+}
+
+function sameItems(before, after) {
+    return before.length === after.length && before.every((item, index) => item === after[index]);
+}
+
+// Level of detail: below this screen size an entity is indistinguishable from
+// a dot. Dots of one chunk are merged into one path per appearance, so a
+// zoomed-out plan holds far fewer elements to lay out and paint.
+const LOD_DOT_PIXELS = 1;
+
+function drawingEntityBelowSize(entity, size) {
+    const bounds = drawingEntityRenderBounds(entity);
+    return Boolean(bounds) && bounds.maxX - bounds.minX < size && bounds.maxY - bounds.minY < size;
+}
+
+function EntityDots({ entities, content, pixelSize }) {
+    const groups = new Map();
+    for (const entity of entities) {
+        const bounds = drawingEntityRenderBounds(entity);
+        const appearance = getEntityAppearance(content, entity);
+        const key = `${appearance.color}|${appearance.transparency}|${appearance.lineWeight}`;
+        let group = groups.get(key);
+        if (!group) {
+            group = { appearance, segments: [] };
+            groups.set(key, group);
+        }
+        // A short segment with round caps draws a dot of the stroke width.
+        const x = (bounds.minX + bounds.maxX) / 2;
+        const y = (bounds.minY + bounds.maxY) / 2;
+        group.segments.push(`M${x} ${y}h${(pixelSize || 1e-6) * 0.01}`);
+    }
+    return [...groups.values()].map(({ appearance, segments }, index) => (
+        <path key={index} className="drawing-entity-dots" d={segments.join('')} fill="none" stroke={appearance.color}
+            strokeWidth={Math.max(1, appearance.lineWeight) + 0.5} strokeLinecap="round" vectorEffect="non-scaling-stroke"
+            opacity={transparencyToOpacity(appearance.transparency)} />
+    ));
 }
 
 // Layers, styles, settings and hidden-object marks are read through the

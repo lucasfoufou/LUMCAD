@@ -1,6 +1,6 @@
 # Performance and reliability baseline
 
-- Last measured: 2026-10-10 (editing pass)
+- Last measured: 2026-10-12 (linework batching)
 - Scope: editor responsiveness, memory, and document size limits for large 2D drawings
 
 This document defines how LUMCAD performance is measured, the budgets that changes must respect, and the current baseline. Re-run the benchmarks and update the baseline when a change targets performance or alters rendering, snapping, selection, history, or persistence.
@@ -291,3 +291,56 @@ Document pipeline, measured back to back on the same machine ([before](./benchma
 - An XL vertex click (about 90 ms) is now mostly native: painting and layerizing the single 65,000-node scene SVG (about 40 + 20 ms per click). SVG elements cannot get their own paint layer, so this needs several scene SVGs or a canvas renderer.
 - The settle after pan or zoom is native layout: every shape uses `vector-effect: non-scaling-stroke`, so a view-scale change re-lays out each visible shape (about 150 ms at L and 280 ms at XL in a full overview). Alternatives with world-unit strokes need the same per-shape update; a canvas renderer or a level of detail that omits sub-pixel shapes would change this.
 - XL window-selection preview and bulk undo remain DOM-bound (thousands of outlines or shapes created at once).
+
+## Level of detail — 2026-10-11
+
+### Change
+
+In the model canvas, an entity whose render bounds are smaller than one screen pixel is drawn as a dot. The dots of one scene chunk are merged into one path per colour, transparency and lineweight, with the entity's colour and a round cap of its lineweight. Picking, snapping, selection outlines and publication are unchanged; layouts and exports never use it. An E2E test checks the dot, its selection and the return to the real shape when zooming in.
+
+On the synthetic fixtures, 38 % (L) and 43 % (XL) of the entities are below one pixel in a full overview (the rail fixings). Overview screenshots before and after differ on 0.2 % of the pixels, without visible change.
+
+### Results
+
+Same harness, measured back to back. Raw results: [before](./benchmarks/level-of-detail-2026-10-11/before-L-XL.json), [after](./benchmarks/level-of-detail-2026-10-11/after-L-XL.json).
+
+| Measure | L before | L after | XL before | XL after |
+| --- | ---: | ---: | ---: | ---: |
+| DOM nodes, overview | 26,652 | 19,128 | 65,649 | 43,422 |
+| Sampled peak JS heap | 354 MiB | 199 MiB | 960 MiB | 552 MiB |
+| Load | 628 ms | 498 ms | 1,088 ms | 1,056 ms |
+
+Interaction timings (clicks, pan, zoom settle, selection, bulk edits) did not change beyond run-to-run noise, confirmed by alternating runs. The removed circles were the cheapest shapes; the zoom-settle layout is dominated by the panel block instances (7,808 at L, each a `use` of four shapes) and text, which are 1 to 4 px wide in the overview.
+
+### Rejected: a 4 px threshold
+
+Drawing everything below 4 px as a dot (measured only, not kept) brought XL load from 1,062 to 373 ms, a vertex click from about 90 to 56 ms and smooth pans, but doubled the XL zoom settle (p95 334 → 710 ms): zooming in from the overview recreates tens of thousands of shapes crossing the threshold at once, and the simplified panels and text change the drawing visibly. A renderer that does not keep one element per shape (canvas) avoids both costs.
+
+## Linework batching — 2026-10-12
+
+### Change
+
+The level-of-detail measurement showed that the remaining cost follows the number of SVG elements, not their size. In the model canvas, consecutive plain linework of a scene chunk is now drawn as subpaths of one `path` per colour, lineweight and line type (`drawingLineworkBatch.js`): lines, arcs, circles (with their view-dependent geometry), axis-aligned rectangles, regular polygons and polylines made of points or of line/arc parts without their own appearance, plus block references whose visible children are all such linework (transformed into drawing coordinates, including rotated references). Each subpath reproduces the entity's own element, and any other entity ends the run, so painter order with fills, text and other objects is preserved; only crossings between different colours inside one run may change which stroke is on top.
+
+Entities keep their own element when they are transparent (overlapping strokes of one path would not darken), use a plot-style presentation layer, have widths, fills or per-part appearance, rotated rectangles drawn alone, text, hatches, dimensions, images, splines and ellipses, clipped or unloaded references and blocks with such children. Picking, snapping, selection outlines, layouts and publication are unchanged. Unit tests compare the paths with the element geometry; E2E tests check batched lines and blocks, the dashed line type, the transparent and rotated exceptions and selecting a batched block.
+
+### Results
+
+Same harness, alternating runs with and without batching, both with the sub-pixel dots. Raw results: [before](./benchmarks/linework-batching-2026-10-12/before-L-XL.json), [after](./benchmarks/linework-batching-2026-10-12/after-L-XL.json), [final build](./benchmarks/linework-batching-2026-10-12/final-L-XL.json). Values are median / p95 in milliseconds.
+
+| Measure | L before | L after | XL before | XL after |
+| --- | ---: | ---: | ---: | ---: |
+| DOM nodes, overview | 19,128 | 10,775 | 43,422 | 24,502 |
+| Load | 488 | 330 | 835 | 560 |
+| Wheel zoom (p95 = settle) | 17 / 114 | 17 / 56 | 17 / 237 | 17 / 100 |
+| Pan | 17 / 30 | 17 / 20 | 17 / 51 | 17 / 22 |
+| LINE vertex click | 35 / 40 | 21 / 40 | 75 / 91 | 49 / 65 |
+| Window selection | 52 / 79 | 42 / 63 | 148 / 258 | 113 / 224 |
+| Delete / undo / redo | 74 / 336 | 51 / 83 | 147 / 816 | 96 / 170 |
+
+The second alternating pair reproduced these values. Cached subpath strings raise the sampled JS heap peak somewhat; with the sub-pixel dots the final build peaks at about 255 MiB (L) and 450 MiB (XL), against 199 and 552 MiB before batching. Without the dots the final build loads about 10 % slower and peaks at about 280 MiB (L) and 700 MiB (XL), with the same interaction timings, so the dots are kept.
+
+### Remaining findings
+
+- Text, dimensions and hatches keep one element each; a zoom settle at XL still re-lays out about 24,000 elements (about 100 ms).
+- XL window-selection preview still creates one outline per selected entity.
