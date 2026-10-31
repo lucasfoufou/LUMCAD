@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useI18n } from '~i18n/I18nProvider';
-import { createLcadEnvelope } from '~utils/lcadDocument';
+import { wrapLcadDocument } from '~utils/lcadDocument';
 import { autosaveLcadDocument, saveLcadDocumentAs, writeLcadDocument } from '~utils/lcadStorage';
 
 export default function useLcadAutosave({ document, filePath, onPathChange, protectedPath = null, protectedPaths = null, delayMs = 900, enabled = true }) {
@@ -42,7 +42,7 @@ export default function useLcadAutosave({ document, filePath, onPathChange, prot
         setStatus('saving');
         setError(null);
         try {
-            const result = await autosaveLcadDocument(pathRef.current, createLcadEnvelope(snapshot.document));
+            const result = await autosaveLcadDocument(pathRef.current, wrapLcadDocument(snapshot.document));
             lastSavedSignatureRef.current = snapshot.signature;
             failedSignatureRef.current = null;
             if (mountedRef.current) {
@@ -65,7 +65,7 @@ export default function useLcadAutosave({ document, filePath, onPathChange, prot
         setStatus('saving');
         setError(null);
         try {
-            const result = await writeLcadDocument(path, createLcadEnvelope(snapshot.document));
+            const result = await writeLcadDocument(path, wrapLcadDocument(snapshot.document));
             lastSavedSignatureRef.current = snapshot.signature;
             failedSignatureRef.current = null;
             pathRef.current = result.path || path || null;
@@ -92,7 +92,7 @@ export default function useLcadAutosave({ document, filePath, onPathChange, prot
         setError(null);
         try {
             const result = await enqueue(() => saveLcadDocumentAs(
-                createLcadEnvelope(snapshot.document),
+                wrapLcadDocument(snapshot.document),
                 snapshot.document.name,
                 { filterName: t('fileDialog.lcadDrawing'), protectedPath, protectedPaths: protectedPaths || [] },
             ));

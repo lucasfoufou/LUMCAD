@@ -29,6 +29,12 @@ Neither layer is **exhaustive functional acceptance of every command option**: a
 
 Native UI acceptance and outstanding platform checks remain in [NATIVE_QA.md](./NATIVE_QA.md). Performance scenarios and their budgets remain in [PERFORMANCE.md](./PERFORMANCE.md).
 
+## Real CAD import regressions — 2026-10-30
+
+`cad.spec.js` now has six workflows: millimetre import with undo/redo, metre-based DXF download, atomic unsupported-object refusal, explicit SKIP with paper-space exclusion, preservation of an edit made while worker conversion is pending, and nested CAD block rendering. The nested fixture contains 2,001 lines around a fill and text: opaque curves batch into two paths while the fill/text painter order is retained. The scene stays below 30 SVG nodes. These synthetic fixtures are redistributable; private customer drawings remain outside the repository. Native corpus verification and fidelity limits are recorded in [CAD_INTERCHANGE.md](./CAD_INTERCHANGE.md).
+
+Local acceptance: 1,576 frontend unit tests, production build, 100 Rust tests (one pre-existing opt-in test ignored), dedicated MCP checks, 10 native headless scenarios with LibreDWG, and all 24 browser cases in `cad.spec.js` plus `tools-creation.spec.js` passed. Native GUI import, autosave, pan and zoom were exercised on a real unitless roof plan with an explicit unit. The complete 587-case historical browser suite was not rerun in this pass. S/M/L/XL benchmarks completed; their remaining budget overruns are recorded in PERFORMANCE.md.
+
 ## Local acceptance — 2026-10-09
 
 On macOS Apple Silicon with Chrome 154: **338 tests passed** (294 command-entry cases, one catalog-completeness check and 43 workflow cases). Full checks passed 1,516 frontend unit tests, the production build and 93 Rust tests; dedicated MCP checks passed as well. One pre-existing opt-in native MCP test remains ignored by the normal Rust suite; the new explicit headless integration runs separately. Remote CI and native Windows/Linux acceptance were not run locally.
@@ -38,6 +44,8 @@ Reviewing command outputs exposed nine single-braced translation templates (unit
 ### DXF/DWG extension — 2026-10-09
 
 **345 browser tests passed**: 298 command-entry cases, one catalog-completeness check and 46 workflows. The added successful workflows cover DXF import/undo/redo, DXF download and unsupported-entity refusal. Full checks passed 1,532 frontend tests, the production build and 95 Rust tests, plus the dedicated MCP suite (one pre-existing opt-in Rust test remains ignored). Native macOS integration separately exercises DXF and real LibreDWG export/import/undo, including a scaled/rotated static block. This does not validate native Windows/Linux or arbitrary customer DWG files.
+
+The 2026-10-30 DWG review reran the seven CAD browser workflows, including native WIPEOUT polygon fill, stroke, coordinates and undo, asynchronous stale-import refusal and nested block painter order. It also reran the full unit/build checks (1,584 frontend tests and 100 Rust tests) and the 11-scenario native headless suite, including immediate responses for repeated large worker imports. These targeted reruns are not a new run of every browser workflow.
 
 ### Complete command workflows — 2026-10-10
 

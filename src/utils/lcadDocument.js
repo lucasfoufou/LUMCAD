@@ -9,7 +9,7 @@ import {
 export const LCAD_FORMAT = 'lumcad';
 export const LCAD_FORMAT_VERSION = 2;
 export const LCAD_MIN_READABLE_FORMAT_VERSION = 1;
-export const LCAD_APP_VERSION = '0.3.1';
+export const LCAD_APP_VERSION = '0.3.2';
 export const SUPPORTED_LCAD_IMAGE_MIME_TYPES = Object.freeze([
     'image/png',
     'image/jpeg',
@@ -38,13 +38,17 @@ export function createLcadDocument({
 }
 
 export function createLcadEnvelope(document, savedAt = new Date()) {
-    const normalized = normalizeLcadDocument(document);
+    return wrapLcadDocument(normalizeLcadDocument(document), savedAt);
+}
+
+/** Storage normalizes at its boundary; wrapping avoids a second full geometry copy. */
+export function wrapLcadDocument(document, savedAt = new Date()) {
     return {
         format: LCAD_FORMAT,
         formatVersion: LCAD_FORMAT_VERSION,
         appVersion: LCAD_APP_VERSION,
         document: {
-            ...normalized,
+            ...document,
             updatedAt: savedAt.toISOString(),
         },
     };

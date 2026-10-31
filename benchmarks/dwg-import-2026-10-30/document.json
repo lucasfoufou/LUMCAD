@@ -1,0 +1,202 @@
+{
+  "date": "2026-10-30T17:38:33.721Z",
+  "node": "v26.12.1",
+  "results": [
+    {
+      "size": "S",
+      "entities": 1099,
+      "archiveKiB": 14,
+      "jsonKiB": 205,
+      "documentHeapMiB": 1.3,
+      "metrics": {
+        "open": {
+          "median": 5.86,
+          "p95": 6.57
+        },
+        "save": {
+          "median": 4.82,
+          "p95": 5.75
+        },
+        "serializeDocument": {
+          "median": 0.56,
+          "p95": 0.6
+        },
+        "sceneSourceMap": {
+          "median": 0.04,
+          "p95": 0.07
+        },
+        "commitOneEntity": {
+          "median": 0.15,
+          "p95": 0.25
+        },
+        "commitTenPercent": {
+          "median": 0.14,
+          "p95": 0.15
+        },
+        "snapPointerMove": {
+          "median": 0.08,
+          "p95": 0.27
+        },
+        "snapAfterEdit": {
+          "median": 0.18,
+          "p95": 0.46
+        },
+        "snapPointerMoveTracking": {
+          "median": 0.07,
+          "p95": 0.13
+        },
+        "windowSelectionQuarter": {
+          "median": 0.53,
+          "p95": 0.64
+        }
+      }
+    },
+    {
+      "size": "M",
+      "entities": 5024,
+      "archiveKiB": 53,
+      "jsonKiB": 941,
+      "documentHeapMiB": 1.84,
+      "metrics": {
+        "open": {
+          "median": 21.59,
+          "p95": 22.6
+        },
+        "save": {
+          "median": 23.71,
+          "p95": 27.66
+        },
+        "serializeDocument": {
+          "median": 2.51,
+          "p95": 2.56
+        },
+        "sceneSourceMap": {
+          "median": 0.19,
+          "p95": 0.28
+        },
+        "commitOneEntity": {
+          "median": 0.68,
+          "p95": 0.81
+        },
+        "commitTenPercent": {
+          "median": 0.71,
+          "p95": 0.74
+        },
+        "snapPointerMove": {
+          "median": 0.07,
+          "p95": 0.16
+        },
+        "snapAfterEdit": {
+          "median": 0.41,
+          "p95": 1.08
+        },
+        "snapPointerMoveTracking": {
+          "median": 0.07,
+          "p95": 0.12
+        },
+        "windowSelectionQuarter": {
+          "median": 1.06,
+          "p95": 1.47
+        }
+      }
+    },
+    {
+      "size": "L",
+      "entities": 20096,
+      "archiveKiB": 205,
+      "jsonKiB": 3818,
+      "documentHeapMiB": 6.82,
+      "metrics": {
+        "open": {
+          "median": 83.87,
+          "p95": 88.87
+        },
+        "save": {
+          "median": 78.25,
+          "p95": 80.49
+        },
+        "serializeDocument": {
+          "median": 8.65,
+          "p95": 9.21
+        },
+        "sceneSourceMap": {
+          "median": 0.84,
+          "p95": 0.88
+        },
+        "commitOneEntity": {
+          "median": 2.69,
+          "p95": 2.86
+        },
+        "commitTenPercent": {
+          "median": 2.71,
+          "p95": 3.49
+        },
+        "snapPointerMove": {
+          "median": 0.1,
+          "p95": 0.21
+        },
+        "snapAfterEdit": {
+          "median": 1.81,
+          "p95": 3.02
+        },
+        "snapPointerMoveTracking": {
+          "median": 0.1,
+          "p95": 0.16
+        },
+        "windowSelectionQuarter": {
+          "median": 4.14,
+          "p95": 4.49
+        }
+      }
+    },
+    {
+      "size": "XL",
+      "entities": 50083,
+      "archiveKiB": 507,
+      "jsonKiB": 9579,
+      "documentHeapMiB": 16.66,
+      "metrics": {
+        "open": {
+          "median": 198.89,
+          "p95": 213.96
+        },
+        "save": {
+          "median": 191.55,
+          "p95": 205.45
+        },
+        "serializeDocument": {
+          "median": 18.27,
+          "p95": 18.36
+        },
+        "sceneSourceMap": {
+          "median": 2.16,
+          "p95": 3.03
+        },
+        "commitOneEntity": {
+          "median": 6.51,
+          "p95": 7.46
+        },
+        "commitTenPercent": {
+          "median": 6.33,
+          "p95": 6.41
+        },
+        "snapPointerMove": {
+          "median": 0.13,
+          "p95": 0.24
+        },
+        "snapAfterEdit": {
+          "median": 4.59,
+          "p95": 6.24
+        },
+        "snapPointerMoveTracking": {
+          "median": 0.12,
+          "p95": 0.26
+        },
+        "windowSelectionQuarter": {
+          "median": 8.48,
+          "p95": 9.46
+        }
+      }
+    }
+  ]
+}

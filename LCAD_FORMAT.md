@@ -272,6 +272,8 @@ An entity uses its layer appearance by default. A custom `color`, `lineWeight`, 
 
 `document.content.blocks` stores reusable block definitions. Each definition has a stable ID, a display name, a local base point, local child entities, and derived local bounds. A `blockReference` entity points to one definition and applies an affine matrix to its local geometry:
 
+The normalized catalog permits 4,096 definitions and 500,000 stored children in total. CAD import checks the combined destination/import budget before committing, so large imports cannot silently lose definitions during normalization. Builds before 2026-10-30 used smaller catalog limits; keep a copy when opening large drawings in older builds. This changes limits, not the version 2 representation.
+
 ```json
 {
   "blocks": [
@@ -372,7 +374,7 @@ decoder resources are bundled locally; no remote resource service is used.
 
 The desktop and browser readers apply the same limits:
 
-- manifest: 64 MiB maximum (8 MiB before 2026-10-08; LUMCAD builds from before that date refuse larger manifests);
+- manifest: 128 MiB maximum (64 MiB before 2026-10-30, 8 MiB before 2026-10-08; older builds refuse manifests above their limit);
 - one asset: 25 MiB maximum;
 - all assets: 200 MiB maximum;
 - embedded assets: 512 maximum;

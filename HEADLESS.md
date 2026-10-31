@@ -33,7 +33,7 @@ This is a **windowless Tauri runtime**, backed by an invisible native WebView. I
 6. `export_pdf {"path":"/absolute/output.pdf"}` — all layouts in document order; no preview/dialog. Optional `layoutIds` selects a nonempty, unique, explicitly ordered subset. Unknown IDs reject before writing.
 7. Check the returned `path`, `pageCount`, `bytes` and `layoutIds`. Success is returned only after rendering and native atomic writing complete.
 
-`open_document` returns the opened path and document ID; subsequent `get_state` reads the new session. Invalid opens preserve the current document. Saving during block editing is refused until the block editor closes. Relative destinations and wrong extensions are rejected.
+`open_document` returns the opened path and document ID; subsequent `get_state` reads the new session. While the replacement editor registers its bridge, `get_state` can briefly report that the drawing window is not ready; retry this read-only readiness check before sending edits. Do not retry mutations on timeout. Invalid opens preserve the current document. Saving during block editing is refused until the block editor closes. Relative destinations and wrong extensions are rejected.
 
 Requests are serialized. They time out after 120 seconds. On timeout the underlying work may still be executing; the bridge refuses subsequent requests until restart, preventing an ambiguous write from racing the next command. Inspect the output before retrying a timed-out export. There is no automatic write retry.
 
@@ -47,7 +47,7 @@ npm run test:headless
 
 `test:headless` launches the native binary with an isolated port and temporary files, then checks drawing creation, explicit save, delete/reopen with exact geometry, two mixed-size PDF pages with extractible labels, reversed page order, invalid-path/unknown-layout refusals and preservation of an existing PDF on invalid input. It also covers the desktop-only file workflows: AUTOPUBLISH beside the saved drawing, an ETRANSMIT package (copied drawing, rewritten index), REFEDIT/REFSAVE writing a linked source and REFCLOSE DISCARD leaving it untouched, IMAGEATTACH from an explicit path, and RECOVERALL/RECOVERYMANAGER on a damaged root with its reference. It stops its own process and removes temporary files. The executable can be passed as an argument; rebuild it after frontend changes, since it embeds the built frontend.
 
-Verified locally on macOS Apple Silicon. Windows/Linux native execution remains to be checked on those platforms; browser E2E does not validate WebView2/WebKitGTK or native dialogs.
+The suite also alternates between two saved drawings and immediately reads state after each open, checking document identity and all geometry across editor replacement. Two consecutive 12,000-object worker imports assert that the command response itself contains the committed geometry, then compare immediate state and undo. Vector import commits synchronously after conversion so background React rendering cannot acknowledge the previous drawing. Verified locally on macOS Apple Silicon. Windows/Linux native execution remains to be checked on those platforms; browser E2E does not validate WebView2/WebKitGTK or native dialogs.
 
 ## CAD interchange
 

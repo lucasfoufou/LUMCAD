@@ -1,5 +1,6 @@
 import useLatestRef from './useLatestRef.js';
-import { createLcadEnvelope } from '~utils/lcadDocument';
+import { flushSync } from 'react-dom';
+import { wrapLcadDocument } from '~utils/lcadDocument';
 import { readLcadDocumentAtPath, exportLcadDocumentAs, isTauriRuntime } from '~utils/lcadStorage';
 import { createDrawingPdf, writeDrawingPublishFile } from '~utils/drawingPublish';
 import { validateMcpPath, selectMcpPdfLayouts } from '~utils/mcpFiles';
@@ -17,13 +18,16 @@ export default function useMcpFiles({ document, blockEditing, onReplaceSession, 
             requireDesktop();
             validateMcpPath(path, 'lcad');
             const loaded = await readLcadDocumentAtPath(path);
-            onReplaceSession({ document: loaded.envelope.document, path: loaded.path, recovered: false });
+            // Retire the old editor/bridge before acknowledging the open. In a
+            // background WebView React can otherwise defer this root update,
+            // accepting the next request on a listener about to be removed.
+            flushSync(() => onReplaceSession({ document: loaded.envelope.document, path: loaded.path, recovered: false }));
             return { path: loaded.path, documentId: loaded.envelope.document.id };
         },
         async saveDocument(path) {
             requireDesktop();
             validateMcpPath(path, 'lcad');
-            const result = await exportLcadDocumentAs(createLcadEnvelope(document), document.name, { destinationPath: path, protectedPaths });
+            const result = await exportLcadDocumentAs(wrapLcadDocument(document), document.name, { destinationPath: path, protectedPaths });
             setFilePath(result.path);
             return result;
         },

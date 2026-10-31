@@ -43,8 +43,8 @@ import {
 } from './drawingDimensions.js';
 
 const EPSILON = 1e-9;
-const MAX_BLOCK_DEFINITIONS = 1_024;
-const MAX_BLOCK_ENTITIES = 100_000;
+export const MAX_BLOCK_DEFINITIONS = 4_096;
+export const MAX_BLOCK_ENTITIES = 500_000;
 
 export const DRAWING_BLOCK_REFERENCE_TYPE = 'blockReference';
 export function normalizeDrawingBlockReference(entity) {

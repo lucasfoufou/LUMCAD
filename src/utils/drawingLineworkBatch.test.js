@@ -58,3 +58,11 @@ test('block children are drawn in drawing coordinates, or the reference keeps it
     assert.equal(drawingLineworkBlockChildren(reference, labelled), null);
     assert.equal(drawingLineworkBlockChildren({ ...reference, externalReference: { loaded: false } }, block), null);
 });
+
+test('cubic spans batch as independent Bezier subpaths without changing joins or per-part appearance', () => {
+    const spline = { type: 'spline', controlPoints: [{ x: 0, y: 1 }, { x: 2, y: 3 }, { x: 4, y: 5 }, { x: 6, y: 7 }] };
+    assert.equal(drawingLineworkPath(spline), 'M 0 1 C 2 3 4 5 6 7');
+    const compound = { type: 'polyline', parts: [spline, { type: 'line', x1: 6, y1: 7, x2: 8, y2: 9 }] };
+    assert.equal(drawingLineworkPath(compound), 'M 0 1 C 2 3 4 5 6 7 M 6 7 L 8 9');
+    assert.equal(drawingLineworkPath({ ...compound, parts: [{ ...spline, transparency: 30 }] }), null);
+});

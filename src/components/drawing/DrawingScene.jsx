@@ -162,7 +162,7 @@ function DrawingScene({
             <g id={id} key={id}><BlockReferenceGeometry reference={reference} block={block} blockMap={blockMap}
                 assetMap={assetMap} layerMap={layerMap} hiddenLayers={hiddenLayers} dimensionTextSize={dimensionTextSize}
                 locale={locale} t={t} viewBox={null} visitedBlockIds={new Set()} textStyles={content.textStyles}
-                attributeDisplay={content.settings?.attributeDisplay} /></g>
+                attributeDisplay={content.settings?.attributeDisplay} batchLinework={bare} /></g>
         ))}</defs>}
         <g className="drawing-scene" data-rendered-entities={renderedEntities}>
             {visibleChunks.map(chunk => <SceneChunk key={chunk.key} entities={chunk.entities} dots={chunk.dots} scene={scene} />)}
@@ -314,6 +314,7 @@ function DrawingEntity({
             visitedBlockIds={visitedBlockIds}
             textStyles={textStyles}
             attributeDisplay={attributeDisplay}
+            batchLinework={bare}
         />;
     }
 
@@ -443,12 +444,22 @@ const SceneChunk = React.memo(function SceneChunk({ entities, dots, scene }) {
                     />
                 );
     };
-    // Consecutive plain linework is merged into one path per appearance; any
-    // other entity ends the run, so painter order between runs is preserved.
+    return (
+        <g>
+            <BatchedEntities entities={entities}
+                partsFor={entity => scene.bare && !scene.hitOnly.has(entity.id) ? batchedLinework(entity, scene) : null}
+                renderEntity={renderEntity} />
+            {dots.length > 0 && <EntityDots entities={dots} content={content} pixelSize={scene.pixelSize} />}
+        </g>
+    );
+}, sameSceneChunkProps);
+
+/** Share opaque paths in both model chunks and nested blocks, preserving painter order. */
+function BatchedEntities({ entities, partsFor, renderEntity }) {
     const items = [];
     let run = null;
     for (const entity of entities) {
-        const parts = scene.bare && !scene.hitOnly.has(entity.id) ? batchedLinework(entity, scene) : null;
+        const parts = partsFor(entity);
         if (!parts) {
             run = null;
             items.push(renderEntity(entity));
@@ -464,17 +475,12 @@ const SceneChunk = React.memo(function SceneChunk({ entities, dots, scene }) {
             else run.set(part.key, { appearance: part.appearance, paths: [part.d] });
         }
     }
-    return (
-        <g>
-            {items.map((item, index) => (item instanceof Map ? [...item.values()].map(({ appearance, paths }, groupIndex) => (
-                <path key={`run-${index}-${groupIndex}`} className="drawing-linework" d={paths.join(' ')} fill="none"
-                    stroke={appearance.color} strokeWidth={appearance.lineWeight} vectorEffect="non-scaling-stroke"
-                    {...lineTypeStrokeProps(appearance.lineType, appearance.lineWeight)} />
-            )) : item))}
-            {dots.length > 0 && <EntityDots entities={dots} content={content} pixelSize={scene.pixelSize} />}
-        </g>
-    );
-}, sameSceneChunkProps);
+    return items.map((item, index) => (item instanceof Map ? [...item.values()].map(({ appearance, paths }, groupIndex) => (
+        <path key={`run-${index}-${groupIndex}`} className="drawing-linework" d={paths.join(' ')} fill="none"
+            stroke={appearance.color} strokeWidth={appearance.lineWeight} vectorEffect="non-scaling-stroke"
+            {...lineTypeStrokeProps(appearance.lineType, appearance.lineWeight)} />
+    )) : item));
+}
 
 const SCENE_KEYS = ['assetMap', 'blockMap', 'layerMap', 'hiddenLayers', 'hitOnly', 'interactive', 'hitShapes', 'bare',
     'gripSize', 'locale', 't', 'selection'];
@@ -640,11 +646,15 @@ function BlockReferenceGeometry({
     visitedBlockIds,
     textStyles,
     attributeDisplay,
+    batchLinework = false,
 }) {
     const clipId = `block-clip-${useId().replace(/:/g, '')}`;
     const clip = drawingBlockClipShape(reference);
     if (!block || reference.externalReference?.loaded === false || visitedBlockIds.has(block.id)) return null;
     const children = drawingBlockInstanceEntities(block, reference);
+    const appearanceContent = { layers: [...layerMap.values()] };
+    const visibleChildren = children.map(child => resolveDrawingBlockChild(child, reference, attributeDisplay))
+        .filter(entity => entity && isDrawingLayerVisible(layerMap.get(entity.layerId)) && !hiddenLayers.has(entity.layerId));
     const childMap = createDimensionSourceMap(children, blockMap, { layers: [...layerMap.values()], textStyles });
     const localViewBox = inverseAffineViewBox(viewBox, reference.transform);
     const nextVisited = new Set(visitedBlockIds);
@@ -653,18 +663,19 @@ function BlockReferenceGeometry({
         <g transform={affineMatrixToSvg(reference.transform)}>
             {clip && <defs><clipPath id={clipId} clipPathUnits="userSpaceOnUse"><path d={clip.paths.map(path => curvePartsPath(path.parts, true)).join(' ')} clipRule={clip.rule} /></clipPath></defs>}
             <g clipPath={clip ? `url(#${clipId})` : undefined}>
-            {children.map(child => {
-                const entity = resolveDrawingBlockChild(child, reference, attributeDisplay);
-                if (!entity) return null;
-                const layer = layerMap.get(entity.layerId);
-                if (!isDrawingLayerVisible(layer) || hiddenLayers.has(entity.layerId)) return null;
-                return (
+            <BatchedEntities entities={visibleChildren} partsFor={entity => {
+                if (!batchLinework || layerMap.get(entity.layerId)?.[DRAWING_PLOT_PRESENTATION]) return null;
+                const appearance = getEntityAppearance(appearanceContent, entity);
+                if (transparencyToOpacity(appearance.transparency) !== 1) return null;
+                const d = drawingLineworkPath(entity, localViewBox);
+                return d === null ? null : [{ d, appearance, key: lineworkKey(appearance) }];
+            }} renderEntity={entity => (
                     <DrawingEntity
                         key={entity.id}
                         entity={entity}
                         sources={childMap}
                         asset={entity.assetId ? assetMap.get(entity.assetId) : null}
-                        appearance={getEntityAppearance({ layers: [...layerMap.values()] }, entity)}
+                        appearance={getEntityAppearance(appearanceContent, entity)}
                         interactive={false}
                         editable={false}
                         dimensionTextSize={dimensionTextSize}
@@ -679,12 +690,12 @@ function BlockReferenceGeometry({
                         layerMap={layerMap}
                         hiddenLayers={hiddenLayers}
                         nested
+                        bare={batchLinework}
                         visitedBlockIds={nextVisited}
                         textStyles={textStyles}
                         attributeDisplay={attributeDisplay}
                     />
-                );
-            })}
+                )} />
             </g>
         </g>
     );

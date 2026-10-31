@@ -106,3 +106,13 @@ test('explicit relink follows a renamed copy with exact undo/redo and no geometr
     assert.equal(prepareRecoveredReferencePaths(result.document, '/source/root.lcad', renamed).changes.length, 0);
     assert.equal(result.document.content.entities[0].x, document.content.entities[0].x);
 });
+
+test('drawings without file links keep their immutable geometry snapshot on opening', () => {
+    const document = { content: { entities: [{ id: 'line', type: 'line', x1: 0, y1: 0, x2: 2, y2: 3 }], blocks: [] }, layouts: [] };
+    const loaded = prepareRecoveredReferencePaths(document, '/project/large.lcad', null, { reuseUnchanged: true });
+    assert.equal(loaded.document, document);
+    assert.deepEqual(loaded.changes, []);
+    const recovery = prepareRecoveredReferencePaths(document, '/project/large.lcad');
+    recovery.document.content.entities.length = 0;
+    assert.equal(document.content.entities.length, 1);
+});

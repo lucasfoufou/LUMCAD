@@ -1,19 +1,21 @@
 import { DxfWriter, Units, point3d, aciHex } from '@tarikjabiri/dxf';
 import { DEFAULT_DRAWING_COLOR, addLayer, createDrawingId, getEntityAppearance, normalizeDrawingContent } from './drawingDocument.js';
-import { transformDrawingEntityAffine } from './drawingBlocks.js';
-import { drawingLineworkArc } from './drawingLinework.js';
+import { transformDrawingEntityAffine, MAX_BLOCK_DEFINITIONS } from './drawingBlocks.js';
+import { drawingLineworkArc, rebuildDrawingLinework } from './drawingLinework.js';
 import { DRAWING_IMPORT_UNITS } from './drawingCoordinates.js';
 import { extractEntityPaths } from './drawingCurveKernel.js';
 import { arcSweep } from './drawingGeometry.js';
-import { rebuildDefinedSpline } from './drawingSplineCreation.js';
+import { importDxfSpline } from './drawingDxfSpline.js';
 import { CAD_FILE_LIMIT, DXF_MAX_ENTITIES, failDxf, readDrawingDxf } from './drawingDxfReader.js';
+import { importDxfText, exportDxfFramedText } from './drawingDxfText.js';
+import { dxfOcsAxes, importDxfEllipse, importDxfHatch, importDxfSolid, importDxfWipeout } from './drawingDxfGeometry.js';
+import { importDxfMultileader } from './drawingDxfLeaders.js';
 
 export { CAD_FILE_LIMIT };
 
 const TAU = Math.PI * 2;
 const MAX_COORDINATE = 1e9;
 const MAX_IMPORTED_LAYERS = 4096;
-const MAX_BLOCK_DEFINITIONS = 1024;
 const MAX_BLOCK_DEPTH = 16;
 // $INSUNITS codes with a physical length, in metres.
 const DXF_UNIT_METRES = { 1: 0.0254, 2: 0.3048, 4: 0.001, 5: 0.01, 6: 1, 7: 1000, 10: 0.9144, 21: DRAWING_IMPORT_UNITS['us-ft'] };
@@ -54,16 +56,19 @@ function finite(value) {
     return value;
 }
 
-function planarPoint(value) {
+function planarPoint(value, warnings = null) {
     if (!value) failDxf('cadInvalid');
-    if (Math.abs(value.z || 0) > 1e-9) failDxf('cadUnsupported', '3D');
+    if (Math.abs(value.z || 0) > 1e-9) {
+        if (!warnings) failDxf('cadUnsupported', '3D');
+        warnings.add('elevation');
+    }
     return { x: finite(value.x), y: finite(value.y) };
 }
 
-export function decodeDrawingDxf(bytes) {
+export function decodeDrawingDxf(bytes, warnings = new Set()) {
     if (!(bytes instanceof Uint8Array) || bytes.length > CAD_FILE_LIMIT) failDxf('cadLimit');
     if (new TextDecoder().decode(bytes.subarray(0, 22)).startsWith('AutoCAD Binary DXF')) failDxf('cadUnsupported', 'Binary DXF');
-    const probe = new TextDecoder('windows-1252').decode(bytes);
+    const probe = new TextDecoder('windows-1252').decode(bytes.subarray(0, 65536));
     // AutoCAD 2007 (AC1021) and later write UTF-8; older files declare their ANSI code page.
     const modern = /AC10(?:2[1-9]|[3-9]\d)/.test(probe.slice(0, 8192));
     const codepage = probe.match(/\$DWGCODEPAGE\s*\r?\n\s*3\s*\r?\n\s*ANSI_(\d+)/)?.[1];
@@ -71,7 +76,23 @@ export function decodeDrawingDxf(bytes) {
     try {
         return new TextDecoder(encoding, { fatal: true }).decode(bytes);
     } catch {
-        return failDxf('cadEncoding');
+        // LibreDWG can emit legacy MTEXT chunks alongside valid UTF-8. Recover
+        // only invalid lines using the declared code page; never reinterpret
+        // already-valid Unicode names or text as ANSI.
+        if (!modern || !codepage) return failDxf('cadEncoding');
+        try {
+            const utf8 = new TextDecoder('utf-8', { fatal: true });
+            const legacy = new TextDecoder(`windows-${codepage}`, { fatal: true });
+            const lines = [];
+            for (let start = 0, end = 0; end <= bytes.length; end++) {
+                if (end !== bytes.length && bytes[end] !== 10) continue;
+                const line = bytes.subarray(start, end);
+                try { lines.push(utf8.decode(line)); }
+                catch { lines.push(legacy.decode(line)); warnings.add('encoding'); }
+                start = end + 1;
+            }
+            return lines.join('\n');
+        } catch { return failDxf('cadEncoding'); }
     }
 }
 
@@ -83,13 +104,17 @@ export function decodeDrawingDxf(bytes) {
  * `skip` is set; then everything else is imported and the report lists them.
  */
 export function importDrawingDxf(document, bytes, { unit = null, x = 0, y = 0, scale = 1, skip = false } = {}) {
-    const text = typeof bytes === 'string' ? bytes : decodeDrawingDxf(bytes);
+    const warnings = new Set();
+    const text = typeof bytes === 'string' ? bytes : decodeDrawingDxf(bytes, warnings);
     const dxf = readDrawingDxf(text);
     finite(x); finite(y);
     const context = createImportContext(document, dxf, importFactor(dxf.header, unit, scale));
+    for (const warning of warnings) context.warnings.add(warning);
     const blocks = importBlockDefinitions(context);
     const entities = dxf.entities.map(source => importEntityOrSkip(context, source)).filter(Boolean)
         .map(entity => transformDrawingEntityAffine(entity, { a: 1, b: 0, c: 0, d: 1, e: x, f: y }));
+    blocks.push(...context.extraBlocks);
+    if (blocks.length + context.content.blocks.length > MAX_BLOCK_DEFINITIONS) failDxf('cadLimit');
     if (context.skipped.size && !skip) failDxf('cadUnsupportedObjects', describeSkipped(context.skipped));
     checkBlockGraph(blocks, entities);
     if (!entities.length) failDxf('cadEmpty');
@@ -98,7 +123,8 @@ export function importDrawingDxf(document, bytes, { unit = null, x = 0, y = 0, s
     const content = normalizeDrawingContent({ ...context.content, activeLayerId: document.content.activeLayerId,
         blocks: [...context.content.blocks, ...blocks], entities: [...context.content.entities, ...entities] });
     return { content, assets: document.assets, selectedIds: entities.map(entity => entity.id),
-        report: { imported: entities.length, warnings: [...context.warnings], paperSpace: context.paperSpace,
+        report: { imported: entities.length, warnings: [...context.warnings], paperSpace: context.paperSpace, hidden: context.hidden,
+            unusedBlocks: dxf.blocks.size - context.blockIds.size,
             skipped: context.skipped.size ? describeSkipped(context.skipped) : null,
             skippedCount: [...context.skipped.values()].reduce((sum, count) => sum + count, 0) } };
 }
@@ -114,6 +140,11 @@ function describeSkipped(skipped) {
 function importEntityOrSkip(context, source, basePoint = null) {
     if (source.paperSpace) {
         context.paperSpace++;
+        return null;
+    }
+    if (source.visible === false || (source.attributeFlags & 1)
+        || (source.type === 'ATTDEF' && !(source.attributeFlags & 2))) {
+        context.hidden++;
         return null;
     }
     try {
@@ -135,27 +166,27 @@ function createImportContext(document, dxf, factor) {
     const context = { dxf, factor, content: document.content, warnings: new Set(['metadata']), converted: 0,
         layerIds: new Map(), layerNames: new Set(document.content.layers.map(layer => layer.name.toLowerCase())),
         blockNames: new Set(document.content.blocks.map(block => block.name.toLowerCase())), blockIds: new Map(),
-        skipped: new Map(), paperSpace: 0 };
+        skipped: new Map(), paperSpace: 0, hidden: 0, extraBlocks: [] };
     for (const name of importedBlockNames(dxf)) context.blockIds.set(name, createDrawingId('block'));
     if (context.blockIds.size + (document.content.blocks?.length || 0) > MAX_BLOCK_DEFINITIONS) failDxf('cadLimit');
     return context;
 }
 
 /**
- * Named definitions are kept as reusable blocks. Anonymous ones (`*U`, `*D`…)
- * are internal artefacts: only those reachable from model INSERTs are kept.
+ * Only definitions reachable from model inserts, dimensions or leaders are kept.
  * External references are never imported, so their INSERTs are left out.
  */
 function importedBlockNames(dxf) {
     const importable = block => block && !block.modelSpace && !block.paperSpace && !(block.flags & 4);
-    const names = new Set([...dxf.blocks.values()].filter(block => importable(block) && !block.name.startsWith('*')).map(block => block.name));
-    const pending = [...names, ...dxf.entities.filter(entity => entity.type === 'INSERT' && !entity.paperSpace).map(entity => entity.name)];
+    const names = new Set();
+    const referenced = entity => ['INSERT', 'DIMENSION', 'MULTILEADER'].includes(entity.type) && entity.name && entity.visible !== false && !entity.paperSpace;
+    const pending = dxf.entities.filter(referenced).map(entity => entity.name);
     while (pending.length) {
         const block = dxf.blocks.get(pending.pop());
-        if (!importable(block)) continue;
+        if (!importable(block) || names.has(block.name)) continue;
         names.add(block.name);
         for (const child of block.entities) {
-            if (child.type === 'INSERT' && !names.has(child.name)) pending.push(child.name);
+            if (referenced(child) && !names.has(child.name)) pending.push(child.name);
         }
     }
     return names;
@@ -187,7 +218,7 @@ function importLayer(context, name) {
 function importBlockDefinitions(context) {
     return [...context.blockIds].map(([name, id]) => {
         const block = context.dxf.blocks.get(name);
-        const basePoint = planarPoint(block.basePoint);
+        const basePoint = planarPoint(block.basePoint, context.warnings);
         return { id, name: uniqueName(decodeUnicode(name), context.blockNames), basePoint: { x: 0, y: 0 },
             entities: block.entities.map(source => importEntityOrSkip(context, source, basePoint)).filter(Boolean) };
     });
@@ -197,38 +228,68 @@ function importBlockDefinitions(context) {
 function importEntity(context, source, basePoint = null) {
     if (++context.converted > DXF_MAX_ENTITIES) failDxf('cadLimit');
     if (source.unsupported) failDxf('cadUnsupported', source.type);
-    checkImportableEntity(source);
+    checkImportableEntity(source, context.warnings);
     const origin = basePoint || { x: 0, y: 0 };
+    const ocs = importOcs(source, context.warnings);
     const local = value => {
-        const point = planarPoint(value);
-        return { x: point.x - origin.x, y: point.y - origin.y };
+        const point = planarPoint(value, context.warnings);
+        const z = (value.z || 0) + (source.elevation || 0);
+        return { x: point.x + ocs.zx * z, y: point.y + ocs.zy * z };
     };
-    const entity = convertEntity(context, source, local, importAppearance(source, context.warnings));
+    let entity = convertEntity(context, source, local, importAppearance(source, context.warnings));
+    entity = transformDrawingEntityAffine(entity, { a: ocs.a, b: -ocs.b, c: -ocs.c, d: ocs.d,
+        e: -origin.x * context.factor, f: origin.y * context.factor });
     // The layer is created last, so an object left out never leaves an empty layer behind.
     entity.layerId = basePoint && source.layer === '0' ? 'geometry' : importLayer(context, source.layer);
     return entity;
 }
 
 function convertEntity(context, source, local, appearance) {
-    if (source.type === 'TEXT' || source.type === 'MTEXT') return importText(context, source, local, appearance);
-    if (source.type === 'INSERT') return importInsert(context, source, local, appearance);
-    const shape = SHAPE_IMPORTERS[source.type](source, local);
+    if (source.type === 'LEADER') context.warnings.add('leaderApproximation');
+    if (source.type === 'MULTILEADER') {
+        const entities = importDxfMultileader(source, local, context.factor, context.warnings,
+            source.name && { id: context.blockIds.get(source.name), basePoint: context.dxf.blocks.get(source.name)?.basePoint })
+            .map(entity => ({ ...entity, id: createDrawingId(entity.type), layerId: 'geometry', ...appearance }));
+        context.converted += entities.length;
+        const id = createDrawingId('block');
+        context.extraBlocks.push({ id, name: uniqueName('Multileader', context.blockNames), basePoint: { x: 0, y: 0 }, entities });
+        return { id: createDrawingId('blockReference'), type: 'blockReference', blockId: id,
+            transform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }, ...appearance };
+    }
+    if (['TEXT', 'MTEXT', 'ATTRIB', 'ATTDEF'].includes(source.type)) return importText(context, source, local, appearance);
+    if (source.type === 'DIMENSION') context.warnings.add('dimensionGraphics');
+    if (source.type === 'INSERT' || source.type === 'DIMENSION') return importInsert(context, source, local, appearance);
+    const shape = source.type === 'HATCH' ? importDxfHatch(source, local, context.warnings)
+        : SHAPE_IMPORTERS[source.type](source, local, context.factor, context.warnings);
+    if (shape.linework) return { ...shape, id: createDrawingId(shape.type), ...appearance };
     // DXF is Y-up; the editor is Y-down. Reflect while converting to metres.
     return transformDrawingEntityAffine({ ...shape, id: createDrawingId(shape.type), ...appearance },
         { a: context.factor, b: 0, c: 0, d: -context.factor, e: 0, f: 0 });
 }
 
-function checkImportableEntity(source) {
-    if (source.thickness || source.transparent) failDxf('cadUnsupported', 'thickness/transparency');
+function checkImportableEntity(source, warnings) {
+    if (source.thickness) failDxf('cadUnsupported', 'thickness');
     if (!source.visible) failDxf('cadUnsupported', 'invisible entity');
-    const { extrusion } = source;
-    if (extrusion.x || extrusion.y || extrusion.z !== 1 || source.elevation) failDxf('cadUnsupported', '3D/OCS');
+    if (source.elevation) warnings.add('elevation');
+}
+
+/** AutoCAD arbitrary-axis algorithm; project the source plane into model XY. */
+function importOcs(source, warnings) {
+    const identity = { a: 1, b: 0, c: 0, d: 1, zx: 0, zy: 0 };
+    if (['LINE', 'POINT', 'ELLIPSE', 'SPLINE', 'MULTILEADER', 'LEADER', 'MTEXT', 'WIPEOUT'].includes(source.type) || source.is3d) return identity;
+    const { x: ax, y: ay, z: n } = dxfOcsAxes(source.extrusion);
+    if (Math.abs(n.z) < 1e-10) failDxf('cadUnsupported', 'edge-on plane');
+    const a = ax.x; const b = ax.y; const c = ay.x; const d = ay.y;
+    const det = a * d - b * c;
+    if (Math.abs(n.x) > 1e-8 || Math.abs(n.y) > 1e-8) warnings.add('elevation');
+    return { a, b, c, d, zx: (d * n.x - c * n.y) / det, zy: (-b * n.x + a * n.y) / det };
 }
 
 function importAppearance(source, warnings) {
     if (source.colorIndex === BY_BLOCK) warnings.add('appearance');
     if (source.lineweight > 0 || source.lineTypeScale !== 1) warnings.add('appearance');
     const appearance = {};
+    if ((source.transparency & 0x02000000) !== 0) appearance.transparency = Math.min(90, (1 - (source.transparency & 255) / 255) * 100);
     if (source.trueColor !== null) appearance.color = rgbHex(source.trueColor);
     else if (source.colorIndex !== BY_LAYER && source.colorIndex !== BY_BLOCK) appearance.color = aciColor(Math.abs(source.colorIndex));
     if (source.lineType && !/^BY(LAYER|BLOCK)$/i.test(source.lineType)) appearance.lineType = importLineType(source.lineType, warnings);
@@ -242,6 +303,10 @@ function importLineType(value, warnings) {
 }
 
 const SHAPE_IMPORTERS = {
+    SOLID: importDxfSolid,
+    TRACE: importDxfSolid,
+    WIPEOUT: importDxfWipeout,
+    LEADER: (source, local) => ({ type: 'polyline', points: source.vertices.map(local), closed: false }),
     LINE: (source, local) => {
         const start = local(source.start);
         const end = local(source.end);
@@ -251,28 +316,12 @@ const SHAPE_IMPORTERS = {
     CIRCLE: (source, local) => ({ type: 'circle', ...importCircle(source, local) }),
     ARC: (source, local) => ({ type: 'arc', ...importCircle(source, local),
         startAngle: finite(source.startAngle), endAngle: finite(source.endAngle), counterClockwise: true }),
-    ELLIPSE: (source, local) => {
-        const center = local(source.center);
-        const axis = planarPoint(source.majorAxis);
-        const radius = Math.hypot(axis.x, axis.y);
-        if (!(radius > 0 && source.axisRatio > 0 && source.axisRatio <= 1)) failDxf('cadInvalid');
-        return { type: 'ellipse', cx: center.x, cy: center.y, rx: radius, ry: radius * source.axisRatio,
-            rotation: degrees(Math.atan2(axis.y, axis.x)), startAngle: finite(source.startParameter), endAngle: finite(source.endParameter),
-            fullEllipse: Math.abs(source.endParameter - source.startParameter) >= TAU - 1e-9, counterClockwise: true };
-    },
-    SPLINE: (source, local) => {
-        if (source.degree !== 3 || source.rational || source.closed || source.periodic || source.knots.length < 2) failDxf('cadUnsupported', 'SPLINE');
-        const low = source.knots[0];
-        const range = source.knots.at(-1) - low;
-        if (!(range > 0)) failDxf('cadInvalid');
-        const shape = rebuildDefinedSpline({}, { mode: 'control', points: source.controlPoints.map(local),
-            knots: source.knots.map(knot => (knot - low) / range) });
-        return shape || failDxf('cadUnsupported', 'SPLINE');
-    },
-    LWPOLYLINE: (source, local) => importPolyline(source, local),
-    POLYLINE: (source, local) => {
-        if (source.is3d || source.mesh) failDxf('cadUnsupported', 'wide/3D polyline');
-        return importPolyline(source, local);
+    ELLIPSE: importDxfEllipse,
+    SPLINE: importDxfSpline,
+    LWPOLYLINE: (source, local, factor) => importPolyline(source, local, factor),
+    POLYLINE: (source, local, factor) => {
+        if (source.mesh) failDxf('cadUnsupported', 'polyface mesh');
+        return importPolyline(source, local, factor);
     },
 };
 
@@ -283,15 +332,51 @@ function importCircle(source, local) {
 }
 
 /** Bulged vertices become exact arcs; straight-only polylines keep their points. */
-function importPolyline(source, local) {
-    if (source.constantWidth || source.vertices.some(vertex => vertex.startWidth || vertex.endWidth)) failDxf('cadUnsupported', 'wide/3D polyline');
-    const points = source.vertices.map(local);
-    if (points.length < 2) failDxf('cadLimit');
-    if (!source.vertices.some(vertex => vertex.bulge)) return { type: 'polyline', points, closed: source.closed };
+function importPolyline(source, local, factor = 1) {
+    // Duplicate vertices are legal DXF records and carry no segment geometry.
+    const cleaned = source.vertices.filter((vertex, i, all) => {
+        if (!source.closed && i === all.length - 1) return true;
+        const next = all[(i + 1) % all.length];
+        return Math.hypot(vertex.x - next.x, vertex.y - next.y) > 1e-8;
+    });
+    const points = cleaned.map(local);
+    if (source.vertices.length < 2) failDxf('cadInvalid');
+    if (points.length < 2) return { type: 'polyline', points: source.vertices.map(local), closed: source.closed };
+    if (source.constantWidth || source.vertices.some(vertex => vertex.startWidth || vertex.endWidth)) {
+        const vertices = cleaned.slice(0, points.length - (source.closed ? 0 : 1));
+        if (source.closed && points.length === 2 && source.constantWidth > 0
+            && cleaned.every(vertex => Math.abs(Math.abs(vertex.bulge) - 1) < 1e-12)
+            && Math.sign(cleaned[0].bulge) === Math.sign(cleaned[1].bulge)) {
+            const diameter = Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y);
+            const shape = rebuildDrawingLinework({ linework: { kind: 'donut',
+                innerDiameter: Math.max(0, diameter - source.constantWidth), outerDiameter: diameter + source.constantWidth,
+                transform: { a: factor, b: 0, c: 0, d: -factor,
+                    e: (points[0].x + points[1].x) / 2 * factor, f: -(points[0].y + points[1].y) / 2 * factor } } });
+            return shape || failDxf('cadInvalid');
+        }
+        const expandedPoints = []; const widths = []; const bulges = [];
+        vertices.forEach((vertex, i) => {
+            const start = vertex.startWidth || source.constantWidth || 0; const end = vertex.endWidth || source.constantWidth || 0;
+            expandedPoints.push(points[i]);
+            const split = vertex.bulge && (source.closed && points.length === 2 || Math.abs(vertex.bulge) > 1000);
+            if (split) {
+                const arc = drawingLineworkArc(points[i], points[(i + 1) % points.length], vertex.bulge);
+                const angle = arc.startAngle + arc.sweep / 2;
+                expandedPoints.push({ x: arc.center.x + arc.radius * Math.cos(angle), y: arc.center.y + arc.radius * Math.sin(angle) });
+                widths.push({ start, end: (start + end) / 2 }, { start: (start + end) / 2, end });
+                bulges.push(Math.tan(arc.sweep / 8), Math.tan(arc.sweep / 8));
+            } else { widths.push({ start, end }); bulges.push(vertex.bulge); }
+        });
+        if (!source.closed) expandedPoints.push(points.at(-1));
+        const shape = rebuildDrawingLinework({ linework: { kind: 'wide', points: expandedPoints, closed: source.closed,
+            widths, bulges, transform: { a: factor, b: 0, c: 0, d: -factor, e: 0, f: 0 } } });
+        return shape || failDxf('cadUnsupported', 'wide polyline');
+    }
+    if (!cleaned.some(vertex => vertex.bulge)) return { type: 'polyline', points, closed: source.closed };
     const segmentCount = source.closed ? points.length : points.length - 1;
     const parts = points.slice(0, segmentCount).map((start, index) => {
         const end = points[(index + 1) % points.length];
-        const { bulge } = source.vertices[index];
+        const { bulge } = cleaned[index];
         if (!bulge) return { type: 'line', x1: start.x, y1: start.y, x2: end.x, y2: end.y };
         const arc = drawingLineworkArc(start, end, bulge) || failDxf('cadInvalid');
         return { type: 'arc', cx: arc.center.x, cy: arc.center.y, r: arc.radius,
@@ -303,25 +388,21 @@ function importPolyline(source, local) {
 /** Text keeps screen-aligned glyphs: only its placement is reflected and scaled. */
 function importText(context, source, local, appearance) {
     context.warnings.add('text');
-    if (source.type === 'TEXT' && (source.generation || source.widthFactor !== 1)) failDxf('cadUnsupported', 'text transform');
-    if (!(source.height > 0) || source.text.length > 100000) failDxf('cadInvalid');
-    const value = decodeUnicode(source.text).replace(/\\P/g, '\n');
-    if (/\\[A-Za-z]|[{}]/.test(value)) failDxf('cadUnsupported', 'formatted text');
-    const position = local(source.position);
-    const { factor } = context;
-    const singleLine = source.type === 'TEXT';
-    return { id: createDrawingId('text'), type: 'text', x: position.x * factor, y: -position.y * factor,
-        text: value, textMode: singleLine ? 'singleLine' : 'multiline', fontSize: source.height * factor,
-        width: ((!singleLine && source.width) || source.height * Math.max(value.length, 1)) * factor,
-        height: source.height * factor * 1.4, rotation: -source.rotation, horizontalAlign: 'left',
-        verticalAlign: singleLine ? 'bottom' : 'top', ...appearance };
+    const fitted = [3, 5].includes(source.horizontalAlignment);
+    const aligned = !fitted && (source.horizontalAlignment || source.verticalAlignment);
+    const position = local(aligned && source.alignmentPoint ? source.alignmentPoint : source.position);
+    return { ...importDxfText(source, position, context.factor, context.warnings), id: createDrawingId('text'), ...appearance };
 }
 
 function importInsert(context, source, local, appearance) {
     if (!context.blockIds.has(source.name) || source.rows !== 1 || source.columns !== 1) failDxf('cadUnsupported', 'INSERT');
     const { xScale, yScale } = source;
     if (![xScale, yScale].every(value => Number.isFinite(value) && Math.abs(value) > 1e-12 && Math.abs(value) <= 1e6)) failDxf('cadInvalid');
-    const position = local(source.position);
+    // DIMENSION caches are already positioned in the dimension plane; unlike
+    // INSERT, they do not subtract the BLOCK base point. Restore the origin
+    // removed while importing the shared definition (also used by INSERTs).
+    const base = source.type === 'DIMENSION' ? context.dxf.blocks.get(source.name).basePoint : { x: 0, y: 0 };
+    const position = local({ ...source.position, x: source.position.x + base.x, y: source.position.y + base.y });
     // Reflecting Y turns the counter-clockwise source rotation into a clockwise one.
     const angle = -radians(source.rotation);
     return { id: createDrawingId('blockReference'), type: 'blockReference', blockId: context.blockIds.get(source.name),
@@ -356,7 +437,7 @@ function checkBlockGraph(blocks, entities = []) {
     for (const entity of entities) {
         if (entity.type === 'blockReference' && !costs.has(entity.blockId)) failDxf('cadUnsupported', 'missing block');
         total += entity.type === 'blockReference' ? costs.get(entity.blockId) : 1;
-        if (total > DXF_MAX_ENTITIES) failDxf('cadLimit');
+        if (total > 2000000) failDxf('cadLimit');
     }
 }
 
@@ -424,6 +505,8 @@ function exportEntityOptions(context, entity, target) {
 function exportEntity(context, entity, target, inheritedOptions = null) {
     if (++context.count > DXF_MAX_ENTITIES) failDxf('cadLimit');
     const style = getEntityAppearance(context.content, entity);
+    if (entity.wipeout) failDxf('cadUnsupported', 'wipeout');
+    if (entity.type === 'text' && entity.affineFrame) entity = exportDxfFramedText(entity);
     if (style.transparency || entity.affineFrame || entity.attributeDefinition || entity.attributeValues || entity.blockClip || entity.externalReference) {
         failDxf('cadUnsupported', entity.type);
     }

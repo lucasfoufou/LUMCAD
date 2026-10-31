@@ -15,7 +15,7 @@ export const LCAD_ASSET_DIRECTORY = 'assets/';
 
 // Compact JSON keeps large drawings well below this bound (about 190 bytes per
 // typical entity); the bound itself protects readers from oversized archives.
-export const LCAD_MAX_MANIFEST_BYTES = 64 * 1024 * 1024;
+export const LCAD_MAX_MANIFEST_BYTES = 128 * 1024 * 1024;
 const MAX_MANIFEST_BYTES = LCAD_MAX_MANIFEST_BYTES;
 const MAX_ASSET_BYTES = 25 * 1024 * 1024;
 const MAX_TOTAL_ASSET_BYTES = 200 * 1024 * 1024;
@@ -34,7 +34,9 @@ const IMAGE_MIME_TYPES = new Map([
 
 export function createLcadArchive(envelope) {
     const normalized = normalizeLcadEnvelope(envelope);
-    const manifest = structuredClone(normalized);
+    // Only asset descriptors change below; geometry already belongs to the
+    // normalized snapshot and must not be copied again for large CAD imports.
+    const manifest = { ...normalized, document: { ...normalized.document } };
     const archiveEntries = {};
     let totalAssetBytes = 0;
 

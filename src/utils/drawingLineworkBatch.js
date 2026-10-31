@@ -49,12 +49,18 @@ export function drawingLineworkPath(entity, viewBox = null) {
     case 'circle': return circlePath(entity, viewBox);
     case 'rectangle': return drawingRectTransform(entity) ? null : getRectangleOutlinePath(entity);
     case 'polygon': return pointsPath(getRegularPolygonVertices(entity), true);
+    case 'spline': {
+        const points = entity.controlPoints;
+        if (!Array.isArray(points) || points.length !== 4) return null;
+        return `M ${points[0].x} ${points[0].y} C ${points[1].x} ${points[1].y} ${points[2].x} ${points[2].y} ${points[3].x} ${points[3].y}`;
+    }
     case 'polyline': {
         if (entity.lineWidth || entity.width) return null;
         if (!Array.isArray(entity.parts)) return pointsPath(entity.points || [], Boolean(entity.closed));
         // Parts are drawn one by one, so each is its own subpath.
-        if (entity.parts.some(part => !['line', 'arc'].includes(part?.type) || PART_APPEARANCE.some(key => Object.hasOwn(part, key)))) return null;
-        return entity.parts.map(part => (part.type === 'line' ? linePath(part) : getArcPath(part))).join(' ');
+        if (entity.parts.some(part => !['line', 'arc', 'spline'].includes(part?.type) || PART_APPEARANCE.some(key => Object.hasOwn(part, key)))) return null;
+        const paths = entity.parts.map(part => drawingLineworkPath(part, viewBox));
+        return paths.some(path => path === null) ? null : paths.join(' ');
     }
     default: return null;
     }
