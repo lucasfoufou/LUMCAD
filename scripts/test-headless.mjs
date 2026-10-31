@@ -29,9 +29,16 @@ async function request(method, params = {}) {
     return result.result;
 }
 async function call(name, args = {}) {
-    const result = await request('tools/call', { name, arguments: args });
-    if (result.isError) throw new Error(JSON.stringify(result));
-    return result.structuredContent || JSON.parse(result.content[0].text);
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+        const result = await request('tools/call', { name, arguments: args });
+        if (!result.isError) return result.structuredContent || JSON.parse(result.content[0].text);
+        const error = JSON.stringify(result);
+        // Session replacement briefly unregisters the editor. Only retry this
+        // explicit read-only readiness error, never timed-out work or writes.
+        if (name !== 'get_state' || !error.includes('drawing window is not ready') || Date.now() >= deadline) throw new Error(error);
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
 }
 try {
     const deadline = Date.now() + 90_000;
@@ -116,6 +123,7 @@ try {
         await call('execute_command', { command: 'delete', selection: ids });
         const importedResult = await call('execute_command', { command: `${format.toUpperCase()}IN`, input: JSON.stringify(cadPath) });
         const importedContent = (await call('get_state')).document.content;
+        assert.deepEqual(importedResult.document.content, importedContent, 'CAD command acknowledges the committed document');
         const imported = importedContent.entities;
         assert.equal(imported.length, 3, importedResult.editor.message);
         assert.equal(imported[1].r, 3);
@@ -128,6 +136,18 @@ try {
         await call('open_document', { path });
         console.log(`PASS: native ${format.toUpperCase()} export → import → undo through MCP.`);
     }
+    const largeCadPath = join(work, 'large-async.dxf');
+    const lines = Array.from({ length: 12000 }, (_, index) => `0\nLINE\n10\n${index}\n20\n0\n11\n${index}\n21\n1\n`).join('');
+    await writeFile(largeCadPath, `0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n6\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n${lines}0\nENDSEC\n0\nEOF\n`);
+    for (let attempt = 0; attempt < 2; attempt++) {
+        const before = (await call('get_state')).document.content.entities;
+        const result = await call('execute_command', { command: 'DXFIN', input: JSON.stringify(largeCadPath) });
+        assert.equal(result.document.content.entities.length, before.length + 12000, result.editor.message);
+        assert.deepEqual((await call('get_state')).document.content.entities, result.document.content.entities);
+        const undone = await call('execute_command', { command: 'UNDO' });
+        assert.deepEqual(undone.document.content.entities, before);
+    }
+    console.log('PASS: repeated large worker imports return committed geometry in the command response.');
     await nativePublication();
     await nativeFileReferences();
 
@@ -226,6 +246,24 @@ try {
         assert.deepEqual(recovered.document.content.entities.map(entity => entity.id),
             host.entities.filter(entity => entity.id !== image.id).map(entity => entity.id));
         console.log('PASS: native RECOVERALL → RECOVERYMANAGER SELECT/OPEN recovers a damaged root with its reference.');
+    }
+    {
+        const documents = [2_000, 3_000].map((count, index) => createLcadEnvelope({
+            ...createLcadDocument({ name: `Bridge replacement ${index}` }),
+            content: { entities: Array.from({ length: count }, (_, i) => ({
+                id: `replacement-${index}-${i}`, type: 'line', layerId: 'geometry',
+                x1: i % 100, y1: Math.floor(i / 100), x2: i % 100 + 0.5, y2: Math.floor(i / 100) + 0.5,
+            })) },
+        }).document);
+        const paths = documents.map((_, index) => join(work, `replacement-${index}.lcad`));
+        for (let i = 0; i < documents.length; i++) await writeFile(paths[i], createLcadArchive(createLcadEnvelope(documents[i])));
+        for (const index of [0, 1, 0, 1]) {
+            await call('open_document', { path: paths[index] });
+            const opened = await call('get_state');
+            assert.equal(opened.document.id, documents[index].id, 'immediate read belongs to the replacement editor');
+            assert.deepEqual(opened.document.content.entities, documents[index].content.entities);
+        }
+        console.log('PASS: repeated native open → immediate state reads preserve the replacement document.');
     }
 } finally {
     if (child.exitCode === null) {

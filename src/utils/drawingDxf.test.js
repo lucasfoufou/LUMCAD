@@ -70,10 +70,12 @@ test('DXF export carries RGB layers and metre units and refuses unsupported geom
     assert.throws(() => exportDrawingDxf(document.content), /cadUnsupported/); assert.deepEqual(document, before);
 });
 
-test('DXF refuses unknown entities, 3D and cyclic blocks, and ignores paper space, without changing the drawing', () => {
+test('DXF projects elevations, refuses unknown entities and cycles, and ignores paper space atomically', () => {
     const writer = new DxfWriter(); writer.setUnits(Units.Meters);
     writer.addLine(point3d(0, 0, 3), point3d(1, 2, 0));
-    assert.throws(() => importDrawingDxf(blank(), writer.stringify()), /cadUnsupportedObjects/);
+    const projected = importDrawingDxf(blank(), writer.stringify());
+    assert.ok(projected.report.warnings.includes('elevation'));
+    assert.deepEqual([projected.content.entities[0].x1, projected.content.entities[0].y1, projected.content.entities[0].x2, projected.content.entities[0].y2], [0, 0, 1, -2]);
     assert.throws(() => importDrawingDxf(blank(), writer.stringify().replace('\nLINE\n', '\n3DSOLID\n')), /cadUnsupportedObjects/);
     const paper = writer.stringify().replace('\nLINE\n', '\nLINE\n67\n1\n');
     assert.throws(() => importDrawingDxf(blank(), paper), /cadEmpty/);

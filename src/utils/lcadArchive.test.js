@@ -377,3 +377,11 @@ test('readers keep rejecting manifests above the safety limit', () => {
     assert.throws(() => readLcadArchive(zipSync({ [LCAD_MANIFEST_PATH]: [oversized, { level: 1 }] })),
         error => error.translationKey === 'storage.invalidArchiveEntry');
 });
+
+test('browser archives accept manifests beyond the former 64 MiB limit', () => {
+    const document = createLcadDocument();
+    document.content.note = 'x'.repeat(64 * 1024 * 1024 + 1);
+    const archive = createLcadArchive(createLcadEnvelope(document));
+    const loaded = readLcadArchive(archive);
+    assert.equal(loaded.document.content.note.length, document.content.note.length);
+});

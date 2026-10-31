@@ -21,7 +21,7 @@ const LCAD_MIN_READABLE_FORMAT_VERSION: u64 = 1;
 const LCAD_MANIFEST_PATH: &str = "manifest.json";
 const LCAD_ASSET_DIRECTORY: &str = "assets/";
 const RECOVERY_FILENAME: &str = "recovery.lcad";
-const MAX_MANIFEST_BYTES: usize = 64 * 1024 * 1024;
+const MAX_MANIFEST_BYTES: usize = 128 * 1024 * 1024;
 const MAX_ASSET_BYTES: usize = 25 * 1024 * 1024;
 const MAX_TOTAL_ASSET_BYTES: usize = 200 * 1024 * 1024;
 const MAX_ASSET_COUNT: usize = 512;
@@ -1814,6 +1814,17 @@ mod tests {
         assert!(!manifest.contains("\n "));
         let loaded = read_envelope(&path).unwrap();
         assert_eq!(loaded["document"]["content"]["entities"].as_array().unwrap().len(), 150_000);
+    }
+
+    #[test]
+    fn round_trips_manifests_above_the_former_64_mib_limit() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("large-import.lcad");
+        let mut envelope = valid_envelope("Large import");
+        let size = 64 * 1024 * 1024 + 1;
+        envelope["document"]["content"]["note"] = Value::String("x".repeat(size));
+        atomic_write(&path, &envelope).unwrap();
+        assert_eq!(read_envelope(&path).unwrap()["document"]["content"]["note"].as_str().unwrap().len(), size);
     }
 
     #[test]

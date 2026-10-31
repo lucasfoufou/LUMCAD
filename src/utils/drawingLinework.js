@@ -300,7 +300,7 @@ function curvedWideGeometry(definition) {
             continue;
         }
         // Reject a ribbon whose inner radius crosses the centre rather than silently folding it.
-        if (Math.max(width.start, width.end) / 2 >= arc.radius) return null;
+        if (Math.max(width.start, width.end) / 2 > arc.radius + Math.max(1e-9, arc.radius * 1e-10)) return null;
         const ellipse = { type: 'ellipse', cx: arc.center.x, cy: arc.center.y, rx: arc.radius, ry: arc.radius,
             startAngle: arc.startAngle, endAngle: arc.startAngle + arc.sweep, counterClockwise: arc.sweep > 0, fullEllipse: false };
         if (!width.start && !width.end) hairlines.push(transformEllipseAffine(ellipse, matrix));
@@ -313,7 +313,7 @@ function curvedWideGeometry(definition) {
             const t = sample / count; const angle = arc.startAngle + arc.sweep * t;
             const halfWidth = (width.start + (width.end - width.start) * t) / 2;
             for (const [target, sign] of [[left, -Math.sign(arc.sweep)], [right, Math.sign(arc.sweep)]]) {
-                const radius = arc.radius + sign * halfWidth;
+                const radius = Math.max(0, arc.radius + sign * halfWidth);
                 target.push({ x: arc.center.x + radius * Math.cos(angle), y: arc.center.y + radius * Math.sin(angle) });
             }
         }
@@ -326,7 +326,11 @@ function curvedWideGeometry(definition) {
             contours.push([prior.end, prior.leftEnd, next.leftStart], [prior.end, prior.rightEnd, next.rightStart]);
         }
         const boundaries = contours.map(points => {
-            const area = points.reduce((sum, point, index) => { const next = points[(index + 1) % points.length]; return sum + point.x * next.y - next.x * point.y; }, 0);
+            const origin = points[0];
+            const area = points.reduce((sum, point, index) => {
+                const next = points[(index + 1) % points.length];
+                return sum + (point.x - origin.x) * (next.y - origin.y) - (next.x - origin.x) * (point.y - origin.y);
+            }, 0);
             if (Math.abs(area) <= 1e-12) return null;
             return nativeLoop(area < 0 ? points.toReversed() : points, matrix);
         }).filter(Boolean);

@@ -180,7 +180,8 @@ test('curved wide segments retain signed circular definitions and bounded tapere
     const thin = make({ ...definition, widths: [{ start: 0, end: 0 }] });
     assert.equal(thin.parts[0].type, 'ellipse');
     near(thin.parts[0].rx, 5);
-    assert.equal(make({ ...definition, widths: [{ start: 10, end: 10 }] }), null);
+    assert.ok(make({ ...definition, widths: [{ start: 10, end: 10 }] }), 'a ribbon may reach its centre');
+    assert.equal(make({ ...definition, widths: [{ start: 11, end: 11 }] }), null, 'a ribbon crossing its centre is still refused');
     const shifted = translateEntity(entity, 4, 7);
     assert.deepEqual(normalizeDrawingContent({ entities: [shifted] }).entities[0].linework.bulges, [1]);
 });

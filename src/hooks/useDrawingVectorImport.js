@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { flushSync } from 'react-dom';
 
 /** Shared single-commit import lifecycle, including file-dialog cancellation and stale-context refusal. */
 export default function useDrawingVectorImport({ documentId, assets, setAssets, history, enabled, setSelectedIds, cancel, setMessage, t },
@@ -17,12 +18,20 @@ export default function useDrawingVectorImport({ documentId, assets, setAssets, 
             if (!bytes || !mounted.current) return;
             const live = latest.current;
             if (!live.enabled || live.documentId !== documentId || live.history.content !== initial || live.assets !== assets) throw new Error(`${prefix}ContextChanged`);
-            const result = convert({ content: initial, assets }, bytes, options);
-            setAssets(result.assets); live.history.commit(result.content); cancel(); setSelectedIds(result.selectedIds);
+            const result = await convert({ content: initial, assets }, bytes, options);
+            if (!mounted.current) return;
+            if (!latest.current.enabled || latest.current.documentId !== documentId || latest.current.history.content !== initial
+                || latest.current.assets !== assets) throw new Error(`${prefix}ContextChanged`);
             const warnings = result.report.warnings.map(key => t(`${prefix}.warning.${key}`)).join('; ');
             const notes = summarize?.(result.report) || [];
-            setMessage([t(`${prefix}.imported`, { count: result.report.imported }), ...notes,
-                ...(warnings ? [t(`${prefix}.warnings`, { warnings })] : [])].join(' '));
+            // The command promise must not resolve while React still renders
+            // the imported document in a concurrent lane. In headless WebKit,
+            // a later dummy render/timer can otherwise return the old MCP state.
+            flushSync(() => {
+                setAssets(result.assets); live.history.commit(result.content); cancel(); setSelectedIds(result.selectedIds);
+                setMessage([t(`${prefix}.imported`, { count: result.report.imported }), ...notes,
+                    ...(warnings ? [t(`${prefix}.warnings`, { warnings })] : [])].join(' '));
+            });
         } catch (error) {
             if (mounted.current && latest.current.documentId === documentId) {
                 const code = typeof error === 'string' ? error : error.message;

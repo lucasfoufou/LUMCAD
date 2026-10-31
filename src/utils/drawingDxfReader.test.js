@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readDrawingDxf } from './drawingDxfReader.js';
+import { readDrawingDxf, CAD_FILE_LIMIT } from './drawingDxfReader.js';
 import { exportDrawingDxf, importDrawingDxf } from './drawingDxf.js';
 import { createDefaultDrawingContent, DEFAULT_DRAWING_COLOR } from './drawingDocument.js';
 
@@ -44,13 +44,13 @@ test('embedded objects end the owning record instead of overriding its geometry'
 });
 
 test('unsupported records are reported rather than skipped, including inside blocks', () => {
-    const parsed = readDrawingDxf(dxf('0\nHATCH\n8\n0', {
+    const parsed = readDrawingDxf(dxf('0\nIMAGE\n8\n0', {
         blocks: '0\nBLOCK\n2\n*D1\n70\n1\n10\n0\n20\n0\n0\nSOLID\n8\n0\n0\nENDBLK\n8\n0',
     }));
-    assert.deepEqual(parsed.entities, [{ type: 'HATCH', unsupported: true, paperSpace: false }]);
+    assert.deepEqual(parsed.entities, [{ type: 'IMAGE', unsupported: true, paperSpace: false }]);
     assert.equal(parsed.blocks.get('*D1').entities[0].type, 'SOLID');
-    assert.throws(() => importDrawingDxf(blank(), dxf('0\nLINE\n8\n0\n10\n0\n20\n0\n11\n1\n21\n0\n0\nHATCH\n8\n0')),
-        error => error.message === 'cadUnsupportedObjects' && error.detail === 'HATCH ×1');
+    assert.throws(() => importDrawingDxf(blank(), dxf('0\nLINE\n8\n0\n10\n0\n20\n0\n11\n1\n21\n0\n0\nIMAGE\n8\n0')),
+        error => error.message === 'cadUnsupportedObjects' && error.detail === 'IMAGE ×1');
 });
 
 test('ACI 7 is the default ink in both directions and layer flags round-trip', () => {
@@ -75,14 +75,14 @@ test('orphan ENDBLK records written by LibreDWG are tolerated between definition
 test('reader refuses malformed numbers, trailing records and oversized input', () => {
     assert.throws(() => readDrawingDxf(dxf('0\nLINE\n8\n0\n10\n\n20\n0\n11\n1\n21\n0')), /cadInvalid/);
     assert.throws(() => readDrawingDxf(`${dxf('')}0\nLINE\n`), /cadInvalid/);
-    assert.throws(() => readDrawingDxf('x'.repeat(64 * 1024 * 1024 + 1)), /cadLimit/);
+    assert.throws(() => readDrawingDxf('x'.repeat(CAD_FILE_LIMIT + 1)), /cadLimit/);
 });
 
 const line = (layer, extra = '') => `0\nLINE\n8\n${layer}${extra}\n10\n0\n20\n0\n11\n1\n21\n0`;
 
 test('paper-space objects are ignored and counted instead of refusing the model import', () => {
     const result = importDrawingDxf(blank(), dxf([line('Plan'), '0\nVIEWPORT\n67\n1\n8\n0', line('Sheet', '\n67\n1')].join('\n'), {
-        blocks: '0\nBLOCK\n2\n*Paper_Space\n70\n0\n10\n0\n20\n0\n0\nHATCH\n8\n0\n0\nENDBLK\n8\n0',
+        blocks: '0\nBLOCK\n2\n*Paper_Space\n70\n0\n10\n0\n20\n0\n0\nIMAGE\n8\n0\n0\nENDBLK\n8\n0',
     }));
     assert.equal(result.content.entities.length, 1);
     assert.equal(result.report.paperSpace, 2);
@@ -91,32 +91,32 @@ test('paper-space objects are ignored and counted instead of refusing the model 
 });
 
 test('unsupported model objects are listed in the refusal, and SKIP imports everything else', () => {
-    const entities = [line('Plan'), '0\nHATCH\n8\nHatches', '0\nHATCH\n8\nHatches', '0\nDIMENSION\n8\nDims\n2\n*D1',
+    const entities = [line('Plan'), '0\nIMAGE\n8\nHatches', '0\nIMAGE\n8\nHatches', '0\n3DSOLID\n8\nDims\n2\n*D1',
         line('Raised', '\n39\n2')].join('\n');
     const blocks = '0\nBLOCK\n2\n*D1\n70\n1\n10\n0\n20\n0\n0\nSOLID\n8\n0\n0\nENDBLK\n8\n0';
     const text = dxf(entities, { blocks });
     const original = blank(); const before = structuredClone(original);
     assert.throws(() => importDrawingDxf(original, text),
-        error => error.message === 'cadUnsupportedObjects' && error.detail === 'HATCH ×2, DIMENSION ×1, LINE ×1');
+        error => error.message === 'cadUnsupportedObjects' && error.detail === 'IMAGE ×2, 3DSOLID ×1, LINE ×1');
     assert.deepEqual(original, before);
     const result = importDrawingDxf(original, text, { skip: true });
     assert.equal(result.content.entities.length, 1);
-    assert.equal(result.report.skipped, 'HATCH ×2, DIMENSION ×1, LINE ×1');
+    assert.equal(result.report.skipped, 'IMAGE ×2, 3DSOLID ×1, LINE ×1');
     assert.equal(result.report.skippedCount, 4);
     // Dimension geometry blocks are not imported, and left-out objects create no layers.
     assert.equal(result.content.blocks.length, 0);
     assert.deepEqual(result.content.layers.slice(before.content.layers.length).map(layer => layer.name), ['Plan']);
 });
 
-test('SKIP keeps block definitions with their supported children and drops unusable inserts', () => {
+test('SKIP keeps referenced block definitions with supported children and drops unusable inserts', () => {
     const blocks = [
-        '0\nBLOCK\n2\nPanel\n70\n0\n10\n0\n20\n0', line('0'), '0\nHATCH\n8\n0', '0\nENDBLK\n8\n0',
+        '0\nBLOCK\n2\nPanel\n70\n0\n10\n0\n20\n0', line('0'), '0\nIMAGE\n8\n0', '0\nENDBLK\n8\n0',
         '0\nBLOCK\n2\nUnused\n70\n0\n10\n0\n20\n0', line('0'), '0\nENDBLK\n8\n0',
         '0\nBLOCK\n2\nSite\n70\n4\n1\n/x/site.dwg\n10\n0\n20\n0\n0\nENDBLK\n8\n0',
     ].join('\n');
     const entities = ['0\nINSERT\n8\nRoof\n2\nPanel\n10\n5\n20\n0', '0\nINSERT\n8\nRoof\n2\nSite\n10\n0\n20\n0'].join('\n');
     const result = importDrawingDxf(blank(), dxf(entities, { blocks }), { skip: true });
-    assert.deepEqual(result.content.blocks.map(block => [block.name, block.entities.length]), [['Panel', 1], ['Unused', 1]]);
+    assert.deepEqual(result.content.blocks.map(block => [block.name, block.entities.length]), [['Panel', 1]]);
     assert.deepEqual(result.content.entities.map(entity => entity.type), ['blockReference']);
-    assert.equal(result.report.skipped, 'HATCH ×1, INSERT ×1');
+    assert.equal(result.report.skipped, 'IMAGE ×1, INSERT ×1');
 });

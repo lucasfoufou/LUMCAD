@@ -15,7 +15,12 @@ export function resolveRecoveredReferencePath(path, sourcePath) {
 }
 
 /** Clone before pinning reference paths; cached geometry and source evidence stay untouched. */
-export function prepareRecoveredReferencePaths(document, sourcePath, graph = null) {
+export function prepareRecoveredReferencePaths(document, sourcePath, graph = null, { reuseUnchanged = false } = {}) {
+    const hasLinks = entities => entities?.some(entity => entity.table?.dataLink?.path || entity.externalReference?.path);
+    if (!hasLinks(document.content?.entities) && !document.content?.blocks?.some(block => hasLinks(block.entities))
+        && !document.layouts?.some(layout => hasLinks(layout.paperEntities))) {
+        return { document: reuseUnchanged ? document : structuredClone(document), changes: [], unresolved: [] };
+    }
     const copy = structuredClone(document);
     const changes = [];
     const unresolved = [];

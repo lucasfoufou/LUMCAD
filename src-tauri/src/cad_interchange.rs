@@ -7,7 +7,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-const LIMIT: u64 = 64 * 1024 * 1024;
+const LIMIT: u64 = 128 * 1024 * 1024;
+const DWG_INPUT_LIMIT: u64 = 64 * 1024 * 1024;
 
 fn validate_path(path: &Path, format: &str) -> Result<(), String> {
     if !["dxf", "dwg"].contains(&format)
@@ -44,20 +45,21 @@ fn validate_dxf(bytes: &[u8]) -> Result<(), String> {
     if bytes.len() as u64 > LIMIT {
         return Err("cadLimit".into());
     }
-    let text = std::str::from_utf8(bytes).map_err(|_| "cadEncoding")?;
-    let lines: Vec<_> = text.trim_end().lines().collect();
-    if lines.len() % 2 != 0 {
-        return Err("cadInvalid".into());
-    }
+    // Validate the container without interpreting text values. DXF uses legacy
+    // code pages as well as UTF-8; the frontend owns text decoding and reporting.
+    let mut lines = bytes.trim_ascii_end().split(|byte| *byte == b'\n');
     let mut section = false;
     let mut eof = false;
-    for pair in lines.chunks_exact(2) {
-        let code: u16 = pair[0].trim().parse().map_err(|_| "cadInvalid")?;
+    while let Some(raw_code) = lines.next() {
+        let value = lines.next().ok_or("cadInvalid")?.trim_ascii();
+        let code: u16 = std::str::from_utf8(raw_code.trim_ascii())
+            .map_err(|_| "cadInvalid")?.parse().map_err(|_| "cadInvalid")?;
+        if code > 1071 { return Err("cadInvalid".into()); }
         if eof {
             return Err("cadInvalid".into());
         }
-        section |= code == 0 && pair[1].trim() == "SECTION";
-        eof = code == 0 && pair[1].trim() == "EOF";
+        section |= code == 0 && value == b"SECTION";
+        eof = code == 0 && value == b"EOF";
     }
     if !section || !eof {
         return Err("cadInvalid".into());
@@ -209,6 +211,7 @@ fn read_cad(path: &str, format: &str, configured: &str) -> Result<Vec<u8>, Strin
     validate_path(Path::new(path), format)?;
     let bytes = read_bounded(Path::new(path))?;
     if format == "dwg" {
+        if bytes.len() as u64 > DWG_INPUT_LIMIT { return Err("cadLimit".into()); }
         if !bytes.starts_with(b"AC10") {
             return Err("cadInvalid".into());
         }
@@ -271,6 +274,24 @@ pub fn locate_libredwg(directory: String) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn dxf_container_validation_accepts_legacy_text_without_losing_bytes() {
+        let bytes = b"0\nSECTION\n2\nENTITIES\n0\nMTEXT\n1\nCaf\xe9\n0\nENDSEC\n0\nEOF\n";
+        assert!(validate_dxf(bytes).is_ok());
+        assert!(validate_dxf(b"0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n0\nLINE\n").is_err());
+        assert!(validate_dxf(b"0\nSECTION\n2\nENTITIES\nno-code\nvalue\n0\nEOF\n").is_err());
+    }
+
+    #[test]
+    fn expanded_dxf_limit_does_not_expand_the_dwg_input_limit() {
+        let work = tempfile::tempdir().unwrap();
+        let dxf = work.path().join("large.dxf");
+        File::create(&dxf).unwrap().set_len(DWG_INPUT_LIMIT + 1).unwrap();
+        assert_eq!(read_bounded(&dxf).unwrap().len() as u64, DWG_INPUT_LIMIT + 1);
+        let dwg = work.path().join("large.dwg");
+        fs::rename(dxf, &dwg).unwrap();
+        assert_eq!(read_cad(dwg.to_str().unwrap(), "dwg", "").unwrap_err(), "cadLimit");
+    }
     #[test]
     fn paths_and_limits_are_checked_before_conversion() {
         assert!(validate_path(Path::new("relative.dxf"), "dxf").is_err());

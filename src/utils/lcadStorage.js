@@ -171,7 +171,9 @@ function normalizeLoadedDocument(loaded) {
     const envelope = normalizeLcadEnvelope(loaded.envelope);
     // Anchor portable links once, before history/autosave captures a session. Moving the
     // active file later must not reinterpret old links against the new directory.
-    if (loaded.path) envelope.document = prepareRecoveredReferencePaths(envelope.document, loaded.path).document;
+    // This newly normalized snapshot is owned by the opened session; recovery
+    // candidates still use the helper's independent-copy default.
+    if (loaded.path) envelope.document = prepareRecoveredReferencePaths(envelope.document, loaded.path, null, { reuseUnchanged: true }).document;
     return {
         path: loaded.path || null,
         recovered: Boolean(loaded.recovered),

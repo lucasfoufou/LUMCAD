@@ -1,21 +1,24 @@
 import useDrawingVectorImport from './useDrawingVectorImport';
-import { exportDrawingDxf, importDrawingDxf } from '~utils/drawingDxf';
+import { exportDrawingDxf } from '~utils/drawingDxf';
+import { convertDrawingCad } from '~utils/drawingCadImport';
 import { parseDrawingCadInput, readDrawingCadFile, saveDrawingCadFile } from '~utils/drawingCadFiles';
 
 const errors = ['cadSyntax', 'cadDesktop', 'cadDwgDesktop', 'cadLimit', 'cadUnits', 'cadEmpty', 'cadContextChanged',
-    'cadUnsupported', 'cadUnsupportedObjects', 'cadEncoding', 'cadConverterMissing', 'cadConversionFailed', 'cadConversionTimeout'];
+    'cadUnsupported', 'cadUnsupportedObjects', 'cadEncoding', 'cadConverterMissing', 'cadConversionFailed', 'cadConversionTimeout', 'cadImportTimeout'];
 
 export default function useDrawingCad(options, format) {
     const { enabled, history, name, setMessage, t, documentId } = options;
     const labelKey = `commands.${format}Import`;
     const imported = useDrawingVectorImport(options, { prefix: 'cad', labelKey, parse: parseDrawingCadInput,
-        read: (path, label) => readDrawingCadFile(path, label, format), convert: (...args) => {
-            const result = importDrawingDxf(...args);
+        read: (path, label) => readDrawingCadFile(path, label, format), convert: async (...args) => {
+            setMessage(t('cad.importing'));
+            const result = await convertDrawingCad(...args);
             if (format === 'dwg') result.report.warnings.push('dwg');
             return result;
         }, errors, summarize: report => [
             ...(report.skipped ? [t('cad.skipped', { count: report.skippedCount, detail: report.skipped })] : []),
             ...(report.paperSpace ? [t('cad.paperSpaceIgnored', { count: report.paperSpace })] : []),
+            ...(report.hidden ? [t('cad.hiddenIgnored', { count: report.hidden })] : []),
         ] });
     const exportFile = async input => {
         if (!enabled) { setMessage(t('namedView.modelRequired')); return; }

@@ -1,6 +1,6 @@
 # Performance and reliability baseline
 
-- Last measured: 2026-10-12 (linework batching)
+- Last measured: 2026-10-30 (real CAD imports and nested block batching)
 - Scope: editor responsiveness, memory, and document size limits for large 2D drawings
 
 This document defines how LUMCAD performance is measured, the budgets that changes must respect, and the current baseline. Re-run the benchmarks and update the baseline when a change targets performance or alters rendering, snapping, selection, history, or persistence.
@@ -344,3 +344,24 @@ The second alternating pair reproduced these values. Cached subpath strings rais
 
 - Text, dimensions and hatches keep one element each; a zoom settle at XL still re-lays out about 24,000 elements (about 100 ms).
 - XL window-selection preview still creates one outline per selected entity.
+
+## Real CAD imports — 2026-10-30
+
+DWG conversion exposed larger intermediate files and much denser nested blocks than the synthetic fixtures. Parsing and conversion now run in a dedicated worker. Opaque linework inside nested model blocks shares SVG paths, including exact cubic Bézier spans; fills, text and transparent objects end each run. Layout/publication rendering retains the ordinary entity path. Native save avoids repeated normalization copies, and ordinary open reuses its freshly normalized snapshot when there are no file references to anchor. Recovery candidates still receive independent copies.
+
+Six private files passed native import/save/undo/redo/reopen with geometry comparisons. The three larger documents contain 77,246–258,820 stored block children and 43–73 MB of JSON. On this machine the full DWGIN request, including returning document state through MCP, took 13–27 s for those three. One large reopen took about 52 s. Earlier unbatched runs exhausted WebKit's background memory allowance; the completed runs do not establish a hard RAM ceiling or smooth overview interaction on every customer drawing. Full-state MCP responses and nested text/fill rendering remain expensive. Private fixtures and reports are stored outside the repository.
+
+The [document pipeline](./benchmarks/dwg-import-2026-10-30/document.json) and [browser scenarios](./benchmarks/dwg-import-2026-10-30/browser.json) completed for S/M/L/XL, including nonempty selection and exact scene restoration after delete/undo/redo. Node 26.12.1, Chrome 156, macOS Apple Silicon, 1440 × 813. This is a regression run, not a controlled comparison with the older Chrome 154 baseline.
+
+| Measure | L | XL |
+| --- | ---: | ---: |
+| Load | 187 ms | 434 ms |
+| DOM nodes, overview | 10,128 | 24,495 |
+| Sampled JS heap peak | 253 MiB | 617 MiB |
+| Hover selection, p95 | 21.5 ms | 24.7 ms |
+| Wheel zoom, p95 | 62.7 ms | 126.6 ms |
+| Pan, p95 | 19.5 ms | 18.4 ms |
+| Window selection, maximum | 64.8 ms | 222.2 ms |
+| Delete/undo/redo, maximum | 84.2 ms | 189.3 ms |
+
+The load and pan targets are met here; hover, zoom, selection and bulk-edit targets are still exceeded. These synthetic timings must not be presented as the timings of the much denser customer DWGs.
