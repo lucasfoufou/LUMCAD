@@ -1,3 +1,5 @@
+import { localizeError } from '../i18n/translator.js';
+
 export const APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1_000;
 export const APP_UPDATE_CHECK_TIMEOUT_MS = 15_000;
 
@@ -37,7 +39,9 @@ export function reduceAppUpdaterState(state = INITIAL_APP_UPDATER_STATE, action 
             ...state,
             phase: 'error',
             progress: null,
-            error: action.error instanceof Error ? action.error.message : String(action.error || ''),
+            error: action.error?.translationKey || action.error?.code
+                ? action.error
+                : action.error instanceof Error ? action.error.message : String(action.error || ''),
         };
     default:
         return state;
@@ -75,6 +79,13 @@ export function nextUpdateDownloadProgress(current, event) {
 
 export function isAppUpdaterBusy(state) {
     return state?.phase === 'downloading' || state?.phase === 'installing';
+}
+
+export function formatAppUpdateError(error, t) {
+    if (error?.translationKey || error?.code) return localizeError(error, t, 'updater.installFailed');
+    const details = (error instanceof Error ? error.message : String(error || '')).trim();
+    if (!details) return t('updater.installFailed');
+    return t('updater.installFailedDetails', { details });
 }
 
 function positiveFiniteNumber(value) {

@@ -94,3 +94,16 @@ The first version containing the updater must be installed manually because olde
 6. repeat with the network disconnected, an interrupted download, a malformed test manifest, and an invalid test signature; the installed application and drawing must remain usable.
 
 Also inspect `latest.json` directly and confirm every URL uses HTTPS and the matching tagged GitHub release. Stable applications use GitHub's latest non-prerelease release; prerelease channels require a separate endpoint and are not enabled by this workflow.
+
+### macOS volume regression
+
+The native and JavaScript updater dependencies require Tauri updater 2.14.1 or later. Its macOS installer stages the new bundle and backup on the installed application's volume, avoiding `EXDEV` when the system temporary directory is on another disk. It also restores or retains the previous bundle if replacement fails. Keep the native and JavaScript updater versions compatible; signature verification remains the plugin's responsibility.
+
+`src-tauri/tests/updater_macos.rs` exercises the actual plugin installer against disposable bundles, including a rejected archive. By default it uses the system temporary directory. To reproduce the original failure, point it at a writable directory on another mounted volume:
+
+```bash
+LUMCAD_UPDATER_TEST_ROOT=/Volumes/OtherDisk \
+cargo test --manifest-path src-tauri/Cargo.toml --test updater_macos
+```
+
+When this variable is set, the test requires different filesystem device IDs for the test root and the system temporary directory. No installed LUMCAD bundle is modified. Also test a packaged build from that other volume: accept the update, confirm the restarted version and recovered drawing, and verify that any failure appears in the command bar and Retry tooltip. Versions through 0.3.3 still contain the old installer and need `/Applications` as a workaround to receive their first fixed build.

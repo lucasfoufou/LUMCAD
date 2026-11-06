@@ -5,6 +5,7 @@ import React from 'react';
 import { useI18n } from '~i18n/I18nProvider';
 import { getLcadPathLabel } from '~utils/lcadStorage';
 import Icon from '~components/ui/Icon';
+import { formatAppUpdateError } from '~utils/appUpdater';
 
 export default function DrawingEditorHeader({
     name,
@@ -91,7 +92,7 @@ function UpdateHeaderAction({ state, onClick, t }) {
     } else if (state.phase === 'installing') label = t('updater.installing');
     else if (state.phase === 'error') label = t('updater.retry', { version: state.version });
     return (
-        <Button type="button" className="ui-button lumcad-update-button" disabled={checking || busy} onClick={onClick} title={label}>
+        <Button type="button" className="ui-button lumcad-update-button" disabled={checking || busy} onClick={onClick} title={state.phase === 'error' ? formatAppUpdateError(state.error, t) : label}>
             <Icon name="update" size="sm" />{label}
         </Button>
     );

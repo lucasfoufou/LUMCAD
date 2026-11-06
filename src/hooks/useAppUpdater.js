@@ -71,7 +71,7 @@ export default function useAppUpdater({ beforeInstall } = {}) {
                 return true;
             } catch (error) {
                 if (mountedRef.current) dispatch({ type: 'failed', error });
-                return false;
+                throw error;
             }
         })().finally(() => {
             if (installPromiseRef.current === pending) installPromiseRef.current = null;

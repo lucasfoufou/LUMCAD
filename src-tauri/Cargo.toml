@@ -24,7 +24,7 @@ sha2 = "0.10.9"
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-process = "2"
-tauri-plugin-updater = "2"
+tauri-plugin-updater = "2.14.1"
 tokio = { version = "1", features = ["net", "sync", "time"] }
 tokio-util = "0.7"
 tempfile = "3"
@@ -36,5 +36,6 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation"] }
 
 [dev-dependencies]
+tauri = { version = "2", features = ["test"] }
 rmcp = { version = "3.0.0", features = ["client", "transport-streamable-http-client-reqwest"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
