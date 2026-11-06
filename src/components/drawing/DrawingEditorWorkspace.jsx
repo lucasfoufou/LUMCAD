@@ -103,6 +103,7 @@ import { isHeadlessRuntime } from '~utils/runtimeMode';
 import useLumcadMcpBridge from '~hooks/useLumcadMcpBridge';
 import { useI18n } from '~i18n/I18nProvider';
 import { localizeError } from '~i18n/translator';
+import { formatAppUpdateError } from '~utils/appUpdater';
 import { useAppSettings } from '~settings/AppSettingsProvider';
 import { getDrawingCommandDefinition, getDrawingCommandInput, isNumericDrawingInput, parseDrawingCommand, parseDrawingNumbers } from '~utils/drawingCommands';
 import {
@@ -296,7 +297,7 @@ export default function DrawingEditorWorkspace({
     const installAvailableUpdate = useCallback(async () => {
         if (blockEditor.session) { setMessage(t('block.error.closeFirst')); return; }
         if (!updater.version || !window.confirm(t('updater.confirmInstall', { version: updater.version }))) return;
-        if (!await updater.installAvailableUpdate()) setMessage(t('updater.installFailed'));
+        await updater.installAvailableUpdate();
     }, [blockEditor.session, t, updater.installAvailableUpdate, updater.version]);
     const {
         autoPublish,
@@ -2986,7 +2987,7 @@ export default function DrawingEditorWorkspace({
                         canCopy: workspaceMode === 'model' && selectedIds.length > 0,
                     }}
                     updateState={updater}
-                    onInstallUpdate={() => installAvailableUpdate().catch(() => setMessage(t('updater.installFailed')))}
+                    onInstallUpdate={() => installAvailableUpdate().catch(error => setMessage(formatAppUpdateError(error, t)))}
                 />
                 {blockEditor.session && <section className="drawing-block-edit-bar" aria-label={t('block.editor')}>
                     <strong>{t(blockEditor.session.referenceSource ? 'reference.editing' : 'block.editing', { name: blockEditor.session.name })}</strong>

@@ -103,6 +103,8 @@ Tagged versions are published on the [GitHub Releases page](https://github.com/l
 
 Each successful release also publishes a signed Tauri updater manifest. An installed updater-enabled version checks GitHub periodically, offers a newer compatible build in the header, verifies its updater signature, saves the active drawing, and installs only after confirmation. The first updater-enabled version must still be installed manually.
 
+The updater stages macOS replacements on the application's volume, including when LUMCAD is installed on another disk. Installation errors appear in the command bar and the Retry button's tooltip. Versions through 0.3.3 use the older installer: move those builds to `/Applications` before updating if installation fails after downloading on another volume.
+
 The release workflow uses ad-hoc signing on macOS and does not yet notarize the macOS bundle or sign the Windows installer with an identified developer certificate. Tauri updater signatures protect the update channel, but they do not replace Apple Developer ID or Windows Authenticode signing; the operating system may therefore display a security warning for manually downloaded builds.
 
 ## Development

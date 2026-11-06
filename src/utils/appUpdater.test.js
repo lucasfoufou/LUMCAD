@@ -2,11 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+    formatAppUpdateError,
     INITIAL_APP_UPDATER_STATE,
     isAppUpdaterBusy,
     nextUpdateDownloadProgress,
     reduceAppUpdaterState,
 } from './appUpdater.js';
+import { createI18nError, createTranslator } from '../i18n/translator.js';
 
 test('application updater state keeps one explicit lifecycle', () => {
     let state = reduceAppUpdaterState(INITIAL_APP_UPDATER_STATE, { type: 'check-started' });
@@ -70,4 +72,18 @@ test('no available update resets stale progress and errors', () => {
         error: 'failed',
     }, { type: 'no-update' });
     assert.deepEqual(state, INITIAL_APP_UPDATER_STATE);
+});
+
+test('update failures show native details and preserve localized autosave errors', () => {
+    const en = createTranslator('en');
+    const fr = createTranslator('fr');
+    const details = 'Cross-device link (os error 18)';
+    assert.equal(formatAppUpdateError(new Error(details), en), `The update could not be installed: ${details}`);
+    assert.equal(formatAppUpdateError(details, fr), `La mise à jour n’a pas pu être installée : ${details}`);
+    assert.equal(formatAppUpdateError(null, fr), fr('updater.installFailed'));
+    assert.equal(formatAppUpdateError(new Error('  '), en), en('updater.installFailed'));
+    const state = reduceAppUpdaterState(INITIAL_APP_UPDATER_STATE, {
+        type: 'failed', error: createI18nError('storage.createTemporaryFile'),
+    });
+    assert.equal(formatAppUpdateError(state.error, fr), fr('storage.createTemporaryFile'));
 });
