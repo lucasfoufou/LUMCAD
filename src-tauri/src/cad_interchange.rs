@@ -67,6 +67,27 @@ fn validate_dxf(bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// LibreDWG writes CRLF through fopen(..., "w"). Windows text-mode output
+/// can expand each LF again, producing CRCRLF. Repair only converter output;
+/// preserve empty DXF values, legacy text bytes and ordinary line endings.
+fn normalize_converter_dxf(mut bytes: Vec<u8>) -> Vec<u8> {
+    let mut read = 0;
+    let mut write = 0;
+    while read < bytes.len() {
+        if bytes[read..].starts_with(b"\r\r\n") {
+            bytes[write..write + 2].copy_from_slice(b"\r\n");
+            read += 3;
+            write += 2;
+        } else {
+            bytes[write] = bytes[read];
+            read += 1;
+            write += 1;
+        }
+    }
+    bytes.truncate(write);
+    bytes
+}
+
 fn executable(name: &str) -> String {
     if cfg!(windows) {
         format!("{name}.exe")
@@ -201,10 +222,12 @@ fn convert(input: &[u8], to_dwg: bool, configured: &str) -> Result<Vec<u8>, Stri
         if !bytes.starts_with(b"AC1015") {
             return Err("cadConversionFailed".into());
         }
+        Ok(bytes)
     } else {
+        let bytes = normalize_converter_dxf(bytes);
         validate_dxf(&bytes)?;
+        Ok(bytes)
     }
-    Ok(bytes)
 }
 
 fn read_cad(path: &str, format: &str, configured: &str) -> Result<Vec<u8>, String> {
@@ -274,6 +297,23 @@ pub fn locate_libredwg(directory: String) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn converter_dxf_repairs_windows_text_mode_without_changing_values() {
+        let expected = b"999\r\nLibreDWG 0.14\r\n0\r\nSECTION\r\n2\r\nHEADER\r\n9\r\n$PROJECTNAME\r\n1\r\n\r\n0\r\nENDSEC\r\n0\r\nSECTION\r\n2\r\nENTITIES\r\n0\r\nMTEXT\r\n1\r\n Caf\xe9 \r\n0\r\nENDSEC\r\n0\r\nEOF\r\n";
+        let windows = expected.iter().flat_map(|byte| {
+            if *byte == b'\n' { vec![b'\r', b'\n'] } else { vec![*byte] }
+        }).collect();
+        // Container validation alone already accepts CRCRLF; the frontend
+        // would interpret its extra CR as an empty group line and reject it.
+        let repaired = normalize_converter_dxf(windows);
+        assert_eq!(repaired, expected);
+        assert!(validate_dxf(&repaired).is_ok());
+        assert_eq!(normalize_converter_dxf(expected.to_vec()), expected);
+        let lf = b"0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
+        assert_eq!(normalize_converter_dxf(lf.to_vec()), lf);
+        assert!(normalize_converter_dxf(Vec::new()).is_empty());
+    }
+
     #[test]
     fn dxf_container_validation_accepts_legacy_text_without_losing_bytes() {
         let bytes = b"0\nSECTION\n2\nENTITIES\n0\nMTEXT\n1\nCaf\xe9\n0\nENDSEC\n0\nEOF\n";
