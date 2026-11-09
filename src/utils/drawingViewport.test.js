@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { drawingViewBoxScreenTransform, drawingVisibleViewBox, zoomDrawingViewBox } from './drawingViewport.js';
+import { drawingViewBoxScreenTransform, drawingVisibleViewBox, scaleDrawingViewBox, zoomDrawingViewBox, MIN_SCREEN_SCALE_RATIO, MAX_SCREEN_SCALE_RATIO } from './drawingViewport.js';
 
 const canvas = { width: 800, height: 400 };
 
@@ -42,4 +42,15 @@ test('identical views need no transform', () => {
 test('visible area includes the letterboxed margins of a fitted view', () => {
     assert.deepEqual(drawingVisibleViewBox({ x: 0, y: 0, width: 10, height: 10 }, canvas), { x: -5, y: 0, width: 20, height: 10 });
     assert.deepEqual(drawingVisibleViewBox({ x: 0, y: 0, width: 40, height: 10 }, canvas), { x: 0, y: -5, width: 40, height: 20 });
+});
+
+test('screen scale supports the extended denominator range', () => {
+    assert.equal(MIN_SCREEN_SCALE_RATIO, 0.0001);
+    assert.equal(MAX_SCREEN_SCALE_RATIO, 1e6);
+    const minimum = scaleDrawingViewBox({ x: 0, y: 0, width: 100, height: 50 }, canvas, 0.00001);
+    const maximum = scaleDrawingViewBox({ x: 0, y: 0, width: 100, height: 50 }, canvas, 1e7);
+    const expectedMinimumWidth = 0.0001 * (25.4 / 96) / 1000 * canvas.width;
+    const expectedMaximumWidth = 1e6 * (25.4 / 96) / 1000 * canvas.width;
+    assert.ok(Math.abs(minimum.width - expectedMinimumWidth) < 1e-15);
+    assert.ok(Math.abs(maximum.width - expectedMaximumWidth) < 1e-9);
 });

@@ -34,7 +34,7 @@ export default function DrawingSnapControls({
     const objectSnapsOn = objectSnapKeys.some(key => snaps[key]);
     const applyScale = () => {
         const next = Number.parseFloat(String(scaleDraft).replace(',', '.'));
-        if (Number.isFinite(next) && next >= 1) onScaleChange?.(next);
+        if (Number.isFinite(next) && next >= 0.0001 && next <= 1e6) onScaleChange?.(next);
         else setScaleDraft(formatScaleRatio(scaleRatio, locale));
     };
     const applyPolarAngles = () => {
@@ -180,6 +180,6 @@ function formatScaleRatio(value, locale) {
     if (!Number.isFinite(ratio) || ratio <= 0) return '';
     const rounded = Math.round(ratio);
     if (Math.abs(ratio - rounded) < 1e-8) return String(rounded);
-    const decimal = ratio.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+    const decimal = ratio.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
     return locale === 'fr' ? decimal.replace('.', ',') : decimal;
 }

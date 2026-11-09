@@ -1,7 +1,9 @@
 import { getWorldUnitsPerPixelForScaleRatio } from './drawingGeometry.js';
 
-export const MIN_SCREEN_SCALE_RATIO = 1;
-export const MAX_SCREEN_SCALE_RATIO = 10000;
+// Screen scale denominators are expressed as 1:X. Keep the range wide enough
+// for both full-size paper work and very detailed model inspection.
+export const MIN_SCREEN_SCALE_RATIO = 0.0001;
+export const MAX_SCREEN_SCALE_RATIO = 1e6;
 
 export function zoomDrawingViewBox(viewBox, factor, focus, canvasSize) {
     const limits = getZoomWidthLimits(canvasSize);
