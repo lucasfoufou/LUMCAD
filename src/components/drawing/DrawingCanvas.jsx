@@ -70,7 +70,6 @@ import {
     getInteractiveOperationPointMode,
     getTrimExtendPointMode,
     isDimensionableDrawingEntity,
-    isDimensionPointSnap,
     isDrawingTextInput,
 } from '~utils/drawingInteraction';
 import { buildSplineCreationEntity, buildSplineCreationPreview, MAX_SPLINE_CREATION_POINTS } from '~utils/drawingSplineCreation';
@@ -115,6 +114,7 @@ import { createStretchPreviewEntities } from '~utils/drawingStretchOperations';
 import { drawingViewBoxScreenTransform, drawingVisibleViewBox, scaleDrawingViewBox, zoomDrawingViewBox } from '~utils/drawingViewport';
 import { drawingTextFontSizeToPixels, resolveDrawingTextStyle, normalizeDrawingTextEntity } from '~utils/drawingText';
 import useStableArray from '~hooks/useStableArray';
+import { dimensionNeedsPlacement, dimensionWithTypedOffset, parseDimensionToolInput, placeDimensionAtPoint, resolveDimensionPickTarget, styledDimensionDraft, withDefaultDimensionPlacement } from '~utils/drawingDimensionPlacement';
 
 const VIEW_RENDER_SETTLE_MS = 120;
 const VIEW_RENDER_MAX_WAIT_MS = 300;
@@ -164,6 +164,10 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const [gesture, setGesture] = useState(null);
     const [hoverSnap, setHoverSnap] = useState(null);
     const [hoveredEntityId, setHoveredEntityId] = useState(null);
+    const [dimensionPickMode, setDimensionPickMode] = useState('object');
+    const dimensionHoverPromptRef = useRef(null);
+    useEffect(() => { dimensionHoverPromptRef.current = null; }, [activeTool, gesture]);
+    useEffect(() => { if (activeTool !== 'dimension') setDimensionPickMode('object'); }, [activeTool]);
     const [trackingAnchors, setTrackingAnchors] = useState([]);
     const [temporaryTrackingPointMode, setTemporaryTrackingPointMode] = useState(false);
     const [operationPoint, setOperationPoint] = useState(null);
@@ -486,6 +490,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     };
 
     const submitCreationInputForTool = (tool, rawValue) => {
+        if (tool === 'dimension' && tool === activeTool) return submitDimensionToolInput(rawValue);
         if (!drawingTools.has(tool) || ['point', 'line', 'xline', 'ray', 'text'].includes(tool)) return false;
         if (tool === 'spline' && tool === activeTool && ['', 'DONE'].includes(String(rawValue).trim().toUpperCase())) {
             const entity = gesture?.kind === 'draw' && gesture.tool === 'spline'
@@ -535,6 +540,39 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         return true;
     };
 
+    // A new dimension follows the pointer until its line is placed (click) or accepted (Enter).
+    const beginDimensionPlacement = (dimension, statusKey = 'canvas.associativeDimensionAdded') => {
+        if (!dimension) return false;
+        if (!dimensionNeedsPlacement(dimension)) return commitDimensionEntity(dimension, statusKey);
+        const sources = drawingDimensionSources(content, dimension);
+        setGesture({ kind: 'dimension', dimensionKind: 'placement', dimension: withDefaultDimensionPlacement(content, dimension, sources),
+            sourceIds: getDrawingEntityDependencyIds(dimension), statusKey, current: null });
+        onStatus?.(t('canvas.dimensionPlacementPrompt'));
+        return true;
+    };
+
+    const submitDimensionToolInput = rawValue => {
+        const parsed = parseDimensionToolInput(rawValue);
+        if (!parsed) return false;
+        if (parsed.kind === 'pickMode') {
+            if (gesture?.dimensionKind === 'placement') return false;
+            setGesture(null);
+            setDimensionPickMode(parsed.mode);
+            onStatus?.(t(parsed.mode === 'points' ? 'canvas.dimensionPointsMode' : 'canvas.dimensionObjectMode'));
+            return true;
+        }
+        if (gesture?.kind !== 'dimension' || gesture.dimensionKind !== 'placement') return false;
+        const sources = drawingDimensionSources(content, gesture.dimension);
+        const dimension = parsed.kind === 'accept'
+            ? gesture.dimension
+            : dimensionWithTypedOffset(gesture.dimension, parsed.value, sources, gesture.current);
+        if (!dimension) {
+            onStatus?.(t('canvas.dimensionPlacementPrompt'));
+            return true;
+        }
+        return commitDimensionEntity(dimension, gesture.statusKey);
+    };
+
     const commitDimensionResult = result => {
         if (!result?.changed) return false;
         onCommit(result.content);
@@ -579,8 +617,11 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 if (!commitDimensionResult(result)) onStatus?.(t('messages.dimensionSelectionRequired'));
                 return true;
             }
+            if (gesture?.dimensionKind === 'placement') {
+                return commitDimensionEntity(placeDimensionAtPoint(gesture.dimension, point, drawingDimensionSources(content, gesture.dimension)), gesture.statusKey);
+            }
             if (targetEntity?.type === 'arc') {
-                return commitDimensionEntity(createDimensionForEntity(content, targetEntity, config, hitPoint));
+                return beginDimensionPlacement(createDimensionForEntity(content, targetEntity, config, hitPoint));
             }
             if (targetEntity?.type === 'line') {
                 setGesture({
@@ -627,16 +668,19 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             return true;
         }
 
+        if (gesture?.kind === 'dimension' && gesture.dimensionKind === 'placement') {
+            return commitDimensionEntity(placeDimensionAtPoint(gesture.dimension, point, drawingDimensionSources(content, gesture.dimension)), gesture.statusKey);
+        }
         if (gesture?.kind === 'dimension') {
             const dimension = createFreeDimension(content, gesture.first, point, config);
-            const committed = commitDimensionEntity(dimension, 'canvas.freeDimensionAdded');
-            if (!committed) setGesture(null);
-            return committed;
+            const started = beginDimensionPlacement(dimension, 'canvas.freeDimensionAdded');
+            if (!started) setGesture(null);
+            return started;
         }
-        const dimension = isDimensionableDrawingEntity(targetEntity)
+        const dimension = resolveDimensionPickTarget(targetEntity, dimensionPickMode)
             ? createDimensionForEntity(content, targetEntity, config, hitPoint)
             : null;
-        if (dimension) return commitDimensionEntity(dimension);
+        if (dimension) return beginDimensionPlacement(dimension);
         if (['arcLength', 'radius', 'diameter', 'joggedRadius', 'centerMark'].includes(mode)) {
             onStatus?.(t('messages.dimensionSelectionRequired'));
             return true;
@@ -1112,14 +1156,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         if (activeTool === 'dimension') {
             const snapped = snapPoint(event, [], gesture?.kind === 'dimension' ? gesture.first : null);
             showPointerFeedback(snapped);
-            const mode = normalizeCanvasDimensionMode(dimensionMode).mode;
-            const pointSnapPrefersFreeLinear = isDimensionPointSnap(snapped)
-                && ['auto', 'linear', 'aligned', 'horizontal', 'vertical', 'rotated'].includes(mode);
-            handleDimensionPoint(
-                snapped,
-                isDimensionableDrawingEntity(targetEntity) && !pointSnapPrefersFreeLinear ? targetEntity : null,
-                worldPoint(event),
-            );
+            handleDimensionPoint(snapped, resolveDimensionPickTarget(targetEntity, dimensionPickMode), worldPoint(event));
             return;
         }
 
@@ -1283,8 +1320,16 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         const targetId = pickEntityId(event);
         const target = targetId ? entityById.get(targetId) : null;
         const selectionHover = activeTool === 'select' && target && canSelectEntity(content, target);
-        const dimensionHover = activeTool === 'dimension' && isDimensionableDrawingEntity(target) && !isDimensionPointSnap(snapped);
+        const dimensionHover = activeTool === 'dimension' && !gesture && Boolean(resolveDimensionPickTarget(target, dimensionPickMode));
         setHoveredEntityId(selectionHover || dimensionHover ? targetId : null);
+        if (activeTool === 'dimension' && !gesture && ['auto', 'linear', 'aligned', 'horizontal', 'vertical', 'rotated'].includes(normalizeCanvasDimensionMode(dimensionMode).mode)) {
+            // The prompt announces which mode a click will use, only when that changes.
+            const promptKey = dimensionHover ? 'canvas.dimensionPickObjectHint' : dimensionPickMode === 'points' ? 'canvas.dimensionPointsMode' : 'canvas.dimensionPickPointHint';
+            if (dimensionHoverPromptRef.current !== promptKey) {
+                dimensionHoverPromptRef.current = promptKey;
+                onStatus?.(t(promptKey));
+            }
+        }
     };
 
     const handlePointerUp = event => {
@@ -1517,7 +1562,11 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 options: { ...(gesture.options || {}), ...(creationOptions || {}) },
             })
         : gesture?.kind === 'dimension'
-            ? dimensionGestureDraft(gesture, content.activeLayerId)
+            ? gesture.dimensionKind === 'placement'
+                ? styledDimensionDraft(content, { ...(gesture.current
+                    ? placeDimensionAtPoint(gesture.dimension, gesture.current, drawingDimensionSources(content, gesture.dimension))
+                    : gesture.dimension), id: 'dimension-draft' })
+                : dimensionGestureDraft(gesture, content.activeLayerId)
             : gesture?.kind === 'trim-fence'
                 ? { id: 'trim-fence-draft', type: 'polyline', layerId: content.activeLayerId,
                     points: [...(gesture.points || [gesture.start]), gesture.current], closed: false }

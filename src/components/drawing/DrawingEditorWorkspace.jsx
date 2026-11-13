@@ -51,6 +51,7 @@ import { spaceDrawingDimensions, beginDimensionSpacing, spaceDimensionsAtPoint }
 import { disassociateDrawingDimensions, reassociateDrawingDimensions, beginDimensionReassociation, pickDimensionReassociationSource } from '~utils/drawingDimensionAssociations';
 import { maintainDrawingDimensions, beginDimensionTextPlacement, placeDimensionTextAtPoint, beginDimensionBreak, advanceDimensionBreak } from '~utils/drawingDimensionMaintenance';
 import { runDimensionStyleCommand } from '~utils/drawingDimensionStyleCommands';
+import { withDefaultCommandPlacements } from '~utils/drawingDimensionPlacement';
 import { exportDrawingAttributes } from '~utils/drawingAttributeExport';
 import useDrawingTableFiles from '~hooks/useDrawingTableFiles';
 import useDrawingWmf from '~hooks/useDrawingWmf';
@@ -2053,28 +2054,28 @@ export default function DrawingEditorWorkspace({
         }
         if (parsed.command === 'linearDimension') {
             const measurementMode = inferredLinearMeasurementMode();
-            commitDimensionCommand(createQuickDimensionResult(
+            commitDimensionCommand(withDefaultCommandPlacements(createQuickDimensionResult(
                 history.content,
                 selectedIdsOfTypes(['line', 'rectangle', 'polygon', 'ellipse', 'linearDimension']),
                 { measurementMode },
-            ), { mode: measurementMode });
+            )), { mode: measurementMode });
             return;
         }
         if (parsed.command === 'alignedDimension') {
-            commitDimensionCommand(createQuickDimensionResult(
+            commitDimensionCommand(withDefaultCommandPlacements(createQuickDimensionResult(
                 history.content,
                 selectedIdsOfTypes(['line', 'rectangle', 'polygon', 'ellipse', 'linearDimension']),
                 { measurementMode: 'aligned' },
-            ), { mode: 'aligned' });
+            )), { mode: 'aligned' });
             return;
         }
         if (parsed.command === 'rotatedDimension') {
             const dimensionAngle = (parsed.args[0] || 0) * Math.PI / 180;
-            commitDimensionCommand(createQuickDimensionResult(
+            commitDimensionCommand(withDefaultCommandPlacements(createQuickDimensionResult(
                 history.content,
                 selectedIdsOfTypes(['line', 'rectangle', 'polygon', 'ellipse', 'linearDimension']),
                 { measurementMode: 'rotated', dimensionAngle },
-            ), { mode: 'rotated', dimensionAngle });
+            )), { mode: 'rotated', dimensionAngle });
             return;
         }
         if (parsed.command === 'angularDimension') {
@@ -2086,7 +2087,7 @@ export default function DrawingEditorWorkspace({
         }
         if (parsed.command === 'arcDimension') {
             commitDimensionCommand(
-                createArcLengthDimensionResult(history.content, selectedIds),
+                withDefaultCommandPlacements(createArcLengthDimensionResult(history.content, selectedIds)),
                 { mode: 'arcLength' },
             );
             return;

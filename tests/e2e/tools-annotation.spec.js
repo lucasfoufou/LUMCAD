@@ -44,6 +44,8 @@ const selectDimensions = page => command(page, 'QSELECT TYPE linearDimension');
 async function createDimension(page, commandName, point, followUps = []) {
     await command(page, commandName);
     await clickWorld(page, point);
+    // A picked object enters the placement stage: Enter accepts the default position.
+    if (!followUps.length) await command(page, '');
     for (const input of followUps) await command(page, input);
     await cancel(page);
 }
@@ -62,6 +64,33 @@ test('DIMENSION on a picked line creates an associative dimension that follows M
     await command(page, 'UNDO');
     await expect.poll(async () => entities(page)).toEqual(created);
     await expectUndoRedo(page, before, created);
+});
+
+test('DIMENSION dimensions a line clicked at its midpoint snap and places it where the user clicks', async ({ page }) => {
+    await open(page);
+    await command(page, 'DIMENSION');
+    await clickWorld(page, { x: 5, y: 0 });
+    await clickWorld(page, { x: 5, y: -3 });
+    await cancel(page);
+    const dimension = (await entities(page)).at(-1);
+    expect(dimension).toMatchObject({ type: 'linearDimension', sourceId: 'h', measurementMode: 'aligned' });
+    expect(dimension.p1).toBeUndefined();
+    expect(Math.abs(dimension.offset)).toBeGreaterThan(2);
+    expect(Math.abs(dimension.offset)).toBeLessThan(4);
+});
+
+test('a dimension text size typed with a decimal point or comma is one undo step', async ({ page }) => {
+    const before = await open(page, dimensioned);
+    await pickEntities(page, [{ x: 7, y: 0.6 }]);
+    const field = page.locator('label:has-text("Text size") input').first();
+    await field.fill('0.2');
+    await field.press('Enter');
+    await expect.poll(async () => (await byId(page, 'dim1')).textSize).toBe(0.2);
+    const after = await entities(page);
+    await expectUndoRedo(page, before, after);
+    await field.fill('0,5');
+    await field.press('Tab');
+    await expect.poll(async () => (await byId(page, 'dim1')).textSize).toBe(0.5);
 });
 
 test('an associative dimension is redrawn on the canvas when only its source moves', async ({ page }) => {
