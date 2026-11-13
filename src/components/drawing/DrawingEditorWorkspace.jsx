@@ -1786,10 +1786,11 @@ export default function DrawingEditorWorkspace({
         return Math.abs(source.y2 - source.y1) > Math.abs(source.x2 - source.x1) ? 'vertical' : 'horizontal';
     };
 
-    const submitCommand = async rawValue => {
-        // Empty Enter, a Space tap or the canvas menu on an idle canvas repeat the last command.
+    const submitCommand = async (rawValue, { allowRepeat = true } = {}) => {
+        // Empty Enter, a Space tap or the canvas menu on an idle canvas repeat the last
+        // command; MCP actions opt out so an agent's Enter stays deterministic.
         rawValue = resolveDrawingRepeatSubmission(rawValue, {
-            idle: workspaceMode === 'model' && !interactiveOperation && activeTool === 'select' && !calculatorMode,
+            idle: allowRepeat && workspaceMode === 'model' && !interactiveOperation && activeTool === 'select' && !calculatorMode,
             lastCommand: commandRepeat.lastCommand,
         });
         rawValue = expandDrawingAlias(rawValue, settings.commandAliases);
@@ -2976,11 +2977,11 @@ export default function DrawingEditorWorkspace({
                 return;
             }
             if (action.type === 'input') {
-                await submitCommand(action.value);
+                await submitCommand(action.value, { allowRepeat: false });
                 return;
             }
             if (action.type === 'enter') {
-                await submitCommand('');
+                await submitCommand('', { allowRepeat: false });
                 return;
             }
             if (action.type === 'escape') {
