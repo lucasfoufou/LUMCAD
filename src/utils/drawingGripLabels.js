@@ -13,6 +13,9 @@ export function drawingGripLabel(id, t) {
         radius: 'grip.radius',
         midpoint: 'snap.midpoint',
         'dimension-position': 'grip.dimensionPosition',
+        'dimension-text': 'grip.dimensionText',
+        'dimension-origin-1': 'grip.dimensionOrigin',
+        'dimension-origin-2': 'grip.dimensionOrigin',
         [DRAWING_QDIM_GRIP_IDS.offset]: 'grip.qdimOffset',
         [DRAWING_QDIM_GRIP_IDS.spacing]: 'grip.qdimSpacing',
     })[id];

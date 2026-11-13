@@ -30,7 +30,11 @@ export function presentDrawingDimension(geometry, entity, textSize = 0.35) {
             ? { ...entity.dimensionTextPosition } : geometry.label.point,
         angle: Number.isFinite(entity.dimensionTextAngle) ? entity.dimensionTextAngle : geometry.label.angle,
     } : geometry.label;
-    return { ...geometry, lines, arcs: geometry.arcs.flatMap((arc, index) => breakDimensionArc(arc, index, allBreaks)), markers, label, automaticBreakTruncated: automatic.truncated };
+    // A label moved away from its dimension keeps a leader back to the dimension line.
+    const leader = label && geometry.kind !== 'ordinate' && geometry.label
+        && Math.hypot(label.point.x - geometry.label.point.x, label.point.y - geometry.label.point.y) > textSize * 1.5
+        ? [{ start: geometry.label.point, end: label.point, role: 'textLeader' }] : [];
+    return { ...geometry, lines: [...lines, ...leader], arcs: geometry.arcs.flatMap((arc, index) => breakDimensionArc(arc, index, allBreaks)), markers, label, automaticBreakTruncated: automatic.truncated };
 }
 
 function arrowInteriorDirection(geometry, tick, index) {

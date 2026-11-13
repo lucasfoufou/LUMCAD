@@ -1612,7 +1612,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         ...(clipboardPreview?.entities || []), ...offsetPreview,
         ...copyPreview, ...transformCopyPreview, ...trimPreviewEntities, ...extendPreviewEntities].filter(Boolean);
     const markerSize = worldUnitsPerPixel * 12;
-    const gripSize = renderedUnitsPerPixel * 9;
+    const gripSize = renderedUnitsPerPixel * 11;
     const stretchSelectionWindow = interactiveOperation?.type === 'stretch'
         && interactiveOperation.stage === 'stretch-window-second'
         && interactiveOperation.windowStart && operationPoint

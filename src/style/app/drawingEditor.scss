@@ -164,6 +164,11 @@
   cursor: crosshair;
 }
 
+// Sheet colours: grips are drawn on the white sheet. Hover shows which grip a press will drag.
+.drawing-grip:hover { fill: #f7941d; }
+.drawing-grip.is-text { fill: #fff; stroke: #2563eb; stroke-width: 2; cursor: move; }
+.drawing-grip.is-text:hover { fill: #f7941d; stroke: #fff; }
+
 .drawing-sidebar-heading {
   display: flex;
   align-items: center;

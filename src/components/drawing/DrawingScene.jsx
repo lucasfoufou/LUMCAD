@@ -746,6 +746,7 @@ function GripHandle({ entity, grip, size, t }) {
             <GripHandleLabel grip={grip} label={label} size={size} />
         </g>
     );
+    if (grip.id === 'dimension-text') return <circle {...shared} className="drawing-grip is-text" cx={grip.x} cy={grip.y} r={size * 0.6} />;
     return (
         <rect
             {...shared}
