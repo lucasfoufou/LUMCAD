@@ -79,18 +79,31 @@ test('DIMENSION dimensions a line clicked at its midpoint snap and places it whe
     expect(Math.abs(dimension.offset)).toBeLessThan(4);
 });
 
-test('a dimension text size typed with a decimal point or comma is one undo step', async ({ page }) => {
+test('a dimension text height typed with a decimal point or comma is one undo step', async ({ page }) => {
     const before = await open(page, dimensioned);
     await pickEntities(page, [{ x: 7, y: 0.6 }]);
-    const field = page.locator('label:has-text("Text size") input').first();
-    await field.fill('0.2');
+    // Paper millimetres at the default 1:100 plan scale: 2.5 mm is 0.25 m in the drawing.
+    const field = page.locator('label:has-text("Text height (mm on paper)") input').first();
+    await field.fill('2.5');
     await field.press('Enter');
-    await expect.poll(async () => (await byId(page, 'dim1')).textSize).toBe(0.2);
+    await expect.poll(async () => (await byId(page, 'dim1')).textSize).toBeCloseTo(0.25, 9);
     const after = await entities(page);
     await expectUndoRedo(page, before, after);
-    await field.fill('0,5');
+    await field.fill('1,5');
     await field.press('Tab');
-    await expect.poll(async () => (await byId(page, 'dim1')).textSize).toBe(0.5);
+    await expect.poll(async () => (await byId(page, 'dim1')).textSize).toBeCloseTo(0.15, 9);
+});
+
+test('several selected dimensions share their layer, style and text height fields', async ({ page }) => {
+    await open(page, dimensioned);
+    await selectDimensions(page);
+    const layer = page.locator('.drawing-selection-panel > label', { has: page.locator('span', { hasText: /^Layer$/ }) }).locator('select');
+    await expect(layer).toHaveValue('dimensions');
+    const field = page.locator('label:has-text("Text height (mm on paper)") input').first();
+    await field.fill('5');
+    await field.press('Enter');
+    await expect.poll(async () => (await entities(page)).filter(entity => entity.type === 'linearDimension').map(entity => entity.textSize))
+        .toEqual([0.5, 0.5]);
 });
 
 test('an associative dimension is redrawn on the canvas when only its source moves', async ({ page }) => {

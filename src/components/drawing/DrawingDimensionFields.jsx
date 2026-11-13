@@ -10,10 +10,13 @@ import {
     getDrawingEntityDependencyIds,
     normalizeDrawingDimension,
     normalizeDrawingDimensionFormat,
+    getDimensionGeometry,
 } from '~utils/drawingDimensions';
+import { presentDrawingDimension } from '~utils/drawingDimensionPresentation';
 
 export default function DrawingDimensionFields({
     dimension,
+    sources = null,
     automaticBreakTruncated = false,
     disabled = false,
     onChange,
@@ -23,6 +26,10 @@ export default function DrawingDimensionFields({
     const normalized = normalizeDrawingDimension(dimension);
     const format = normalizeDrawingDimensionFormat(normalized.dimensionFormat);
     const associated = getDrawingEntityDependencyIds(normalized).length > 0;
+    // Optional overrides start from what is drawn now, not from the origin.
+    const presented = presentDrawingDimension(getDimensionGeometry(normalized, sources), normalized, normalized.textSize);
+    const currentLabelPoint = presented?.label?.point || null;
+    const currentLinePoint = presented?.kind === 'linear' ? presented.points?.[0] : null;
     const emit = patch => onChange(normalizeDrawingDimension({ ...normalized, ...patch }), patch);
     const emitFormat = patch => {
         const dimensionFormat = normalizeDrawingDimensionFormat({ ...format, ...patch });
@@ -72,6 +79,7 @@ export default function DrawingDimensionFields({
                     />
                     <OptionalPointField
                         disabled={disabled}
+                        initialPoint={currentLinePoint}
                         label={t('dimension.fields.linePoint')}
                         onChange={linePoint => emit({ linePoint })}
                         point={normalized.linePoint}
@@ -135,6 +143,7 @@ export default function DrawingDimensionFields({
                             />
                             <OptionalPointField
                                 disabled={disabled}
+                                initialPoint={presented?.jogCenter}
                                 label={t('dimension.fields.jogCenter')}
                                 onChange={jogCenter => emit({ jogCenter })}
                                 point={normalized.jogCenter}
@@ -142,6 +151,7 @@ export default function DrawingDimensionFields({
                             />
                             <OptionalPointField
                                 disabled={disabled}
+                                initialPoint={presented?.jogPoint}
                                 label={t('dimension.fields.jogPoint')}
                                 onChange={jogPoint => emit({ jogPoint })}
                                 point={normalized.jogPoint}
@@ -243,6 +253,7 @@ export default function DrawingDimensionFields({
                     )}
                     <OptionalPointField
                         disabled={disabled}
+                        initialPoint={presented?.text || currentLabelPoint}
                         label={t('dimension.fields.leaderPoint')}
                         onChange={leaderPoint => emit({ leaderPoint })}
                         point={normalized.leaderPoint}
@@ -276,26 +287,16 @@ export default function DrawingDimensionFields({
                     />
                 </>
             )}
-            {!['centerMark', 'centerLine'].includes(normalized.type) && (
-                <NumberField
-                    disabled={disabled}
-                    label={t('dimension.fields.textSize')}
-                    min="0.01"
-                    onChange={textSize => emit({ textSize })}
-                    step="0.05"
-                    value={Number.isFinite(Number(normalized.textSize)) ? Number(normalized.textSize) : 0.35}
-                />
-            )}
 
             {!['centerMark', 'centerLine'].includes(normalized.type) && (
                 <>
                     <h4>{t('dimension.fields.format')}</h4>
-                    <OptionalPointField disabled={disabled} label={t('dimension.fields.textPosition')}
+                    <OptionalPointField disabled={disabled} initialPoint={currentLabelPoint} label={t('dimension.fields.textPosition')}
                         point={normalized.dimensionTextPosition} t={t}
                         onChange={dimensionTextPosition => emit({ dimensionTextPosition })} />
                     <CheckboxField disabled={disabled} label={t('dimension.fields.textAngleOverride')}
                         checked={Number.isFinite(normalized.dimensionTextAngle)}
-                        onChange={checked => emit({ dimensionTextAngle: checked ? 0 : undefined })} />
+                        onChange={checked => emit({ dimensionTextAngle: checked ? Number(presented?.label?.angle) || 0 : undefined })} />
                     {Number.isFinite(normalized.dimensionTextAngle) && (
                         <AngleField disabled={disabled} label={t('dimension.fields.textAngle')}
                             value={normalized.dimensionTextAngle}
@@ -557,7 +558,7 @@ function PointField({ disabled, label, onChange, point, t }) {
     );
 }
 
-function OptionalPointField({ disabled, label, onChange, point, t }) {
+function OptionalPointField({ disabled, initialPoint = null, label, onChange, point, t }) {
     const enabled = Boolean(point && Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.y)));
     return (
         <div className="drawing-dimension-optional-point">
@@ -565,7 +566,7 @@ function OptionalPointField({ disabled, label, onChange, point, t }) {
                 checked={enabled}
                 disabled={disabled}
                 label={label}
-                onChange={checked => onChange(checked ? { x: 0, y: 0 } : undefined)}
+                onChange={checked => onChange(checked ? finitePoint(initialPoint) : undefined)}
             />
             {enabled && (
                 <PointField
