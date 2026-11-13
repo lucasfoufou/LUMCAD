@@ -4,7 +4,7 @@ Run `npm run test:e2e`. Install the browser once with `npx playwright install ch
 
 The suite launches an isolated Vite server on `127.0.0.1:1429` and real Chromium contexts. It enters commands through the actual command input, sends pointer/keyboard events, handles browser file choosers and downloads, and asserts resulting document geometry and visible UI. It does not call MCP or a replacement command executor.
 
-`VITE_LUMCAD_E2E=1` enables a read-only state probe used to observe the React editor. It is excluded from ordinary development and production builds. Each test has fresh browser storage; no personal recovery drawing or app preferences are read. Port 1429 must be free; an existing server is never reused silently.
+`VITE_LUMCAD_E2E=1` enables a read-only state probe used to observe the React editor. It is excluded from ordinary development and production builds. Each test has fresh browser storage; no personal recovery drawing or app preferences are read. Port 1429 must be free; an existing server is never reused silently. Set `LUMCAD_E2E_PORT` to run the suite from several checkouts at once.
 
 ## Coverage levels
 
