@@ -28,8 +28,14 @@ export default function useDrawingEditorShortcuts({ actions, commandBarRef }) {
                 return;
             }
             if (event.key === 'Escape') { actionsRef.current.cancel(); return; }
-            const binding = preferencesRef.current.find(row => row.shortcut === drawingShortcutFromEvent(event));
-            if (binding && (!targetIsInput || ['@saveAs', '@open', '@newDocument'].includes(binding.command))) {
+            const shortcut = drawingShortcutFromEvent(event);
+            const binding = preferencesRef.current.find(row => row.shortcut === shortcut)
+                || legacySelectAllBinding(preferencesRef.current, shortcut);
+            // Ctrl/Cmd+A selects all objects from an empty command line, as in AutoCAD; in any
+            // other text field it keeps selecting the text.
+            const emptyCommandLine = event.target?.closest?.('.drawing-command-bar') && !event.target.value;
+            if (binding && (!targetIsInput || ['@saveAs', '@open', '@newDocument'].includes(binding.command)
+                || (binding.command === '@selectAll' && emptyCommandLine))) {
                 event.preventDefault();
                 if (event.repeat) return;
                 const action = binding.command.startsWith('@') ? actionsRef.current[binding.command.slice(1)]
@@ -67,6 +73,12 @@ export default function useDrawingEditorShortcuts({ actions, commandBarRef }) {
             window.removeEventListener('keydown', onKeyDown);
         };
     }, [actionsRef, commandBarRef, preferencesRef]);
+}
+
+// Shortcut lists saved before Ctrl/Cmd+A existed keep it unless the key is taken.
+function legacySelectAllBinding(preferences, shortcut) {
+    if (shortcut !== 'MOD+A' || preferences.some(row => row.command === '@selectAll' || row.shortcut === 'MOD+A')) return null;
+    return { shortcut, command: '@selectAll' };
 }
 
 function isTextInput(target) {

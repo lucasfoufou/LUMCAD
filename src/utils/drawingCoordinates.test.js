@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { drawingUcsIndicatorGeometry, drawingUcsToWorld, drawingWorldToUcs, resolveDrawingUcsInput, normalizeDrawingUnits, formatDrawingDistance, formatDrawingAngle, drawingPointWithinLimits } from './drawingCoordinates.js';
+import { drawingUcsIndicatorGeometry, drawingUcsToWorld, drawingWorldToUcs, resolveDrawingUcsInput, normalizeDrawingUnits, formatDrawingDistance, formatDrawingAngle, drawingPointWithinLimits, drawingPolarMeasure, formatDrawingPolarMeasure } from './drawingCoordinates.js';
 import { createDefaultDrawingContent, normalizeDrawingContent } from './drawingDocument.js';
 import { resolveDrawingSnap, constrainOrthogonalPoint } from './drawingTracking.js';
 import { snapDrawingPoint } from './drawingGeometry.js';
@@ -24,6 +24,7 @@ test('rotated UCS drives grid, orthogonal axes and polar tracking without moving
     const content = createDefaultDrawingContent();
     content.settings.ucs = { x: 10, y: 20, rotation: 45 };
     content.settings.gridSpacing = 1;
+    content.settings.snaps.grid = true;
     const gridPoint = drawingUcsToWorld({ x: 2, y: 3 }, content.settings.ucs);
     near(snapDrawingPoint({ x: gridPoint.x + 0.01, y: gridPoint.y }, content, 0.1), gridPoint);
     near(constrainOrthogonalPoint({ x: 0, y: 0 }, { x: 3, y: 4 }, 45), { x: 3.5, y: 3.5 });
@@ -85,4 +86,14 @@ test('UCS indicator size and anchor stay fixed through zoom and UCS origin chang
         near({ x: (first.xAxis.x - first.origin.x) / scale, y: (first.xAxis.y - first.origin.y) / scale }, { x: 0, y: 30 });
         near({ x: (first.yAxis.x - first.origin.x) / scale, y: (first.yAxis.y - first.origin.y) / scale }, { x: 30, y: 0 });
     }
+});
+
+test('rubber-band measures use the typed polar convention and the display formatters', () => {
+    const measure = drawingPolarMeasure({ x: 0, y: 0 }, { x: 3, y: 4 }, {});
+    assert.equal(measure.distance, 5);
+    assert.ok(Math.abs(measure.angle - 53.130102354) < 1e-6);
+    assert.equal(drawingPolarMeasure({ x: 0, y: 0 }, { x: -1, y: 0 }, {}).angle, 180);
+    assert.equal(drawingPolarMeasure({ x: 0, y: 0 }, { x: 0, y: -2 }, { units: { clockwise: true } }).angle, 90);
+    assert.equal(drawingPolarMeasure(null, { x: 1, y: 1 }, {}), null);
+    assert.equal(formatDrawingPolarMeasure({ x: 0, y: 0 }, { x: 5.24, y: 0 }, { units: { precision: 2 } }, 'fr'), '5,24 m < 0 °');
 });

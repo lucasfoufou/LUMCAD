@@ -5,7 +5,7 @@ import { beginDrawingSketch, appendDrawingSketch, drawingSketchEntities } from '
 import { previewDrawingLinework } from '~utils/drawingLinework';
 import { createPortal } from 'react-dom';
 import DrawingCoordinateOverlay from '~components/drawing/DrawingCoordinateOverlay';
-import { drawingPointWithinLimits } from '~utils/drawingCoordinates';
+import { drawingPointWithinLimits, formatDrawingPolarMeasure } from '~utils/drawingCoordinates';
 import { isDrawingLayerVisible } from '~utils/drawingLayers';
 import { editDrawingLeaderGrip } from '~utils/drawingLeaders';
 import { namedDrawingViewBox } from '~utils/drawingNamedViews';
@@ -89,6 +89,7 @@ import {
     buildRectangleCreationEntity,
     buildRegularPolygonCreationEntity,
     createDefaultDrawingCreationConfig,
+    getDrawingCreationModeLabelKey,
     parseDrawingCreationInput,
 } from '~utils/drawingCreation';
 import {
@@ -110,7 +111,7 @@ import {
 import { isOrthoTrackingEnabled } from '~utils/drawingDraftingSettings';
 import { createExtendPreviewEntities, createTrimPreviewEntities } from '~utils/drawingTrimOperations';
 import { getOperationOrthogonalOrigin } from '~utils/drawingOperationOptions';
-import { drawingDynamicInputAnchor } from '~utils/drawingPrecisionInput';
+import { drawingDynamicInputAnchor, drawingDynamicInputPointerAnchor } from '~utils/drawingPrecisionInput';
 import { createStretchPreviewEntities } from '~utils/drawingStretchOperations';
 import { drawingViewBoxScreenTransform, drawingVisibleViewBox, scaleDrawingViewBox, zoomDrawingViewBox } from '~utils/drawingViewport';
 import { drawingTextFontSizeToPixels, resolveDrawingTextStyle, normalizeDrawingTextEntity } from '~utils/drawingText';
@@ -146,9 +147,15 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     onEntityCreated = null,
     dynamicInput = null,
     backgroundContext = null,
+    onContextAction = null,
+    onKeyboardEnter = null,
+    onGestureStart = null,
 }, forwardedRef) {
-    const { t } = useI18n();
+    const { t, locale } = useI18n();
     const svgRef = useRef(null);
+    // Last pointer position in canvas pixels: the dynamic input follows the real
+    // pointer, not the snapped point, so it never sits under the cursor.
+    const pointerPixelRef = useRef(null);
     const wrapperRef = useRef(null);
     // Client rectangle of the canvas, refreshed on resize/scroll and pointer entry.
     // Reading it per pointer move would force a synchronous layout of the whole scene.
@@ -169,6 +176,9 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const [operationPoint, setOperationPoint] = useState(null);
     const [operationShift, setOperationShift] = useState(false);
     const [spacePressed, setSpacePressed] = useState(false);
+    const spaceTapRef = useRef(false);
+    const onKeyboardEnterRef = useRef(onKeyboardEnter);
+    onKeyboardEnterRef.current = onKeyboardEnter;
     const [editingTextId, setEditingTextId] = useState(null);
     const [editingTextInitialSelection, setEditingTextInitialSelection] = useState(null);
     const initialCreationConfigRef = useRef(createDefaultDrawingCreationConfig(activeTool));
@@ -218,12 +228,17 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         const onKeyDown = event => {
             if (event.code === 'Space' && !isDrawingTextInput(event.target)) {
                 event.preventDefault();
+                if (!event.repeat) spaceTapRef.current = !document.querySelector('[role="dialog"][aria-modal="true"]');
                 setSpacePressed(true);
             }
             if (event.key === 'Escape') setGesture(null);
         };
         const onKeyUp = event => {
-            if (event.code === 'Space') setSpacePressed(false);
+            if (event.code !== 'Space') return;
+            setSpacePressed(false);
+            // A Space tap without panning acts as Enter, as in AutoCAD.
+            if (spaceTapRef.current && !isDrawingTextInput(event.target)) onKeyboardEnterRef.current?.();
+            spaceTapRef.current = false;
         };
         window.addEventListener('keydown', onKeyDown);
         window.addEventListener('keyup', onKeyUp);
@@ -369,6 +384,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         if (mode === 'tangentTangentRadius') return t(pointCount < 2 ? 'canvas.circleTangentTarget' : 'canvas.circleTangentRadius');
         if (mode === 'tangentTangentTangent') return t('canvas.circleTangentTarget');
         if (activeTool === 'polygon') return t('canvas.polygonSecondPoint');
+        if (activeTool === 'line') return t('canvas.lineNextPoint');
+        if (activeTool === 'rectangle') return t('canvas.rectangleSecondCorner');
         return t(activeTool === 'circle' ? 'canvas.circleSecondPoint' : 'canvas.secondPoint');
     };
 
@@ -516,7 +533,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 setCreationOptions(next.options || {});
             }
             setGesture(null);
-            onStatus?.(t('canvas.creationModeSet', { mode: String(parsed.mode) }));
+            const modeLabelKey = getDrawingCreationModeLabelKey(tool, parsed.mode);
+            onStatus?.(t('canvas.creationModeSet', { mode: modeLabelKey ? t(modeLabelKey) : String(parsed.mode) }));
         } else {
             if (tool === activeTool) setCreationOptions(next.options || {});
             onStatus?.(t('canvas.creationOptionsSet'));
@@ -1021,6 +1039,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
 
         if (event.button === 1 || activeTool === 'pan' || spacePressed) {
             event.preventDefault();
+            spaceTapRef.current = false;
             svgRef.current.setPointerCapture(event.pointerId);
             setGesture({ kind: 'pan', clientX: event.clientX, clientY: event.clientY, viewBox });
             return;
@@ -1136,6 +1155,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         }
 
         if (activeTool === 'select' || interactiveOperation?.stage === 'select') {
+            // A new selection or grip gesture replaces whatever the last command reported.
+            if (!interactiveOperation && gesture?.kind !== 'select-window') onGestureStart?.();
             if (gesture?.kind === 'select-window') {
                 event.preventDefault();
                 completeSelectionWindow(worldPoint(event));
@@ -1169,11 +1190,15 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 return;
             }
             const start = worldPoint(event);
+            svgRef.current?.setPointerCapture?.(event.pointerId);
             setGesture({
                 kind: 'select-window',
                 start,
                 current: start,
                 operation: event.shiftKey ? 'remove' : 'add',
+                // Press-drag-release confirms on release; a plain click keeps
+                // the AutoCAD click-click window (second click confirms).
+                pressedAt: { x: event.clientX, y: event.clientY },
             });
             setHoverSnap(null);
             return;
@@ -1181,6 +1206,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     };
 
     const handlePointerMove = event => {
+        const pointerRect = canvasRectRef.current;
+        if (pointerRect) pointerPixelRef.current = { x: event.clientX - pointerRect.left, y: event.clientY - pointerRect.top };
         if (gesture?.kind === 'sketch') {
             const point = worldPoint(event);
             if (drawingPointWithinLimits(point, content.settings)) setGesture(current => current?.kind === 'sketch' ? { ...current, sketch: appendDrawingSketch(current.sketch, point) } : current);
@@ -1294,8 +1321,10 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             return;
         }
         if (gesture?.kind === 'select-window') {
-            // Selection windows are confirmed by a second click, not by button
-            // release, so pointer-up intentionally leaves the preview active.
+            if (svgRef.current?.hasPointerCapture(event.pointerId)) svgRef.current.releasePointerCapture(event.pointerId);
+            if (!gesture.pressedAt) return;
+            if (isSelectionDrag(gesture.pressedAt, event)) completeSelectionWindow(worldPoint(event));
+            else setGesture(current => current?.kind === 'select-window' ? { ...current, pressedAt: null } : current);
             return;
         }
         if (gesture && !drawingPointWithinLimits(worldPoint(event), content.settings)) {
@@ -1334,6 +1363,19 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             return;
         }
         if (svgRef.current?.hasPointerCapture(event.pointerId)) svgRef.current.releasePointerCapture(event.pointerId);
+    };
+
+    // Right click: Enter while a command or a tool runs (ends LINE, confirms),
+    // otherwise the canvas menu. An open selection window is simply dropped.
+    const handleContextMenu = event => {
+        event.preventDefault();
+        if (gesture?.kind === 'select-window') { setGesture(null); return; }
+        if (gesture?.kind === 'pan' || gesture?.kind === 'grip') return;
+        onContextAction?.({
+            clientX: event.clientX,
+            clientY: event.clientY,
+            busy: Boolean(interactiveOperation || activeTool !== 'select' || gesture),
+        });
     };
 
     const handleWheel = event => {
@@ -1630,8 +1672,17 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         || (interactiveOperation && interactiveOperation.stage !== 'select')
     ));
     const dynamicInputPoint = gesture?.current || operationPoint;
-    const dynamicInputPosition = dynamicInputVisible
-        ? drawingDynamicInputAnchor(dynamicInputPoint, viewBox, canvasSize)
+    // Rubber-band length and angle from the previous point (or the grip origin).
+    const measureOrigin = gesture?.kind === 'grip' ? gesture.origin
+        : gestureReferenceOrigin(gesture) || (gesture ? null : getOperationOrthogonalOrigin(interactiveOperation));
+    const dynamicInputMeasure = content.settings?.dynamicInput && (dynamicInputVisible || gesture?.kind === 'grip')
+        && measureOrigin && dynamicInputPoint
+        ? formatDrawingPolarMeasure(measureOrigin, dynamicInputPoint, content.settings, locale)
+        : '';
+    const dynamicInputPosition = dynamicInputVisible || dynamicInputMeasure
+        ? drawingDynamicInputPointerAnchor(pointerPixelRef.current, canvasSize, {
+            width: dynamicInputVisible ? 200 : 140, height: dynamicInputVisible && dynamicInputMeasure ? 58 : 34,
+        }) || (dynamicInputVisible ? drawingDynamicInputAnchor(dynamicInputPoint, viewBox, canvasSize) : null)
         : null;
 
     const blurCreationControlBeforeDrawing = event => {
@@ -1686,7 +1737,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                     setHoverSnap(null);
                 }}
                 onWheel={handleWheel}
-                onContextMenu={event => event.preventDefault()}
+                onContextMenu={handleContextMenu}
                 role="application"
                 aria-label={t('canvas.area')}
             >
@@ -1771,7 +1822,9 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             <DrawingDynamicInput
                 {...dynamicInput}
                 anchor={dynamicInputPosition}
-                enabled={dynamicInputVisible}
+                enabled={dynamicInputVisible || Boolean(dynamicInputMeasure)}
+                measure={dynamicInputMeasure}
+                inputVisible={dynamicInputVisible}
             />
             {!editingText && creationControlsTarget && createPortal(
                 <DrawingCreationControls
@@ -1845,6 +1898,12 @@ function dimensionGestureDraft(gesture, layerId) {
         x2: gesture.current.x,
         y2: gesture.current.y,
     };
+}
+
+const SELECTION_DRAG_PIXELS = 5;
+
+function isSelectionDrag(pressedAt, event) {
+    return Math.hypot(event.clientX - pressedAt.x, event.clientY - pressedAt.y) > SELECTION_DRAG_PIXELS;
 }
 
 function gestureReferenceOrigin(gesture) {

@@ -126,6 +126,14 @@ const CREATION_OPTION_DEFINITIONS = {
     ],
 };
 
+/** Translation key naming a construction mode (for status messages), or null. */
+export function getDrawingCreationModeLabelKey(tool, mode) {
+    const aliases = MODE_ALIASES[tool];
+    const definition = (CREATION_OPTION_DEFINITIONS[tool] || [])
+        .find(candidate => candidate.tokens.some(token => aliases?.get(token) === mode));
+    return definition?.labelKey || null;
+}
+
 export function getDrawingCreationOptionSuggestions(tool, value) {
     const trimmed = String(value || '').trim();
     if (/\s/.test(trimmed)) return [];

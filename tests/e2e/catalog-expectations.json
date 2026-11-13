@@ -20,7 +20,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "toolPrompt.circle"
     ]
   },
   "pdf": {
@@ -198,7 +198,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "toolPrompt.arc"
     ]
   },
   "xline": {
@@ -210,7 +210,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "toolPrompt.xline"
     ]
   },
   "layerStateSave": {
@@ -282,7 +282,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "toolPrompt.ellipse"
     ]
   },
   "polar": {
@@ -977,7 +977,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "toolPrompt.point"
     ]
   },
   "baselineDimension": {
@@ -1121,7 +1121,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "toolPrompt.rectangle"
     ]
   },
   "textStyle": {
@@ -2028,9 +2028,11 @@
     "stage": null,
     "workspace": "model",
     "layoutTool": null,
-    "message": "",
     "entities": 0,
-    "fileChooser": false
+    "fileChooser": false,
+    "messageKeys": [
+      "messages.nothingToRedo"
+    ]
   },
   "move": {
     "activeTool": "select",
@@ -2433,9 +2435,11 @@
     "stage": null,
     "workspace": "model",
     "layoutTool": null,
-    "message": "",
     "entities": 0,
-    "fileChooser": false
+    "fileChooser": false,
+    "messageKeys": [
+      "messages.nothingToUndo"
+    ]
   },
   "autoConstrain": {
     "activeTool": "select",
@@ -2611,7 +2615,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "toolPrompt.polygon"
     ]
   },
   "jpegOut": {
@@ -2671,7 +2675,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "toolPrompt.line"
     ]
   },
   "gcPerpendicular": {
@@ -2757,7 +2761,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "toolPrompt.spline"
     ]
   },
   "recoverAll": {
@@ -2826,9 +2830,11 @@
     "stage": null,
     "workspace": "model",
     "layoutTool": null,
-    "message": "",
     "entities": 0,
-    "fileChooser": false
+    "fileChooser": false,
+    "messageKeys": [
+      "zoom.factorDone"
+    ]
   },
   "tableStyle": {
     "activeTool": "select",
@@ -2936,7 +2942,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "layerManager.invalid"
+      "layerManager.opened"
     ]
   },
   "referenceEdit": {
@@ -3096,9 +3102,11 @@
     "stage": null,
     "workspace": "model",
     "layoutTool": null,
-    "message": "",
     "entities": 0,
-    "fileChooser": false
+    "fileChooser": false,
+    "messageKeys": [
+      "messages.deleteSelectionRequired"
+    ]
   },
   "ray": {
     "activeTool": "ray",
@@ -3109,7 +3117,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "toolPrompt.ray"
     ]
   },
   "blockImport": {

@@ -8,6 +8,17 @@ import {
 } from './drawingDocument.js';
 import { scaleEntity } from './drawingGeometry.js';
 
+test('new drawings start without grid snap while saved drawings keep their grid flag', () => {
+    const defaults = createDefaultDrawingContent();
+    assert.equal(defaults.settings.snaps.grid, false);
+    assert.equal(normalizeDrawingContent(defaults).settings.snaps.grid, false);
+    const saved = { ...defaults, settings: { ...defaults.settings, snaps: { ...defaults.settings.snaps, grid: true } } };
+    assert.equal(normalizeDrawingContent(saved).settings.snaps.grid, true);
+    const { grid, ...legacySnaps } = defaults.settings.snaps;
+    const legacy = { ...defaults, settings: { ...defaults.settings, snaps: legacySnaps } };
+    assert.equal(normalizeDrawingContent(legacy).settings.snaps.grid, true);
+});
+
 test('dynamic precision input defaults on and preserves an explicit persisted opt-out', () => {
     const defaults = createDefaultDrawingContent();
     assert.equal(defaults.settings.dynamicInput, true);

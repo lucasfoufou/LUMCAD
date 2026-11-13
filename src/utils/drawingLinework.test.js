@@ -256,3 +256,13 @@ test('shared linework vertex and closure edits preserve local transforms, widths
     assert.equal(editDrawingLinework(moved, [entity.id], { action: 'vertex', index: 1, point: points[0] }).error, 'invalid');
     assert.deepEqual(content.entities[0].linework.points, points);
 });
+
+test('PLINE accepts French keywords alongside the English ones', async () => {
+    const { normalizeDrawingLineworkKeyword } = await import('./drawingLineworkCommands.js');
+    assert.equal(normalizeDrawingLineworkKeyword('largeur 0,1 0,2'), 'WIDTH 0,1 0,2');
+    assert.equal(normalizeDrawingLineworkKeyword('Clore'), 'CLOSE');
+    assert.equal(normalizeDrawingLineworkKeyword('annuler'), 'UNDO');
+    assert.equal(normalizeDrawingLineworkKeyword('fin'), 'END');
+    assert.equal(normalizeDrawingLineworkKeyword('WIDTH 1 2'), 'WIDTH 1 2');
+    assert.equal(normalizeDrawingLineworkKeyword('10;5'), '10;5');
+});

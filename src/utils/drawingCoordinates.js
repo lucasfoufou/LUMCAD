@@ -92,3 +92,27 @@ export function formatDrawingAngle(degrees, settings, locale = 'en') {
     const value = units.angle === 'radians' ? adjusted * Math.PI / 180 : units.angle === 'gradians' ? adjusted / 0.9 : adjusted;
     return `${new Intl.NumberFormat(locale, { maximumFractionDigits: units.anglePrecision }).format(value)} ${units.angle === 'radians' ? 'rad' : units.angle === 'gradians' ? 'gon' : '°'}`;
 }
+
+/**
+ * Distance and polar angle from one world point to another, expressed in the
+ * current UCS with the same angle convention as typed @distance<angle input,
+ * so the value shown while drawing is the value the user would type.
+ */
+export function drawingPolarMeasure(from, to, settings) {
+    if (![from?.x, from?.y, to?.x, to?.y].every(Number.isFinite)) return null;
+    const units = normalizeDrawingUnits(settings?.units);
+    const ucs = normalizeDrawingUcs(settings?.ucs);
+    const start = drawingWorldToUcs(from, ucs);
+    const end = drawingWorldToUcs(to, ucs);
+    const dx = end.x - start.x; const dy = end.y - start.y;
+    const distance = Math.hypot(dx, dy);
+    const raw = (Math.atan2(dy, dx) * 180 / Math.PI - units.angleBase) * (units.clockwise ? -1 : 1);
+    const angle = Math.abs(((raw % 360) + 360) % 360 - 360) < 1e-9 ? 0 : ((raw % 360) + 360) % 360;
+    return { distance, angle };
+}
+
+export function formatDrawingPolarMeasure(from, to, settings, locale = 'en') {
+    const measure = drawingPolarMeasure(from, to, settings);
+    if (!measure) return '';
+    return `${formatDrawingDistance(measure.distance, settings, locale)} < ${formatDrawingAngle(measure.angle, settings, locale)}`;
+}

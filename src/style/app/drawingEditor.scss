@@ -162,6 +162,9 @@
   stroke-width: 1.25;
   pointer-events: all;
   cursor: crosshair;
+
+  // Hovered grip turns to the snap-marker orange (sheet colour) before it is dragged.
+  &:hover { fill: #f7941d; stroke-width: 2; }
 }
 
 .drawing-sidebar-heading {

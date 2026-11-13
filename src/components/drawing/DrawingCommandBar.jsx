@@ -83,11 +83,12 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
         });
     };
 
+    const optionPrompt = Boolean(operation) || activeTool !== 'select';
     const submit = event => {
         event.preventDefault();
         const shouldComplete = suggestionIndex >= 0 || String(value).trim().length > 0;
         runCommand(shouldComplete
-            ? resolveDrawingAutocompleteSubmission(value, suggestions, suggestionIndex)
+            ? resolveDrawingAutocompleteSubmission(value, suggestions, suggestionIndex, { options: optionPrompt })
             : value);
     };
 
@@ -102,7 +103,7 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
         if (event.key === 'Enter' && suggestions.length
             && (suggestionIndex >= 0 || String(value).trim().length > 0)) {
             event.preventDefault();
-            runCommand(resolveDrawingAutocompleteSubmission(value, suggestions, suggestionIndex));
+            runCommand(resolveDrawingAutocompleteSubmission(value, suggestions, suggestionIndex, { options: optionPrompt }));
             setSuggestionIndex(-1);
             return;
         }

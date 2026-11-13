@@ -100,15 +100,26 @@ export function foldDrawingSearchText(value) {
     return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 }
 
-export function resolveDrawingAutocompleteSubmission(value, suggestions = [], selectedIndex = -1) {
+/**
+ * What Enter submits from the command line. A suggestion runs only when it was
+ * chosen explicitly (arrow keys, Tab, click) or when the text is exactly one of
+ * its names or aliases; numbers, coordinates and expressions are never completed.
+ * At an option prompt (`options: true`) a prefix matching a single keyword is
+ * accepted, as AutoCAD accepts any unambiguous keyword abbreviation; a command
+ * prefix is never run, so "OP" cannot open a file dialog by accident.
+ */
+export function resolveDrawingAutocompleteSubmission(value, suggestions = [], selectedIndex = -1, { options = false } = {}) {
     const trimmed = String(value || '').trim();
-    if (!trimmed || !suggestions.length) return trimmed;
     const selected = selectedIndex >= 0 ? suggestions[selectedIndex] : null;
     if (selected) return selected.completion;
+    if (!trimmed || !suggestions.length || !isKeywordLikeInput(trimmed)) return trimmed;
     const token = normalizeCommandToken(trimmed);
-    return suggestions.some(suggestion => suggestion.tokens?.includes(token))
-        ? trimmed
-        : suggestions[0].completion;
+    if (suggestions.some(suggestion => suggestion.tokens?.includes(token))) return trimmed;
+    return options && suggestions.length === 1 ? suggestions[0].completion : trimmed;
+}
+
+function isKeywordLikeInput(value) {
+    return /^[-_]?[\p{L}][\p{L}\d_-]*$/u.test(value);
 }
 
 export function getDrawingCommandDefinition(value) {

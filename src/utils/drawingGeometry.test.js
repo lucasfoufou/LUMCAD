@@ -107,8 +107,22 @@ test('CAD aliases and numeric inputs are recognized', () => {
         ['CIRCLE', 'C'],
         ['CENTERDISASSOCIATE', 'CENTERDISASSOCIATE'],
     ]);
-    assert.equal(resolveDrawingAutocompleteSubmission('sca', getDrawingCommandSuggestions('sca')), 'SCALE');
+    // A command prefix is never run on Enter: only an explicit choice completes it.
+    assert.equal(resolveDrawingAutocompleteSubmission('sca', getDrawingCommandSuggestions('sca')), 'sca');
+    assert.equal(resolveDrawingAutocompleteSubmission('sca', getDrawingCommandSuggestions('sca'), 0), 'SCALE');
     assert.equal(resolveDrawingAutocompleteSubmission('SC', getDrawingCommandSuggestions('SC')), 'SC');
+    for (const typed of ['E', 'ALL', 'SAVE', 'OP']) {
+        assert.equal(resolveDrawingAutocompleteSubmission(typed, getDrawingCommandSuggestions(typed)), typed);
+    }
+    // Numbers, coordinates and expressions are never completed, even at an option prompt.
+    const circleOptions = [{ name: '2POINT', completion: '2POINT', tokens: ['2POINT', '2P'] }];
+    for (const typed of ['2', '2,5', '0;0', '@3<45', '-1']) {
+        assert.equal(resolveDrawingAutocompleteSubmission(typed, circleOptions, -1, { options: true }), typed);
+    }
+    // At an option prompt an unambiguous keyword abbreviation is accepted.
+    const radius = [{ name: 'RADIUS', completion: 'RADIUS', tokens: ['RADIUS', 'R'] }];
+    assert.equal(resolveDrawingAutocompleteSubmission('rad', radius, -1, { options: true }), 'RADIUS');
+    assert.equal(resolveDrawingAutocompleteSubmission('rad', [...radius, { name: 'RADIAL', completion: 'RADIAL', tokens: ['RADIAL'] }], -1, { options: true }), 'rad');
     assert.ok(getDrawingCommandSuggestions('r').length <= 5);
 });
 

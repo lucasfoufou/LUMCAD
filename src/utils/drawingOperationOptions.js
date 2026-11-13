@@ -9,19 +9,19 @@ import {
 
 const optionDefinitions = {
     pathArray: [
-        option('path', 'PATH', 'P', 'operationOptions.array.path'),
+        option('path', 'PATH', 'P', 'operationOptions.array.path', ['TRAJECTOIRE']),
         option('base', 'BASE', 'B', 'operationOptions.array.base'),
-        option('count', 'COUNT', 'N', 'operationOptions.array.count'),
-        option('spacing', 'SPACING', 'S', 'operationOptions.array.spacing'),
-        option('offset', 'OFFSET', 'O', 'operationOptions.array.offset'),
-        option('alignItems', 'ALIGNITEMS', 'AI', 'operationOptions.array.alignItems'),
-        option('reverse', 'REVERSE', 'R', 'operationOptions.array.reverse'),
+        option('count', 'COUNT', 'N', 'operationOptions.array.count', ['NOMBRE']),
+        option('spacing', 'SPACING', 'S', 'operationOptions.array.spacing', ['ESPACEMENT']),
+        option('offset', 'OFFSET', 'O', 'operationOptions.array.offset', ['DECALAGE', 'DÉCALAGE']),
+        option('alignItems', 'ALIGNITEMS', 'AI', 'operationOptions.array.alignItems', ['ALIGNER']),
+        option('reverse', 'REVERSE', 'R', 'operationOptions.array.reverse', ['INVERSER']),
     ],
     polarArray: [
-        option('center', 'CENTER', 'CE', 'operationOptions.array.center'),
-        option('count', 'COUNT', 'N', 'operationOptions.array.count'),
+        option('center', 'CENTER', 'CE', 'operationOptions.array.center', ['CENTRE']),
+        option('count', 'COUNT', 'N', 'operationOptions.array.count', ['NOMBRE']),
         option('angle', 'ANGLE', 'A', 'operationOptions.array.angle'),
-        option('rotateItems', 'ROTATEITEMS', 'RI', 'operationOptions.array.rotateItems'),
+        option('rotateItems', 'ROTATEITEMS', 'RI', 'operationOptions.array.rotateItems', ['PIVOTER']),
     ],
     array: [
         option('base', 'BASE', 'B', 'operationOptions.array.base'),
@@ -50,7 +50,7 @@ const optionDefinitions = {
         option('reference', 'REFERENCE', 'REF', 'operationOptions.rotate.reference', ['RÉFÉRENCE']),
         option('copyMode', 'COPY', 'C', 'operationOptions.rotate.copyMode', ['COPIER', 'KEEP']),
         option('replaceMode', 'REPLACE', 'R', 'operationOptions.rotate.replaceMode', ['REMPLACER']),
-        option('angleUnit', 'UNIT', 'U', 'operationOptions.rotate.unit', ['DEGREES', 'RADIANS', 'GRADIANS', 'GON']),
+        option('angleUnit', 'UNIT', 'U', 'operationOptions.rotate.unit', ['UNITE', 'UNITÉ', 'DEGREES', 'RADIANS', 'GRADIANS', 'GON']),
         option('angleDirection', 'DIRECTION', 'DIR', 'operationOptions.rotate.direction', ['CW', 'CCW', 'CLOCKWISE', 'COUNTERCLOCKWISE']),
     ],
     scale: [
@@ -80,6 +80,10 @@ const optionDefinitions = {
         option('edgeFinite', 'FINITEEDGE', 'F', 'operationOptions.extend.finiteEdge', ['NOEDGE', 'BORDFINI']),
         option('projectNone', 'PROJECTNONE', 'PN', 'operationOptions.extend.projectNone', ['NONE', 'AUCUN']),
     ],
+    zoom: [
+        option('extents', 'EXTENTS', 'E', 'operationOptions.zoom.extents', ['ETENDU', 'ÉTENDU', 'A', 'ALL', 'TOUT']),
+        option('window', 'WINDOW', 'W', 'operationOptions.zoom.window', ['F', 'FENETRE', 'FENÊTRE']),
+    ],
     align: [
         option('scaleMode', 'SCALE', 'S', 'operationOptions.align.scale', ['YES', 'OUI']),
         option('noScaleMode', 'NOSCALE', 'N', 'operationOptions.align.noScale', ['NO', 'NON']),
@@ -95,17 +99,17 @@ const optionDefinitions = {
     fillet: [
         option('radius', 'RADIUS', 'R', 'operationOptions.fillet.radius', ['RAYON']),
         option('multiple', 'MULTIPLE', 'M', 'operationOptions.fillet.multiple'),
-        option('polyline', 'POLYLINE', 'P', 'operationOptions.fillet.polyline'),
+        option('polyline', 'POLYLINE', 'P', 'operationOptions.fillet.polyline', ['POLYLIGNE']),
         option('trim', 'TRIM', 'T', 'operationOptions.fillet.trim', ['AJUSTER']),
-        option('noTrim', 'NOTRIM', 'N', 'operationOptions.fillet.noTrim', ['NOADJUST']),
+        option('noTrim', 'NOTRIM', 'N', 'operationOptions.fillet.noTrim', ['NOADJUST', 'NONAJUSTER']),
     ],
     chamfer: [
         option('distance', 'DISTANCE', 'D', 'operationOptions.chamfer.distance'),
         option('angle', 'ANGLE', 'A', 'operationOptions.chamfer.angle'),
         option('multiple', 'MULTIPLE', 'M', 'operationOptions.chamfer.multiple'),
-        option('polyline', 'POLYLINE', 'P', 'operationOptions.chamfer.polyline'),
+        option('polyline', 'POLYLINE', 'P', 'operationOptions.chamfer.polyline', ['POLYLIGNE']),
         option('trim', 'TRIM', 'T', 'operationOptions.chamfer.trim', ['AJUSTER']),
-        option('noTrim', 'NOTRIM', 'N', 'operationOptions.chamfer.noTrim', ['NOADJUST']),
+        option('noTrim', 'NOTRIM', 'N', 'operationOptions.chamfer.noTrim', ['NOADJUST', 'NONAJUSTER']),
     ],
     xplode: [
         option('inheritParent', 'PARENT', 'P', 'operationOptions.xplode.parent', ['INHERIT']),

@@ -746,16 +746,23 @@ function GripHandle({ entity, grip, size, t }) {
             <GripHandleLabel grip={grip} label={label} size={size} />
         </g>
     );
+    // Object grips are drawn a little larger than the base size (about 11 px);
+    // dimension grips keep theirs.
+    const gripSize = isDimensionGripOwner(entity) ? size : size * 1.25;
     return (
         <rect
             {...shared}
             className="drawing-grip"
-            x={grip.x - size / 2}
-            y={grip.y - size / 2}
-            width={size}
-            height={size}
+            x={grip.x - gripSize / 2}
+            y={grip.y - gripSize / 2}
+            width={gripSize}
+            height={gripSize}
         />
     );
+}
+
+function isDimensionGripOwner(entity) {
+    return /dimension$/i.test(String(entity?.type || ''));
 }
 
 function GripHandleLabel({ grip, label, size }) {

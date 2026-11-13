@@ -119,7 +119,8 @@ export function createDefaultDrawingContent({
         settings: {
             pointStyle: normalizeDrawingPointStyle(),
             gridSpacing: Math.max(0.0001, Number(gridSpacing) || 0.5),
-            snaps: { grid: true, endpoint: true, midpoint: true, center: true, intersection: true, nearest: false },
+            // New drawings start without grid snap: object snaps alone, so points follow the cursor.
+            snaps: { grid: false, endpoint: true, midpoint: true, center: true, intersection: true, nearest: false },
             dynamicInput: true,
             attributeDisplay: 'normal',
             plotStyleMode: 'off',
@@ -218,7 +219,8 @@ export function normalizeDrawingContent(content) {
             ucs: normalizeDrawingUcs(sourceSettings.ucs), ucsIcon: sourceSettings.ucsIcon !== false,
             limits: normalizeDrawingLimits(sourceSettings.limits),
             dynamicInput: sourceSettings.dynamicInput !== false,
-            snaps: { ...defaults.settings.snaps, ...(sourceSettings.snaps || {}) },
+            // Drawings saved without an explicit grid flag predate the grid-off default and keep grid snap.
+            snaps: { ...defaults.settings.snaps, grid: true, ...(sourceSettings.snaps || {}) },
         },
         metadata: { ...defaults.metadata, ...(content.metadata || {}), basePoint: normalizeDrawingBasePoint(content.metadata?.basePoint) },
     };
@@ -318,6 +320,11 @@ export function canEditEntity(content, entity) {
 
 export function canSelectEntity(content, entity) {
     return Boolean(isDrawingLayerVisible(getLayer(content, entity.layerId)) && !isDrawingObjectHidden(content, entity.id));
+}
+
+/** IDs of every entity the user can select (visible, unhidden layer), for Ctrl/Cmd+A. */
+export function drawingSelectableEntityIds(content) {
+    return (content?.entities || []).filter(entity => canSelectEntity(content, entity)).map(entity => entity.id);
 }
 
 export function applySelectionOperation(selectedIds, candidateIds, operation = 'add') {

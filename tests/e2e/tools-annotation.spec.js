@@ -142,7 +142,11 @@ test('DIMJOGGED creates a jogged radius on a picked circle', async ({ page }) =>
 test('DIMORDINATE records the X ordinate of a picked point', async ({ page }) => {
     const before = await open(page);
     await createDimension(page, 'DIMORDINATE', { x: 100, y: 5 }, ['104,5']);
-    expect((await entities(page)).at(-1)).toMatchObject({ type: 'ordinateDimension', axis: 'x', featurePoint: { x: 100, y: 5 }, leaderPoint: { x: 104, y: 5 } });
+    // New drawings no longer snap to the grid: the picked feature point is exact to the pixel.
+    const ordinate = (await entities(page)).at(-1);
+    expect(ordinate).toMatchObject({ type: 'ordinateDimension', axis: 'x', leaderPoint: { x: 104, y: 5 } });
+    expect(ordinate.featurePoint.x).toBeCloseTo(100, 3);
+    expect(ordinate.featurePoint.y).toBeCloseTo(5, 3);
     await expectUndoRedo(page, before, await entities(page));
 });
 
