@@ -86,7 +86,13 @@ test('CAD aliases and numeric inputs are recognized', () => {
     assert.equal(parseDrawingCommand('PUBLISH').command, 'publish');
     assert.equal(parseDrawingCommand('AUTOPUBLISH').command, 'autoPublish');
     assert.equal(parseDrawingCommand('EXPORTDWFX').command, 'dwfx');
-    assert.equal(parseDrawingCommand('SAVE').command, 'unknown');
+    // SAVE, QSAVE and Ctrl+S save to the current file (SAVEAS without one).
+    ['SAVE', 'QSAVE', 'ENREGISTRER'].forEach(alias => assert.equal(parseDrawingCommand(alias).command, 'quickSave'));
+    ['IMPORT', 'IMP', 'IMPORTER'].forEach(alias => assert.equal(parseDrawingCommand(alias).command, 'import'));
+    ['EXPORT', 'EXP', 'EXPORTER'].forEach(alias => assert.equal(parseDrawingCommand(alias).command, 'export'));
+    ['HELP', '?', 'AIDE'].forEach(alias => assert.equal(parseDrawingCommand(alias).command, 'help'));
+    ['OPTIONS', 'OP', 'PARAMETRES', 'PARAMÈTRES', 'REGLAGES', 'PREFERENCES'].forEach(alias => assert.equal(parseDrawingCommand(alias).command, 'options'));
+    assert.equal(parseDrawingCommand('EXPORTPDF').command, 'pdf');
     ['TR', 'TRIM', 'CUT', 'COUPER', 'AJUSTER'].forEach(alias => assert.equal(parseDrawingCommand(alias).command, 'trim'));
     assert.equal(isNumericDrawingInput('12,5'), true);
     assert.equal(isNumericDrawingInput('5 3'), true);
@@ -94,7 +100,7 @@ test('CAD aliases and numeric inputs are recognized', () => {
     assert.equal(isNumericDrawingInput('5 m'), true);
     assert.equal(getDrawingCommandInput('CAL span = 2,5 + 1,25'), 'span = 2,5 + 1,25');
     assert.equal(getDrawingCommandInput('CAL'), '');
-    assert.deepEqual(getDrawingCommandSuggestions('sav').map(item => item.name), ['SAVEAS', 'SAVETEMPLATE']);
+    assert.deepEqual(getDrawingCommandSuggestions('sav').map(item => item.name), ['SAVEAS', 'SAVETEMPLATE', 'QSAVE']);
     assert.equal(parseDrawingCommand('DWT').command, 'saveTemplate');
     assert.equal(parseDrawingCommand('QNEW').command, 'quickNew');
     assert.deepEqual(getDrawingCommandSuggestions('c').slice(0, 2).map(item => [item.name, item.alias]), [

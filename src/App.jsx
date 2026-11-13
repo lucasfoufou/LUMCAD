@@ -22,7 +22,10 @@ export default function App() {
     const initialDrawingDefaultsRef = useRef(settings.drawingDefaults);
     const [session, setSession] = useState(null);
     const [startupError, setStartupError] = useState(null);
-    const [settingsOpen, setSettingsOpen] = useState(false);
+    // Settings section to show, or null while the dialog is closed.
+    const [settingsSection, setSettingsSection] = useState(null);
+    const openSettings = useCallback(section => setSettingsSection(typeof section === 'string' ? section : 'general'), []);
+    const closeSettings = useCallback(() => setSettingsSection(null), []);
 
     const replaceSession = useCallback(next => {
         setSession({
@@ -70,7 +73,7 @@ export default function App() {
         if (!isTauriRuntime()) return undefined;
         let unlisten = null;
         let disposed = false;
-        listen('lumcad://open-settings', () => setSettingsOpen(true)).then(cleanup => {
+        listen('lumcad://open-settings', () => openSettings()).then(cleanup => {
             if (disposed) cleanup();
             else unlisten = cleanup;
         }).catch(() => {});
@@ -78,7 +81,7 @@ export default function App() {
             disposed = true;
             unlisten?.();
         };
-    }, []);
+    }, [openSettings]);
 
     useEffect(() => {
         const preventWebviewContextMenu = event => event.preventDefault();
@@ -127,16 +130,17 @@ export default function App() {
             initialRecoveryGraph={session.recoveryGraph}
             initialTemplateSourcePath={session.templateSourcePath}
             initialMessage={session.initialMessage}
+            initialImport={session.initialImport}
             sandbox={Boolean(session.sandbox) || isHeadlessRuntime()}
             onReplaceSession={replaceSession}
-            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenSettings={openSettings}
         />;
     }
 
     return (
         <>
             {content}
-            <AppSettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+            <AppSettingsDialog open={Boolean(settingsSection)} section={settingsSection} onClose={closeSettings} />
         </>
     );
 }
