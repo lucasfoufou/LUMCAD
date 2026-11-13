@@ -22,6 +22,7 @@ export default function useDrawingLayers({ history, selectedIds, setMessage, set
             setMessage(t('layerManager.updated'));
         };
         if (command === 'layerFilter') { setFilter(input.trim()); setSidebarPanel('layers'); return true; }
+        if (command === 'layerFlags' && !tokens.length) { setSidebarPanel('layers'); setMessage(t('layerManager.opened')); return true; }
         if (command === 'layerFlags') {
             const target = layer(tokens[0]); const field = { FREEZE: 'frozen', NEWVPFREEZE: 'newViewportFrozen', PLOT: 'plot', LOCK: 'locked', VISIBLE: 'visible' }[tokens[1]?.toUpperCase()];
             if (!target || !field || tokens.length !== 3 || !['ON', 'OFF'].includes(tokens[2].toUpperCase())) invalid();

@@ -56,6 +56,27 @@ There is no bearer token in version 0.1. Any process running in the same user se
 
 All drawing coordinates and distances are expressed in metres.
 
+### Coordinate frames: MCP stays in the stored frame
+
+LUMCAD has two frames, and MCP always uses the first one:
+
+- **Stored frame** — entity geometry, `.lcad` files, `get_state`, rendering and every MCP action. Its Y axis points **down** the screen, and a positive stored angle or rotation turns from +X towards +Y, i.e. **clockwise** on screen.
+- **User frame** — what a person reads and types in the editor when the application preference *Y axis up (like AutoCAD)* is on (the default): the current UCS, with Y pointing **up** and positive angles **counter-clockwise** on screen (unless the drawing sets `UNITS CLOCKWISE ON`), angle 0 along the UCS X axis plus `UNITS BASE`.
+
+Every MCP action (`execute_command`, `interact` inputs and point actions, `replace_document`) is read in the stored frame **whatever that preference is**, exactly as before it existed, and results written to `editor.message` or `editor.inquiryResult` by those actions also use it. An agent therefore reads stored coordinates from `get_state` and writes commands in the same frame. With the UCS origin `(ox, oy)` and rotation `θ` (`settings.ucs`, stored frame), the conversion that the editor applies for people is:
+
+```text
+local    = R(−θ) · (stored − (ox, oy))
+user.x   =  local.x
+user.y   = −local.y              (Y up)
+angle_user = −angle_stored       (relative rotations; directions also subtract the UCS rotation)
+UCS shown to people: origin (ox, −oy), rotation (360 − θ) mod 360
+```
+
+Only drawn sheet text that prints a coordinate — the value of a Y ordinate dimension — follows the preference in rendering and PDF output; its stored geometry does not change.
+
+So `@0,5` typed by an agent moves 5 m down the screen, while a person typing it in the command line with the preference on moves 5 m up. Example: a DXF point at (10, 5) is stored at (10, −5), shown to people as (10 ; 5), and reported to MCP as `y: -5`. With the preference off, the user frame is the plain UCS and both readings agree.
+
 ## Tools
 
 ### `get_state`
@@ -216,6 +237,12 @@ Cancels the current command and clears the selection.
 ## Native-dialog commands
 
 `SAVEAS`, `OPEN`, and `PSETOUT` intentionally open native system dialogs, just as they do from the interface. Plot and publish commands first open LUMCAD's preview/configuration dialog; PDF and DWFx destination selection is native only after the user confirms that preview. `PDFSELECTED` uses the layout tabs selected through Cmd/Ctrl-click, in their current document order. The MCP call activates an interactive dialog but cannot choose a destination on the user's behalf. Use `AUTOPUBLISH` when a saved drawing must publish without any dialog. Regular drawing persistence is handled continuously by autosave.
+
+## Commands added by the 2026-11-13 UX overhaul
+
+The catalog holds 304 commands. `IMPORT`, `EXPORT`, `QSAVE` (alternatives `SAVE`, `ENREGISTRER`), `OPTIONS` and `HELP` open dialogs, pickers or panels of the interface, like the commands above, and are refused in headless mode; use the explicit file tools and the format-specific commands (`DXFIN`, `DXFOUT`, `PDFIMPORT`, …) from an agent. `VPSCALE n` (also `1:n`, `1/n`, `n:1`) sets the scale of the selected or only viewport of the active layout. `ZOOM` accepts `E`, `A`, `W` with two points, or a factor, and has the `Z` alias. `E`, `ERASE` and `EFFACER` are alternatives of `DELETE`; `LAYER` without input opens the Layers panel. `SCALELISTEDIT CURRENT n RESCALE` changes the plan scale and rescales non-annotative dimensions and texts in one undo step.
+
+Three behaviours differ from the interface on purpose, so that an agent stays deterministic: an empty `enter` action never repeats the previous command; a command prefix is never completed; coordinates and angles stay in the stored frame (see *Coordinate frames*). The `DIMENSION` tool now waits for the position of the dimension line after the picked object or the two points: send a point, an offset value, or an `enter` action to accept the default position.
 
 ## Tests and command coverage
 
@@ -412,7 +439,7 @@ Centre-mark maintenance: `CENTERDISASSOCIATE` detaches selected unlocked centre 
 
 ### Units and 2D UCS
 
-`UNITS` accepts option/value pairs for display and alternate units, precisions, angle format/base/direction and insertion metadata. `UCS SET x y degrees`, `WORLD`, `SAVE/RESTORE/DELETE "name"`, `LIST` manage frames; `UCSMAN` is an alias. Typed coordinates passed through command input follow the current UCS, while MCP point actions are always world coordinates. `ID` reports local coordinates and retains `world` and `coordinateSystem` in its structured result. `UCSICON ON|OFF` toggles the orientation indicator, which stays in the lower-left corner during pan and zoom and follows UCS rotation. Its screen position does not mark the drawing origin. `LIMITS minX minY maxX maxY` enables checked world bounds; `LIMITS ON|OFF` toggles them. All geometry remains metres; `UNITS DISPLAY` changes inquiry presentation rather than numeric document geometry.
+`UNITS` accepts option/value pairs for display and alternate units, precisions, angle format/base/direction and insertion metadata. `UCS SET x y degrees`, `WORLD`, `SAVE/RESTORE/DELETE "name"`, `LIST` manage frames; `UCSMAN` is an alias. Typed coordinates passed through command input follow the current UCS, while MCP point actions are always world coordinates. All of this is in the stored frame for MCP (see *Coordinate frames* above): the `UCS SET` origin/rotation, `LIMITS` bounds and `ID` results an agent sends or reads are stored values, while people with the Y-up preference type and read the user-frame equivalents. `ID` reports local coordinates and retains `world` and `coordinateSystem` in its structured result. `UCSICON ON|OFF` toggles the orientation indicator, which stays in the lower-left corner during pan and zoom and follows UCS rotation. Its screen position does not mark the drawing origin. `LIMITS minX minY maxX maxY` enables checked world bounds; `LIMITS ON|OFF` toggles them. All geometry remains metres; `UNITS DISPLAY` changes inquiry presentation rather than numeric document geometry.
 
 ### Paper annotation commands
 

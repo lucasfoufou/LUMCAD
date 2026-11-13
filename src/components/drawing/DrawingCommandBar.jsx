@@ -1,15 +1,17 @@
 import { Button, Input } from '~components/ui/Controls';
 import { useAppSettings } from '~settings/AppSettingsProvider';
 import { getDrawingCommandDefinition } from '~utils/drawingCommands';
-import React, { forwardRef, useId, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import Icon from '~components/ui/Icon';
+import useDrawingCommandLog from '~hooks/useDrawingCommandLog';
 
 import { useI18n } from '~i18n/I18nProvider';
-import { getDrawingCommandSuggestions, resolveDrawingAutocompleteSubmission } from '~utils/drawingCommands';
+import { resolveDrawingAutocompleteSubmission, searchDrawingCommands } from '~utils/drawingCommands';
 import { getDrawingCreationOptionSuggestions } from '~utils/drawingCreation';
 import { getDrawingOperationOptionSuggestions } from '~utils/drawingOperationOptions';
 
 const DrawingCommandBar = forwardRef(function DrawingCommandBar({
-    value = '', onChange, onSubmit, message, operation = null, activeTool = 'select', optionsRef = null,
+    value = '', onChange, onSubmit, message, operation = null, activeTool = 'select', optionsRef = null, onOpenSettings = null,
 }, forwardedRef) {
     const { t } = useI18n();
     const { settings } = useAppSettings();
@@ -29,8 +31,21 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
                 const definition = getDrawingCommandDefinition(row.command);
                 return { ...definition, alias: row.alias, completion: row.alias, tokens: [row.alias] };
             }) : [];
-        return [...personal, ...getDrawingCommandSuggestions(value)].slice(0, 5);
-    }, [activeTool, operation, value, settings.commandAliases]);
+        // Up to 50 matches, scrolling; the label search finds French and English words.
+        return [...personal, ...searchDrawingCommands(value, { translate: t, limit: 50 })].slice(0, 50);
+    }, [activeTool, operation, value, settings.commandAliases, t]);
+    const commandLog = useDrawingCommandLog(message);
+    const messageRef = useRef(null);
+    const [messageOverflows, setMessageOverflows] = useState(false);
+    const [dismissedMessage, setDismissedMessage] = useState(null);
+    // A message cut by the command line shows in full below it until dismissed.
+    useLayoutEffect(() => {
+        const element = messageRef.current;
+        setMessageOverflows(Boolean(element && element.scrollWidth > element.clientWidth + 1));
+    }, [message]);
+    useEffect(() => { setDismissedMessage(null); }, [message]);
+    const converterMissing = message && message === t('cad.error.cadConverterMissing');
+    const showFullMessage = Boolean(message) && (messageOverflows || converterMissing) && dismissedMessage !== message;
     const activeSuggestionIndex = suggestions.length && suggestionIndex >= 0
         ? Math.min(suggestions.length - 1, suggestionIndex)
         : -1;
@@ -51,6 +66,7 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
     const runCommand = rawCommand => {
         const command = String(rawCommand || '').trim();
         if (command) setHistory(current => [command, ...current.filter(item => item !== command)].slice(0, 30));
+        commandLog.recordCommand(command);
         setHistoryIndex(-1);
         setHistoryOpen(false);
         onSubmit(command);
@@ -67,11 +83,12 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
         });
     };
 
+    const optionPrompt = Boolean(operation) || activeTool !== 'select';
     const submit = event => {
         event.preventDefault();
         const shouldComplete = suggestionIndex >= 0 || String(value).trim().length > 0;
         runCommand(shouldComplete
-            ? resolveDrawingAutocompleteSubmission(value, suggestions, suggestionIndex)
+            ? resolveDrawingAutocompleteSubmission(value, suggestions, suggestionIndex, { options: optionPrompt })
             : value);
     };
 
@@ -86,7 +103,7 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
         if (event.key === 'Enter' && suggestions.length
             && (suggestionIndex >= 0 || String(value).trim().length > 0)) {
             event.preventDefault();
-            runCommand(resolveDrawingAutocompleteSubmission(value, suggestions, suggestionIndex));
+            runCommand(resolveDrawingAutocompleteSubmission(value, suggestions, suggestionIndex, { options: optionPrompt }));
             setSuggestionIndex(-1);
             return;
         }
@@ -150,10 +167,13 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
                     placeholder={message ? '' : t('commandBar.placeholder')}
                 />
                 {/* Status messages trail the input (inline end), like a status area. */}
-                {message && <span className="drawing-command-message" title={message} aria-live="polite">{message}</span>}
+                {message && <span ref={messageRef} className="drawing-command-message" title={message} aria-live="polite">{message}</span>}
                 <Button type="submit">{t('commandBar.enter')}</Button>
                 {focused && suggestions.length > 0 && !historyOpen && (
                     <div className="drawing-command-suggestions" role="listbox" aria-label={t('commandBar.suggestions')}>
+                        {!operation && activeTool === 'select' && (
+                            <p className="drawing-command-suggestions-count" aria-hidden="true">{t('commandBar.matchCount', { count: suggestions.length })}</p>
+                        )}
                         {suggestions.map((suggestion, index) => (
                             <Button
                                 type="button"
@@ -176,6 +196,8 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
                 )}
                 {historyOpen && (
                     <div id={historyPanelId} className="drawing-command-history" aria-labelledby={`${historyPanelId}-toggle`}>
+                        <CommandLogView log={commandLog} t={t} />
+                        <h2 className="drawing-command-history-heading">{t('commandBar.recentCommands')}</h2>
                         {history.length > 0 ? (
                             <ul>
                                 {history.map(command => (
@@ -194,6 +216,22 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
                     </div>
                 )}
             </form>
+            {showFullMessage && !historyOpen && !(focused && suggestions.length > 0) && (
+                <div className="ui-popover drawing-command-full-message" role="status">
+                    <p>{message}</p>
+                    <div className="drawing-command-full-message-actions">
+                        {converterMissing && onOpenSettings && (
+                            <Button type="button" className="ui-button is-primary" onClick={() => onOpenSettings('files')}>
+                                <Icon name="gear" size="sm" />{t('cad.openDwgSettings')}
+                            </Button>
+                        )}
+                        <Button type="button" className="ui-icon-button" aria-label={t('commandBar.dismissMessage')} title={t('commandBar.dismissMessage')}
+                            onClick={() => setDismissedMessage(message)}>
+                            <Icon name="close" size="sm" />
+                        </Button>
+                    </div>
+                </div>
+            )}
             {optionsRef && (
                 <div className="ui-popover drawing-command-panel">
                     {message && <p className="drawing-command-panel-message">{message}</p>}
@@ -203,5 +241,42 @@ const DrawingCommandBar = forwardRef(function DrawingCommandBar({
         </div>
     );
 });
+
+/** Session text window (AutoCAD F2): each command with the replies it produced. */
+function CommandLogView({ log, t }) {
+    const [copied, setCopied] = useState(false);
+    const listRef = useRef(null);
+    useLayoutEffect(() => {
+        if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+    }, [log.entries]);
+    const copy = async () => {
+        try {
+            await navigator.clipboard.writeText(log.toText());
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1_500);
+        } catch {
+            setCopied(false);
+        }
+    };
+    return (
+        <section className="drawing-command-log" aria-label={t('commandBar.log')}>
+            <header>
+                <h2 className="drawing-command-history-heading">{t('commandBar.log')}</h2>
+                <Button type="button" className="ui-button is-ghost" onMouseDown={event => event.preventDefault()} onClick={copy} disabled={!log.entries.length}>
+                    <Icon name="copy" size="sm" />{t(copied ? 'commandBar.logCopied' : 'commandBar.logCopy')}
+                </Button>
+            </header>
+            {log.entries.length > 0 ? (
+                <ol ref={listRef}>
+                    {log.entries.map(entry => (
+                        <li key={entry.id} className={entry.kind === 'command' ? 'is-command' : ''}>
+                            {entry.kind === 'command' ? `> ${entry.text}` : entry.text}
+                        </li>
+                    ))}
+                </ol>
+            ) : <p>{t('commandBar.logEmpty')}</p>}
+        </section>
+    );
+}
 
 export default DrawingCommandBar;

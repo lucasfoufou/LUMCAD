@@ -52,7 +52,7 @@ export default function DrawingLayoutToolbar({
                 <DrawingToolButton
                     active={activeTool === 'scale'}
                     disabled={!hasSelection}
-                    icon="scale"
+                    icon="stretch"
                     label={t('layout.scaleViewportTool')}
                     onClick={onScale}
                 />

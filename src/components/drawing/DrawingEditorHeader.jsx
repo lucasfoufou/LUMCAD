@@ -1,9 +1,13 @@
 import { Button, Input } from '~components/ui/Controls';
+import DrawingFileMenu from '~components/drawing/DrawingFileMenu';
 import useDrawingShortcutLabel from '~hooks/useDrawingShortcutLabel';
 import React from 'react';
 
 import { useI18n } from '~i18n/I18nProvider';
-import { getLcadPathLabel } from '~utils/lcadStorage';
+import { useAppSettings } from '~settings/AppSettingsProvider';
+import { formatDrawingShortcut } from '~utils/drawingCommandPreferences';
+import { resolveDrawingSaveStatus } from '~utils/drawingSaveStatus';
+import { getLcadPathLabel, isTauriRuntime } from '~utils/lcadStorage';
 import Icon from '~components/ui/Icon';
 import { formatAppUpdateError } from '~utils/appUpdater';
 
@@ -13,34 +17,66 @@ export default function DrawingEditorHeader({
     filePath,
     saveStatus,
     isRecovery,
+    recovered = false,
     lastSavedAt,
     onNew,
     onOpen,
+    onImport,
+    onExport,
     onPlot,
+    onSave,
     onSaveAs,
     onOpenSettings,
+    onHelp,
+    fileMenuRef = null,
     commandLine = null,
     editActions = null,
     updateState,
     onInstallUpdate,
 }) {
     const { formatTime, t } = useI18n();
+    const { settings } = useAppSettings();
     const shortcutLabel = useDrawingShortcutLabel();
     const pathLabel = getLcadPathLabel(filePath);
+    const platform = typeof navigator === 'undefined' ? '' : navigator.platform || navigator.userAgent || '';
+    const keys = value => formatDrawingShortcut(value, platform).replace(/ \+ /g, '+');
+    const binding = action => {
+        const row = settings.commandShortcuts.find(item => item.command === `@${action}`);
+        return row ? keys(row.shortcut) : null;
+    };
+    const status = resolveDrawingSaveStatus({ status: saveStatus, filePath, isRecovery, recovered });
+    const statusLabel = t(status.key);
+    const saveLabel = `${t('fileMenu.save')} (${keys('MOD+S')})`;
+    const settingsLabel = `${t('settings.open')} (${keys('MOD+,')})`;
+    const fileMenuItems = [
+        { id: 'new', icon: 'new', label: t('fileMenu.new'), shortcut: binding('newDocument'), action: onNew },
+        { id: 'open', icon: 'open', label: t('fileMenu.open'), shortcut: binding('open'), action: onOpen },
+        { id: 'separator-1', separator: true },
+        { id: 'import', icon: 'import', label: t('fileMenu.import'), action: onImport },
+        { id: 'export', icon: 'export', label: t('fileMenu.export') },
+        { id: 'separator-2', separator: true },
+        { id: 'save', icon: 'save', label: t('fileMenu.save'), shortcut: keys('MOD+S'), action: onSave },
+        { id: 'saveAs', icon: 'save', label: t('fileMenu.saveAs'), shortcut: binding('saveAs'), action: onSaveAs },
+        { id: 'separator-3', separator: true },
+        { id: 'plot', icon: 'plot', label: t('fileMenu.plot'), action: onPlot },
+        { id: 'separator-4', separator: true },
+        { id: 'settings', icon: 'gear', label: t('fileMenu.settings'), shortcut: keys('MOD+,'), action: () => onOpenSettings() },
+    ];
     return (
         <header className="drawing-editor-header">
             <div className="lumcad-brand" aria-label="LUMCAD">
                 <img className="lumcad-brand-mark" src="/lumcad-icon.svg" alt="" aria-hidden="true" />
             </div>
+            <DrawingFileMenu ref={fileMenuRef} items={fileMenuItems} onExport={onExport} desktop={isTauriRuntime()} />
             <div className="drawing-editor-title">
-                <Input value={name} onChange={event => onNameChange(event.target.value)} aria-label={t('header.drawingName')} />
-                {/* Only the status dot is visible; the details show on hover and remain readable by assistive technology. */}
+                <Input value={name} onChange={event => onNameChange(event.target.value)} aria-label={t('header.drawingName')} title={t('header.renameHint')} />
                 <span
-                    className={`drawing-save-status is-${saveStatus}`}
-                    title={[saveStatusLabel(saveStatus, isRecovery, t), filePath || t('header.noFile'), lastSavedAt && formatTime(lastSavedAt)].filter(Boolean).join(' · ')}
+                    className={`drawing-save-status is-${status.tone}`}
+                    title={[statusLabel, filePath || t('header.noFile'), lastSavedAt && formatTime(lastSavedAt)].filter(Boolean).join(' · ')}
                 >
+                    <span className="drawing-save-status-label">{statusLabel}</span>
                     <span className="ui-visually-hidden">
-                        {saveStatusLabel(saveStatus, isRecovery, t)}, {pathLabel || t('header.noFile')}
+                        , {pathLabel || t('header.noFile')}
                         {lastSavedAt && <>, <time dateTime={new Date(lastSavedAt).toISOString()}>{formatTime(lastSavedAt)}</time></>}
                     </span>
                 </span>
@@ -57,15 +93,16 @@ export default function DrawingEditorHeader({
                     </div>
                 )}
                 <div className="lumcad-header-group">
-                    <Button type="button" className="ui-button is-ghost" onClick={onNew} title={shortcutLabel('newDocument', t('header.new'))}>{t('header.new')}</Button>
-                    <Button type="button" className="ui-button is-ghost" onClick={onOpen} title={shortcutLabel('open', t('header.open'))}>{t('header.open')}</Button>
-                    <Button type="button" className="ui-button" onClick={onPlot} title={t('header.plotHint')}><Icon name="plot" size="sm" />{t('header.plot')}</Button>
-                    <Button type="button" className="ui-button is-primary" onClick={onSaveAs} title={shortcutLabel('saveAs', t('header.saveAs'))}>{t('header.saveAs')}</Button>
+                    <HeaderIconButton icon="save" label={saveLabel} onClick={onSave} />
+                    <Button type="button" className="ui-button lumcad-plot-button" onClick={onPlot} title={t('header.plotHint')} aria-label={t('header.plot')}>
+                        <Icon name="plot" size="sm" /><span>{t('header.plot')}</span>
+                    </Button>
                 </div>
                 <UpdateHeaderAction state={updateState} onClick={onInstallUpdate} t={t} />
-                {shouldShowSettingsButton() && (
-                    <HeaderIconButton icon="settings" label={t('settings.open')} onClick={onOpenSettings} />
-                )}
+                <div className="lumcad-header-group">
+                    <HeaderIconButton icon="help" label={`${t('commandPalette.title')} (F1)`} onClick={onHelp} />
+                    <HeaderIconButton icon="gear" label={settingsLabel} onClick={() => onOpenSettings()} />
+                </div>
             </nav>
         </header>
     );
@@ -96,15 +133,4 @@ function UpdateHeaderAction({ state, onClick, t }) {
             <Icon name="update" size="sm" />{label}
         </Button>
     );
-}
-
-function shouldShowSettingsButton() {
-    const isTauri = typeof window !== 'undefined' && Boolean(window.__TAURI_INTERNALS__);
-    const platform = typeof navigator === 'undefined' ? '' : `${navigator.platform || ''} ${navigator.userAgent || ''}`;
-    return !isTauri || !/Mac/i.test(platform);
-}
-
-function saveStatusLabel(status, isRecovery, t) {
-    if (status === 'saved' && isRecovery) return t('saveStatus.recovery');
-    return t(`saveStatus.${status}`);
 }

@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 
 import { normalizeAppSettings, saveAppSettings } from './appSettings.js';
+import { setDrawingDisplayYAxisUp } from '../utils/drawingCoordinates.js';
 
 const AppSettingsContext = createContext({
     settings: normalizeAppSettings(),
@@ -18,6 +19,8 @@ export function AppSettingsProvider({ initialSettings, children }) {
         return saved;
     }, []);
     const value = useMemo(() => ({ settings, updateSettings }), [settings, updateSettings]);
+    // Pure render code (ordinate dimension labels) reads the Y-up preference from here.
+    setDrawingDisplayYAxisUp(settings.drawingDefaults.yAxisUp);
     return <AppSettingsContext.Provider value={value}>{children}</AppSettingsContext.Provider>;
 }
 

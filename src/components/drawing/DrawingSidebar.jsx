@@ -1,30 +1,34 @@
 import { DRAWING_GRIP_OBJECT_LIMIT } from '~utils/drawingSelection';
-import { Button, Input, Select } from '~components/ui/Controls';
+import { Button, Disclosure, Input, Select } from '~components/ui/Controls';
+import { summarizeDrawingSelectionTypes } from '~utils/drawingEntityProperties';
 import DrawingHyperlinkFields from '~components/drawing/DrawingHyperlinkFields';
 import DrawingParametersPanel from '~components/drawing/DrawingParametersPanel';
 import DrawingConstraintsPanel from '~components/drawing/DrawingConstraintsPanel';
 import DrawingBlockVariantEditor from '~components/drawing/DrawingBlockVariantEditor';
 import DrawingAnnotationFields from '~components/drawing/DrawingAnnotationFields';
 import DrawingPlotStylesPanel from '~components/drawing/DrawingPlotStylesPanel';
-import { filterDrawingLayers } from '~utils/drawingLayers';
 import DrawingInquiryPanel from '~components/drawing/DrawingInquiryPanel';
-import { createDimensionSourceMap } from '~utils/drawingDimensionSources';
+import { createDimensionSourceMap, getDrawingDimensionSourceMap } from '~utils/drawingDimensionSources';
 import { presentDrawingDimension } from '~utils/drawingDimensionPresentation';
 import { retainDimensionStyleOverrides } from '~utils/drawingDimensionStyles';
 import DrawingDimensionStylesPanel from '~components/drawing/DrawingDimensionStylesPanel';
 import DrawingBlockAttributeFields from '~components/drawing/DrawingBlockAttributeFields';
 import DrawingBlockParameterFields from '~components/drawing/DrawingBlockParameterFields';
 import DrawingBlocksPanel from '~components/drawing/DrawingBlocksPanel';
-import React, { useEffect, useMemo, useState } from 'react';
+import DrawingManagerWindow from '~components/drawing/DrawingManagerWindow';
+import DrawingLayersPanel from '~components/drawing/DrawingLayersPanel';
+import { drawingUserSettings } from '~utils/drawingCoordinates';
+import React, { useEffect, useRef, useState } from 'react';
 
 import Icon from '~components/ui/Icon';
 
-import { DrawingEntityAppearanceFields, DrawingLayerAppearanceFields } from '~components/drawing/DrawingAppearanceFields';
+import { DrawingEntityAppearanceFields } from '~components/drawing/DrawingAppearanceFields';
 import DrawingDimensionFields from '~components/drawing/DrawingDimensionFields';
+import DrawingDimensionCommonFields from '~components/drawing/DrawingDimensionCommonFields';
 import DrawingQdimOptions from '~components/drawing/DrawingQdimOptions';
 import DrawingTextStylesPanel from '~components/drawing/DrawingTextStylesPanel';
 import { useI18n } from '~i18n/I18nProvider';
-import { addLayer, canEditEntity, isProtectedDrawingLayer, removeEmptyLayer, updateLayer, updateSelectedEntities } from '~utils/drawingDocument';
+import { canEditEntity, updateSelectedEntities } from '~utils/drawingDocument';
 import {
     DEFAULT_DRAWING_TEXT_STYLE_ID,
     addDrawingTextStyle,
@@ -43,17 +47,18 @@ const MANAGER_PANELS = Object.freeze({
     textStyles: 'sidebar.textStyles',
     dimensionStyles: 'commands.dimensionStyle',
     plotStyles: 'commands.styleManager',
-    parameters: 'commands.parameters',
+    parameters: 'sidebar.manageParameters',
     constraints: 'commands.geomConstraint',
     inquiry: 'inquiry.title',
 });
 
-export default function DrawingSidebar({ content, selectedIds, editEntityId = null, onCommit, panel, onPanelChange, blockSearch, onBlockSearch, onBlockDefine, onBlockInsert, onBlockEdit, onBlockImport, onBlockExport, onManageAttribute, onDefineAttribute, onDimensionStyleCommand, inquiryResult, comparisonPreview, onCopyInquiry, onInspectTransmittal, onSelectDuplicateGroup, onSelectCountOccurrence, onOpenRecovery, canOpenRecovery = false, onSelectRecovery, onShowRecoveryManager, hasRecoveryGraph = false, onShowRecoveryHistory, onRetryRecovery, onForgetRecovery, onRelinkRecovery, canRelinkRecovery, layerFilter, onLayerFilter, onPlotStyleCommand, onCreationControlsMount, onAnnotationCommand, dynamicBlockEditing = false, onSmartBlockCommand, smartBlockDetection, libraryBrowser, onBrowseLibrary, onSelectConstraintObjects, parametersEnabled = false }) {
+export default function DrawingSidebar({ content, selectedIds, editEntityId = null, onCommit, panel, onPanelChange, blockSearch, onBlockSearch, onBlockDefine, onBlockInsert, onBlockEdit, onBlockImport, onBlockExport, onManageAttribute, onDefineAttribute, onDimensionStyleCommand, inquiryResult, comparisonPreview, onCopyInquiry, onInspectTransmittal, onSelectDuplicateGroup, onSelectCountOccurrence, onOpenRecovery, canOpenRecovery = false, onSelectRecovery, onShowRecoveryManager, hasRecoveryGraph = false, onShowRecoveryHistory, onRetryRecovery, onForgetRecovery, onRelinkRecovery, canRelinkRecovery, layerFilter, onLayerFilter, onMergeLayer, onPlotStyleCommand, onCreationControlsMount, onAnnotationCommand, commandActive = false, dynamicBlockEditing = false, onSmartBlockCommand, smartBlockDetection, libraryBrowser, onBrowseLibrary, onSelectConstraintObjects, parametersEnabled = false, yAxisUp = false }) {
     const { t, locale } = useI18n();
     const [internalPanel, setInternalPanel] = useState('selection');
     const requested = panel || internalPanel;
     const manager = Object.hasOwn(MANAGER_PANELS, requested) ? requested : null;
     const [lastTab, setLastTab] = useState('selection');
+    const [collapsed, setCollapsed] = useStoredFlag(SIDEBAR_COLLAPSED_KEY);
     const tab = manager ? lastTab : requested;
     const open = next => {
         setInternalPanel(next);
@@ -63,12 +68,14 @@ export default function DrawingSidebar({ content, selectedIds, editEntityId = nu
     useEffect(() => {
         if (!manager) setLastTab(requested);
     }, [requested, manager]);
+    // A selection opens Properties, except from the Library, where selecting
+    // objects is the first step of creating or replacing a block.
     useEffect(() => {
         const selectedIdSet = new Set(selectedIds);
-        if (content.entities.some(entity => selectedIdSet.has(entity.id))) showTab('selection');
+        if (tab !== 'blocks' && content.entities.some(entity => selectedIdSet.has(entity.id))) showTab('selection');
     }, [selectedIds.join('|')]);
     useEffect(() => {
-        if (editEntityId) showTab('selection');
+        if (editEntityId && tab !== 'blocks') showTab('selection');
     }, [editEntityId]);
     const managerContent = {
         textStyles: () => <TextStylesPanel content={content} onCommit={onCommit} t={t} />,
@@ -76,7 +83,7 @@ export default function DrawingSidebar({ content, selectedIds, editEntityId = nu
         plotStyles: () => <DrawingPlotStylesPanel content={content} onCommand={onPlotStyleCommand} t={t} />,
         parameters: () => <DrawingParametersPanel content={content} selectedIds={selectedIds} enabled={parametersEnabled} onCommit={onCommit} onSelect={onSelectConstraintObjects} t={t} locale={locale} />,
         constraints: () => <DrawingConstraintsPanel content={content} selectedIds={selectedIds} onCommit={onCommit} onSelect={onSelectConstraintObjects} t={t} />,
-        inquiry: () => <DrawingInquiryPanel comparisonPreview={comparisonPreview} settings={content.settings} result={inquiryResult} onCopy={onCopyInquiry} onInspectTransmittal={onInspectTransmittal} onSelectDuplicateGroup={onSelectDuplicateGroup} onSelectCountOccurrence={onSelectCountOccurrence} onOpenRecovery={onOpenRecovery} canOpenRecovery={canOpenRecovery} onSelectRecovery={onSelectRecovery} onShowRecoveryManager={onShowRecoveryManager} hasRecoveryGraph={hasRecoveryGraph} onShowRecoveryHistory={onShowRecoveryHistory} onRetryRecovery={onRetryRecovery} onForgetRecovery={onForgetRecovery} onRelinkRecovery={onRelinkRecovery} canRelinkRecovery={canRelinkRecovery} t={t} />,
+        inquiry: () => <DrawingInquiryPanel comparisonPreview={comparisonPreview} settings={drawingUserSettings(content.settings, yAxisUp)} layers={content.layers} blocks={content.blocks} result={inquiryResult} onCopy={onCopyInquiry} onInspectTransmittal={onInspectTransmittal} onSelectDuplicateGroup={onSelectDuplicateGroup} onSelectCountOccurrence={onSelectCountOccurrence} onOpenRecovery={onOpenRecovery} canOpenRecovery={canOpenRecovery} onSelectRecovery={onSelectRecovery} onShowRecoveryManager={onShowRecoveryManager} hasRecoveryGraph={hasRecoveryGraph} onShowRecoveryHistory={onShowRecoveryHistory} onRetryRecovery={onRetryRecovery} onForgetRecovery={onForgetRecovery} onRelinkRecovery={onRelinkRecovery} canRelinkRecovery={canRelinkRecovery} t={t} />,
     };
     const tabs = [
         ...(dynamicBlockEditing ? [['blockVariants', t('commands.blockTable')]] : []),
@@ -84,59 +91,115 @@ export default function DrawingSidebar({ content, selectedIds, editEntityId = nu
         ['layers', t('sidebar.layers')],
         ['blocks', t('sidebar.library')],
     ];
+    const managers = Object.entries(MANAGER_PANELS).filter(([id]) => id !== 'parameters' || parametersEnabled);
+    const managerWindow = manager && (
+        <DrawingManagerWindow title={t(MANAGER_PANELS[manager])} closeLabel={t('sidebar.closeManager')} moveLabel={t('sidebar.moveManager')}
+            commandActive={commandActive} onClose={() => open(lastTab)}>
+            {managerContent[manager]()}
+        </DrawingManagerWindow>
+    );
+    const collapseToggle = (
+        <Button type="button" className="drawing-sidebar-collapse" aria-expanded={!collapsed}
+            aria-label={t(collapsed ? 'sidebar.expandPanel' : 'sidebar.collapsePanel')} title={t(collapsed ? 'sidebar.expandPanel' : 'sidebar.collapsePanel')}
+            onClick={() => setCollapsed(!collapsed)}>
+            <Icon name={collapsed ? 'sidebarExpand' : 'sidebarCollapse'} size="sm" />
+        </Button>
+    );
+    if (collapsed) {
+        // A narrow strip keeps the tabs one click away and the managers open.
+        return (
+            <aside className="drawing-sidebar is-collapsed">
+                {collapseToggle}
+                {tabs.map(([id, label]) => (
+                    <Button type="button" key={id} className="ui-icon-button is-small" aria-label={label} title={label}
+                        onClick={() => { setCollapsed(false); showTab(id); }}>
+                        <Icon name={{ selection: 'properties', layers: 'layers', blocks: 'blocks' }[id] || 'properties'} size="sm" />
+                    </Button>
+                ))}
+                <DrawingManageMenu managers={managers} current={manager} onOpen={open} t={t} />
+                {managerWindow}
+            </aside>
+        );
+    }
     return (
         <aside className="drawing-sidebar">
-            <div className="drawing-sidebar-tabs" role="tablist">
-                {tabs.map(([id, label]) => (
-                    <Button type="button" role="tab" key={id} aria-selected={tab === id} className={tab === id ? 'is-active' : ''} onClick={() => showTab(id)}>{label}</Button>
-                ))}
+            {collapseToggle}
+            <div className="drawing-sidebar-header">
+                <div className="drawing-sidebar-tabs" role="tablist">
+                    {tabs.map(([id, label]) => (
+                        <Button type="button" role="tab" key={id} aria-selected={tab === id} className={tab === id ? 'is-active' : ''} onClick={() => showTab(id)}>{label}</Button>
+                    ))}
+                </div>
+                <DrawingManageMenu managers={managers} current={manager} onOpen={open} t={t} />
             </div>
             <div className="drawing-sidebar-content" role="tabpanel">
                 {dynamicBlockEditing && tab === 'blockVariants' && <DrawingBlockVariantEditor content={content} selectedIds={selectedIds} onCommit={onCommit} t={t} />}
                 {tab === 'selection' && (
                     <>
-                        <div className="drawing-properties-mount" ref={onCreationControlsMount} />
-                        <SelectionPanel content={content} selectedIds={selectedIds} onCommit={onCommit} t={t} />
-                        {!selectedIds.length && (
-                            <section className="ui-section drawing-manage-section">
-                                <header>{t('sidebar.manage')}</header>
-                                <div className="drawing-manage-grid">
-                                    {Object.entries(MANAGER_PANELS)
-                                        .filter(([id]) => id !== 'parameters' || parametersEnabled)
-                                        .map(([id, labelKey]) => <Button type="button" key={id} onClick={() => open(id)}>{t(labelKey)}</Button>)}
-                                </div>
-                            </section>
-                        )}
+                        <SelectionPanel yAxisUp={yAxisUp} content={content} selectedIds={selectedIds} onCommit={onCommit} t={t}
+                            geometryMount={<div className="drawing-properties-mount" ref={onCreationControlsMount} />} />
                         <DrawingAnnotationFields content={content} selectedIds={selectedIds} onCommand={onAnnotationCommand} t={t} />
                     </>
                 )}
-                {tab === 'layers' && <LayersPanel content={content} onCommit={onCommit} filter={layerFilter} onFilter={onLayerFilter} t={t} />}
+                {tab === 'layers' && <DrawingLayersPanel content={content} onCommit={onCommit} filter={layerFilter} onFilter={onLayerFilter} onMergeLayer={onMergeLayer} t={t} />}
                 {tab === 'blocks' && <DrawingBlocksPanel libraryBrowser={libraryBrowser} onBrowseLibrary={onBrowseLibrary} onSmartCommand={onSmartBlockCommand} detection={smartBlockDetection} content={content} selectedIds={selectedIds} search={blockSearch} onSearch={onBlockSearch} onDefine={onBlockDefine} onInsert={onBlockInsert} onEdit={onBlockEdit} onImport={onBlockImport} onExport={onBlockExport} onManageAttribute={onManageAttribute} onDefineAttribute={onDefineAttribute} />}
             </div>
-            {manager && (
-                <DrawingManagerWindow title={t(MANAGER_PANELS[manager])} closeLabel={t('sidebar.closeManager')} onClose={() => open(lastTab)}>
-                    {managerContent[manager]()}
-                </DrawingManagerWindow>
-            )}
+            {managerWindow}
         </aside>
     );
 }
 
-// Non-modal window: the drawing stays usable, e.g. to pick objects for constraints.
-function DrawingManagerWindow({ title, closeLabel, onClose, children }) {
+const SIDEBAR_COLLAPSED_KEY = 'lumcad.sidebar.collapsed';
+
+// A per-viewer display preference kept in browser storage when available.
+function useStoredFlag(key) {
+    const [value, setValue] = useState(() => {
+        try { return window.localStorage.getItem(key) === '1'; } catch { return false; }
+    });
+    const update = next => {
+        setValue(next);
+        try { window.localStorage.setItem(key, next ? '1' : '0'); } catch { /* storage unavailable */ }
+    };
+    return [value, update];
+}
+
+// Permanent access to the managers, whatever the tab and the selection.
+function DrawingManageMenu({ managers, current, onOpen, t }) {
+    const [open, setOpen] = useState(false);
+    const menuRef = useRef(null);
     useEffect(() => {
-        const closeOnEscape = event => { if (event.key === 'Escape' && !event.defaultPrevented) onClose(); };
-        window.addEventListener('keydown', closeOnEscape);
-        return () => window.removeEventListener('keydown', closeOnEscape);
-    }, [onClose]);
+        if (!open) return undefined;
+        menuRef.current?.querySelector('[role="menu"] button')?.focus();
+        const close = event => {
+            if (event.type === 'keydown' ? event.key === 'Escape' : !menuRef.current?.contains(event.target)) {
+                if (event.type === 'keydown') event.preventDefault();
+                setOpen(false);
+            }
+        };
+        window.addEventListener('pointerdown', close, true);
+        window.addEventListener('keydown', close, true);
+        return () => {
+            window.removeEventListener('pointerdown', close, true);
+            window.removeEventListener('keydown', close, true);
+        };
+    }, [open]);
     return (
-        <section className="ui-popover drawing-manager-window" role="dialog" aria-label={title}>
-            <header>
-                <h2>{title}</h2>
-                <Button type="button" className="ui-icon-button is-small" aria-label={closeLabel} title={closeLabel} onClick={onClose}><Icon name="close" size="sm" /></Button>
-            </header>
-            <div className="drawing-manager-body">{children}</div>
-        </section>
+        <div className="drawing-manage-menu" ref={menuRef}>
+            <Button type="button" className="drawing-manage-trigger" aria-haspopup="menu" aria-expanded={open}
+                aria-label={t('sidebar.manage')} title={t('sidebar.manageHint')} onClick={() => setOpen(value => !value)}>
+                <Icon name="manage" size="sm" /><span>{t('sidebar.manage')}</span>
+            </Button>
+            {open && (
+                <div className="ui-popover drawing-manage-popover" role="menu" aria-label={t('sidebar.manage')}>
+                    {managers.map(([id, labelKey]) => (
+                        <Button type="button" role="menuitem" key={id} aria-current={current === id || undefined}
+                            onClick={() => { setOpen(false); onOpen(id); }}>
+                            {t(labelKey)}
+                        </Button>
+                    ))}
+                </div>
+            )}
+        </div>
     );
 }
 
@@ -222,96 +285,16 @@ function drawingTextStyleLabels(t) {
     };
 }
 
-function LayersPanel({ content, onCommit, filter, onFilter, t }) {
-    const entityCounts = useMemo(() => content.entities.reduce((counts, entity) => {
-        counts[entity.layerId] = (counts[entity.layerId] || 0) + 1;
-        return counts;
-    }, {}), [content.entities]);
-    return (
-        <section className="drawing-layer-panel">
-            <div className="drawing-sidebar-heading">
-                <div><strong>{t('sidebar.layers')}</strong><small>{t('sidebar.layerCount', { count: content.layers.length })}</small></div>
-                <Button type="button" onClick={() => onCommit(addLayer(content, t('document.newLayer', { number: content.layers.length + 1 })))}>{t('sidebar.add')}</Button>
-            </div>
-            <Input aria-label={t('layerManager.filter')} placeholder={t('layerManager.filterHint')} value={filter || ''} onChange={event => onFilter?.(event.target.value)} />
-            <div className="drawing-layer-list">
-                {filterDrawingLayers(content.layers, filter).map(layer => (
-                    <LayerRow key={layer.id} layer={layer} content={content} count={entityCounts[layer.id] || 0} onCommit={onCommit} t={t} />
-                ))}
-            </div>
-        </section>
-    );
-}
-
-// One compact row per layer; appearance and less frequent flags expand below it.
-function LayerRow({ layer, content, count, onCommit, t }) {
-    const [expanded, setExpanded] = useState(false);
-    const update = updates => onCommit(updateLayer(content, layer.id, updates));
-    const active = content.activeLayerId === layer.id;
-    const toggles = [
-        ['visible', layer.visible, layer.visible ? 'eye' : 'eyeOff', t(layer.visible ? 'sidebar.hide' : 'sidebar.show')],
-        ['locked', layer.locked, layer.locked ? 'lock' : 'unlock', t(layer.locked ? 'sidebar.unlock' : 'sidebar.lock')],
-        ['frozen', layer.frozen, 'freeze', t('layerManager.frozen')],
-        ['plot', layer.plot !== false, 'plot', t('layerManager.plot')],
-    ];
-    return (
-        <div className={`drawing-layer-row ${active ? 'is-active' : ''}`}>
-            <div className="drawing-layer-row-header">
-                <Input
-                    type="radio"
-                    name="activeDrawingLayer"
-                    aria-label={t('sidebar.activateLayer', { name: layer.name })}
-                    checked={active}
-                    onChange={() => onCommit({ ...content, activeLayerId: layer.id })}
-                />
-                <span className="drawing-layer-swatch" style={{ background: layer.color }} aria-hidden="true" />
-                <div className="drawing-layer-main">
-                    <Input
-                        value={layer.name}
-                        disabled={isProtectedDrawingLayer(layer.id)}
-                        title={isProtectedDrawingLayer(layer.id) ? t('sidebar.protectedLayer') : undefined}
-                        onChange={event => update({ name: event.target.value })}
-                        aria-label={t('sidebar.layerName')}
-                    />
-                    <small>{t('sidebar.objectCount', { count })}</small>
-                </div>
-                <div className="drawing-layer-actions">
-                    {toggles.map(([field, on, icon, label]) => (
-                        <Button type="button" key={field} className={on ? 'is-active' : ''} aria-pressed={Boolean(on)} title={label} aria-label={label}
-                            onClick={() => update({ [field]: field === 'plot' ? !on : !layer[field] })}>
-                            <Icon name={icon} size="sm" />
-                        </Button>
-                    ))}
-                    <Button type="button" aria-expanded={expanded} title={t('sidebar.layerDetails')} aria-label={t('sidebar.layerDetails')} onClick={() => setExpanded(open => !open)}>
-                        <Icon name={expanded ? 'chevronDown' : 'chevronRight'} size="sm" />
-                    </Button>
-                </div>
-            </div>
-            {expanded && (
-                <div className="drawing-layer-details">
-                    <DrawingLayerAppearanceFields layer={layer} t={t} onChange={update} />
-                    <div className="drawing-layer-flags">
-                        <label>
-                            <Input type="checkbox" checked={Boolean(layer.newViewportFrozen)} onChange={event => update({ newViewportFrozen: event.target.checked })} />
-                            {t('layerManager.newViewportFrozen')}
-                        </label>
-                        <Button type="button" className="ui-button is-small is-danger" disabled={Boolean(count) || isProtectedDrawingLayer(layer.id)}
-                            title={t('sidebar.deleteEmptyLayer')} onClick={() => onCommit(removeEmptyLayer(content, layer.id))}>
-                            {t('sidebar.deleteEmptyLayer')}
-                        </Button>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-}
-
-function SelectionPanel({ content, selectedIds, onCommit, t }) {
+// Order of the Properties tab: type and count, general properties, geometry
+// (fields portaled by the canvas into `geometryMount`), type-specific fields,
+// then the object link, collapsed.
+function SelectionPanel({ content, selectedIds, onCommit, geometryMount, t, yAxisUp = false }) {
     const selectedIdSet = new Set(selectedIds);
     const selected = content.entities.filter(entity => selectedIdSet.has(entity.id));
-    if (selected.length === 0) return <p className="drawing-sidebar-empty">{t('sidebar.selectObjects')}</p>;
+    if (selected.length === 0) return <>{geometryMount}<p className="drawing-sidebar-empty">{t('sidebar.selectObjects')}</p></>;
     const single = selected.length === 1 ? selected[0] : null;
     const selectionLocked = selected.some(entity => !canEditEntity(content, entity));
+    const commonLayerId = selected.every(entity => entity.layerId === selected[0].layerId) ? selected[0].layerId || '' : '';
     const selectedQdimSeriesIds = new Set(selected.flatMap(entity => (
         entity.type === 'linearDimension' && entity.seriesId ? [entity.seriesId] : []
     )));
@@ -338,39 +321,53 @@ function SelectionPanel({ content, selectedIds, onCommit, t }) {
             entities: content.entities.map(entity => ids.has(entity.id) ? { ...entity, locked } : entity),
         });
     };
+    const typeSummary = summarizeDrawingSelectionTypes(selected);
     return (
         <section className="drawing-selection-panel">
-            <h3>{t('sidebar.selectedCount', { count: selected.length })}</h3>
+            <header className="drawing-selection-header">
+                <h3>{single ? entityTypeLabel(single.type, t) : t('sidebar.selectedCount', { count: selected.length })}</h3>
+                <p className="drawing-selection-type">
+                    {single
+                        ? t('sidebar.selectedCount', { count: 1 })
+                        : typeSummary.map(({ type, count }) => t('sidebar.typeCount', { type: entityTypeLabel(type, t), count })).join(' · ')}
+                </p>
+            </header>
             {selected.length > DRAWING_GRIP_OBJECT_LIMIT && <p className="drawing-sidebar-empty" role="status">{t('sidebar.largeSelectionGrips', { limit: DRAWING_GRIP_OBJECT_LIMIT })}</p>}
-            {single && <p className="drawing-selection-type">{t('sidebar.type')} : <strong>{entityTypeLabel(single.type, t)}</strong></p>}
-            <label className="drawing-sidebar-check">
-                <Input type="checkbox" checked={selected.every(entity => entity.locked)} onChange={event => setLocked(event.target.checked)} />
-                {t('sidebar.lockSelection', { count: selected.length })}
-            </label>
-            <label className="drawing-sidebar-field">
-                <span>{t('sidebar.layer')}</span>
-                <Select disabled={selectionLocked} value={single?.layerId || ''} onChange={event => setSelected(entity => ({ ...entity, layerId: event.target.value }))}>
-                    {!single && <option value="">{t('sidebar.multipleLayers')}</option>}
-                    {content.layers.map(layer => <option key={layer.id} value={layer.id}>{layer.name}</option>)}
-                </Select>
-            </label>
+            <section className="drawing-properties-section">
+                <h4>{t('sidebar.general')}</h4>
+                <label className="drawing-sidebar-field">
+                    <span>{t('sidebar.layer')}</span>
+                    <Select disabled={selectionLocked} value={commonLayerId} onChange={event => setSelected(entity => ({ ...entity, layerId: event.target.value }))}>
+                        {!commonLayerId && <option value="">{t('sidebar.multipleLayers')}</option>}
+                        {content.layers.map(layer => <option key={layer.id} value={layer.id}>{layer.name}</option>)}
+                    </Select>
+                </label>
+                <DrawingEntityAppearanceFields
+                    content={content}
+                    disabled={selectionLocked}
+                    entities={selected}
+                    onUpdate={setSelected}
+                    showHeading={false}
+                    t={t}
+                />
+                <label className="drawing-sidebar-check">
+                    <Input type="checkbox" checked={selected.every(entity => entity.locked)} onChange={event => setLocked(event.target.checked)} />
+                    {t('sidebar.lockSelection', { count: selected.length })}
+                </label>
+            </section>
+            {geometryMount}
+            {selected.every(entity => isDrawingDimensionEntity(entity)) && <DrawingDimensionCommonFields content={content} dimensions={selected} disabled={selectionLocked} onUpdate={setSelected} t={t} />}
             {single?.type === 'blockReference' && <DrawingBlockAttributeFields content={content} reference={single} disabled={selectionLocked} onCommit={onCommit} t={t} />}
             {single?.type === 'blockReference' && <DrawingBlockParameterFields content={content} reference={single} disabled={selectionLocked} onCommit={onCommit} t={t} />}
-            {single && <DrawingHyperlinkFields content={content} entity={single} disabled={selectionLocked} onCommit={onCommit} />}
-            <DrawingEntityAppearanceFields
-                content={content}
-                disabled={selectionLocked}
-                entities={selected}
-                onUpdate={setSelected}
-                t={t}
-            />
             {single && isDrawingDimensionEntity(single) && !qdimSeriesAnchor && (
                 <DrawingDimensionFields
                     automaticBreakTruncated={Boolean(single.dimensionAutoBreak && presentDrawingDimension(getDimensionGeometry(single, createDimensionSourceMap(content.entities, content.blocks, content)), single)?.automaticBreakTruncated)}
                     dimension={single}
+                    sources={getDrawingDimensionSourceMap(content)}
                     disabled={selectionLocked}
                     onChange={(nextDimension, patch) => setSelected(() => retainDimensionStyleOverrides(nextDimension, patch))}
                     t={t}
+                    userSettings={drawingUserSettings(content.settings, yAxisUp)}
                 />
             )}
             {qdimSeries.length > 0 && (
@@ -398,6 +395,11 @@ function SelectionPanel({ content, selectedIds, onCommit, t }) {
                         {t('sidebar.includeReferenceInPdf')}
                     </label>
                 </>
+            )}
+            {single && (
+                <Disclosure className="drawing-creation-details drawing-properties-link" label={single.hyperlink ? t('hyperlink.titleSet') : t('hyperlink.title')}>
+                    <DrawingHyperlinkFields content={content} entity={single} disabled={selectionLocked} onCommit={onCommit} />
+                </Disclosure>
             )}
         </section>
     );

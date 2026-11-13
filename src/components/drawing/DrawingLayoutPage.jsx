@@ -5,12 +5,14 @@ import { inverseAffineViewBox, rotationAffineMatrix } from '~utils/drawingBlocks
 import DrawingScene from '~components/drawing/DrawingScene';
 import {
     applyDrawingViewportDisplaySettings,
-    getDrawingLayoutDimensionTextSize,
     getDrawingPaperSize,
     getDrawingPrintableArea,
     getDrawingViewportClipPoints,
+    getDrawingViewportScale,
 } from '~utils/drawingLayouts';
+import { formatDrawingScaleLabel } from '~utils/drawingSheetSetup';
 import { getDrawingBounds } from '~utils/drawingGeometry';
+import { defaultDimensionTextSize } from '~utils/drawingDimensionStyles';
 import {
     applyDrawingPlotStyle,
     normalizeDrawingPlotSettings,
@@ -163,10 +165,8 @@ function DrawingLayoutViewport({ assets, content, handleSize, interactive, plotS
         () => applyDrawingPlotStyle(applyDrawingViewportDisplaySettings(content, viewport), plotStyle),
         [content, plotStyle, viewport],
     );
-    const dimensionTextSize = Math.max(
-        0.0001,
-        viewBox.width / viewport.width * getDrawingLayoutDimensionTextSize(null, viewport),
-    );
+    // Dimensions without a stored size use the current style, as in the model, so the plan scale governs them.
+    const dimensionTextSize = defaultDimensionTextSize(content);
     const centerX = viewBox.x + viewBox.width / 2;
     const centerY = viewBox.y + viewBox.height / 2;
     const visualStyle = viewport.visualSettings?.style || 'normal';
@@ -212,6 +212,15 @@ function DrawingLayoutViewport({ assets, content, handleSize, interactive, plotS
                         data-layout-viewport-id={viewport.id}
                         points={clipPointString}
                     />
+                    <text
+                        className="drawing-layout-viewport-scale-label"
+                        x={viewport.x + handleSize * 0.6}
+                        y={viewport.y + handleSize * 1.5}
+                        fontSize={handleSize * 1.15}
+                        aria-hidden="true"
+                    >
+                        {formatDrawingScaleLabel(getDrawingViewportScale(viewport))}
+                    </text>
                     {selected && <ViewportHandles viewport={viewport} size={handleSize} />}
                 </>
             )}

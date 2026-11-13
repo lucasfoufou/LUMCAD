@@ -63,3 +63,21 @@ The new `.github/workflows/desktop-checks.yml` runs frontend/Rust checks and com
 ## Unattended follow-up
 
 The native executable built from the headless implementation was launched with `--headless` on this macOS host. MCP created a line with exact coordinates, saved/reopened a temporary `.lcad` with unchanged geometry, and generated two mixed-format PDF pages. PDF.js independently recovered the expected paper labels and verified reversed page ordering. Relative save paths, missing input files, nonexistent layout IDs and dialog-only Save As were refused. Unknown-layout publication preserved the existing output bytes. An invalid startup drawing exits with a diagnostic and status 1. The process used temporary destinations and was terminated after the test. See `npm run test:headless` and HEADLESS.md for the repeatable check. Windows/Linux headless acceptance remains pending.
+
+## UX overhaul — 2026-11-13 (native acceptance pending)
+
+The overhaul recorded in UX_AUDIT.md was verified in Chrome only (unit tests, the browser end-to-end suite, Rust tests and the headless script). None of the rows below has been executed in a native window; do not mark them as passed without running them.
+
+| Workflow | What to check |
+| --- | --- |
+| File menu on Windows, Linux and macOS | Every entry works; Ctrl/Cmd+S, Ctrl/Cmd+, and F1; the macOS Drawing menu entries Save, Import, Export and Print / PDF; Cmd+, is not handled twice with the native accelerator. |
+| Open a `.dwg` and a `.dxf` | A new drawing named after the file is created and imported; without LibreDWG the message offers "Open DWG settings" and that button opens the right section. |
+| Browse buttons in Settings | Native folder and file pickers for the LibreDWG folder and the new-drawing template. |
+| First launch language | With no `settings.json`, the interface follows the system language (WebView2 and WKWebView); an explicit choice is never overwritten. |
+| Bundled LibreDWG lookup | With a `libredwg` folder in the application resources, Settings reports it as found; a folder typed in Settings still wins. |
+| Canvas input | Space as Enter, right click and the context menu, Ctrl/Cmd+A, drag selection window in WebView2 and WKWebView. |
+| Text editing | One click places a text and focuses the editor; clicking elsewhere commits; the same on a layout sheet. |
+| Dimension placement and grips | Placement preview, text grip, hover states. |
+| Manager windows | Dragging the header, Escape, the collapsed panel (`:has()` selector), restricted layer states (`color-mix()`), the colour swatch input. |
+| Y axis setting | Toggle in Settings › Drawing, persistence in `settings.json`, an ordinate dimension in a published PDF. |
+| Print / PDF | Page-setup step, title block, system print dialog preselecting the sheet size. |

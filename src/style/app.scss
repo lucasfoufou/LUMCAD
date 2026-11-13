@@ -1,6 +1,7 @@
 @use "./tokens.scss";
 @use "./app/ui.scss";
 @use "./app/editorShell.scss";
+@use "./app/editorFile.scss";
 @use "./app/drawingEditor.scss";
 @use "./app/drawingLayout.scss";
 @use "./app/drawingArrayControls.scss";
@@ -8,6 +9,7 @@
 @use "./app/drawingPublish.scss";
 @use "./app/drawingTextEditor.scss";
 @use "./app/drawingTextStylesPanel.scss";
+@use "./app/drawingAnnotationScale.scss";
 @use "./app/settings.scss";
 
 :root {

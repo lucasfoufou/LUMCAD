@@ -5,7 +5,7 @@ import { beginDrawingSketch, appendDrawingSketch, drawingSketchEntities } from '
 import { previewDrawingLinework } from '~utils/drawingLinework';
 import { createPortal } from 'react-dom';
 import DrawingCoordinateOverlay from '~components/drawing/DrawingCoordinateOverlay';
-import { drawingPointWithinLimits } from '~utils/drawingCoordinates';
+import { drawingPointWithinLimits, drawingUserSettings, formatDrawingPolarMeasure } from '~utils/drawingCoordinates';
 import { isDrawingLayerVisible } from '~utils/drawingLayers';
 import { editDrawingLeaderGrip } from '~utils/drawingLeaders';
 import { namedDrawingViewBox } from '~utils/drawingNamedViews';
@@ -70,7 +70,6 @@ import {
     getInteractiveOperationPointMode,
     getTrimExtendPointMode,
     isDimensionableDrawingEntity,
-    isDimensionPointSnap,
     isDrawingTextInput,
 } from '~utils/drawingInteraction';
 import { buildSplineCreationEntity, buildSplineCreationPreview, MAX_SPLINE_CREATION_POINTS } from '~utils/drawingSplineCreation';
@@ -84,11 +83,13 @@ import {
 } from '~utils/drawingDimensionCommands';
 import {
     applyDrawingCreationMode,
+    storedDrawingCreationConfig,
     buildArcCreationEntity,
     buildCircleCreationEntity,
     buildRectangleCreationEntity,
     buildRegularPolygonCreationEntity,
     createDefaultDrawingCreationConfig,
+    getDrawingCreationModeLabelKey,
     parseDrawingCreationInput,
 } from '~utils/drawingCreation';
 import {
@@ -110,11 +111,14 @@ import {
 import { isOrthoTrackingEnabled } from '~utils/drawingDraftingSettings';
 import { createExtendPreviewEntities, createTrimPreviewEntities } from '~utils/drawingTrimOperations';
 import { getOperationOrthogonalOrigin } from '~utils/drawingOperationOptions';
-import { drawingDynamicInputAnchor } from '~utils/drawingPrecisionInput';
+import { drawingDynamicInputAnchor, drawingDynamicInputPointerAnchor } from '~utils/drawingPrecisionInput';
 import { createStretchPreviewEntities } from '~utils/drawingStretchOperations';
 import { drawingViewBoxScreenTransform, drawingVisibleViewBox, scaleDrawingViewBox, zoomDrawingViewBox } from '~utils/drawingViewport';
 import { drawingTextFontSizeToPixels, resolveDrawingTextStyle, normalizeDrawingTextEntity } from '~utils/drawingText';
 import useStableArray from '~hooks/useStableArray';
+import { commitPendingDrawingText, createPendingDrawingText, singleClickTextFrame } from '~utils/drawingTextPlacement';
+import { defaultDimensionTextSize } from '~utils/drawingDimensionStyles';
+import { dimensionNeedsPlacement, dimensionWithTypedOffset, parseDimensionToolInput, placeDimensionAtPoint, resolveDimensionPickTarget, styledDimensionDraft, withDefaultDimensionPlacement } from '~utils/drawingDimensionPlacement';
 
 const VIEW_RENDER_SETTLE_MS = 120;
 const VIEW_RENDER_MAX_WAIT_MS = 300;
@@ -146,9 +150,17 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     onEntityCreated = null,
     dynamicInput = null,
     backgroundContext = null,
+    onContextAction = null,
+    onKeyboardEnter = null,
+    onGestureStart = null,
+    yAxisUp = false,
+    getInputYAxisUp = () => false,
 }, forwardedRef) {
-    const { t } = useI18n();
+    const { t, locale } = useI18n();
     const svgRef = useRef(null);
+    // Last pointer position in canvas pixels: the dynamic input follows the real
+    // pointer, not the snapped point, so it never sits under the cursor.
+    const pointerPixelRef = useRef(null);
     const wrapperRef = useRef(null);
     // Client rectangle of the canvas, refreshed on resize/scroll and pointer entry.
     // Reading it per pointer move would force a synchronous layout of the whole scene.
@@ -164,13 +176,22 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const [gesture, setGesture] = useState(null);
     const [hoverSnap, setHoverSnap] = useState(null);
     const [hoveredEntityId, setHoveredEntityId] = useState(null);
+    const [dimensionPickMode, setDimensionPickMode] = useState('object');
+    const dimensionHoverPromptRef = useRef(null);
+    useEffect(() => { dimensionHoverPromptRef.current = null; }, [activeTool, gesture]);
+    useEffect(() => { if (activeTool !== 'dimension') setDimensionPickMode('object'); }, [activeTool]);
     const [trackingAnchors, setTrackingAnchors] = useState([]);
     const [temporaryTrackingPointMode, setTemporaryTrackingPointMode] = useState(false);
     const [operationPoint, setOperationPoint] = useState(null);
     const [operationShift, setOperationShift] = useState(false);
     const [spacePressed, setSpacePressed] = useState(false);
+    const spaceTapRef = useRef(false);
+    const onKeyboardEnterRef = useRef(onKeyboardEnter);
+    onKeyboardEnterRef.current = onKeyboardEnter;
     const [editingTextId, setEditingTextId] = useState(null);
     const [editingTextInitialSelection, setEditingTextInitialSelection] = useState(null);
+    // A text placed with the tool exists only in its editor until it receives some text.
+    const [pendingText, setPendingText] = useState(null);
     const initialCreationConfigRef = useRef(createDefaultDrawingCreationConfig(activeTool));
     const [creationMode, setCreationMode] = useState(initialCreationConfigRef.current.mode);
     const [creationOptions, setCreationOptions] = useState(initialCreationConfigRef.current.options);
@@ -179,8 +200,9 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
     const entityById = useMemo(() => new Map(content.entities.map(entity => [entity.id, entity])), [content.entities]);
     const editingText = useMemo(() => (
-        content.entities.find(entity => entity.id === editingTextId && entity.type === 'text') || null
-    ), [content.entities, editingTextId]);
+        content.entities.find(entity => entity.id === editingTextId && entity.type === 'text')
+            || (pendingText?.id === editingTextId ? pendingText : null)
+    ), [content.entities, editingTextId, pendingText]);
 
     useEffect(() => {
         if (editingTextId && !editingText) {
@@ -218,12 +240,17 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         const onKeyDown = event => {
             if (event.code === 'Space' && !isDrawingTextInput(event.target)) {
                 event.preventDefault();
+                if (!event.repeat) spaceTapRef.current = !document.querySelector('[role="dialog"][aria-modal="true"]');
                 setSpacePressed(true);
             }
             if (event.key === 'Escape') setGesture(null);
         };
         const onKeyUp = event => {
-            if (event.code === 'Space') setSpacePressed(false);
+            if (event.code !== 'Space') return;
+            setSpacePressed(false);
+            // A Space tap without panning acts as Enter, as in AutoCAD.
+            if (spaceTapRef.current && !isDrawingTextInput(event.target)) onKeyboardEnterRef.current?.();
+            spaceTapRef.current = false;
         };
         window.addEventListener('keydown', onKeyDown);
         window.addEventListener('keyup', onKeyUp);
@@ -337,6 +364,14 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const commitCreationEntity = entity => {
         if (!entity) return false;
         const nextEntity = { ...entity, id: entity.id === 'draft' ? createDrawingId(entity.type) : entity.id };
+        if (nextEntity.type === 'text' && creationOptions?.text === undefined) {
+            setPendingText(createPendingDrawingText(nextEntity));
+            setEditingTextInitialSelection({ start: 0, end: 0 });
+            setEditingTextId(nextEntity.id);
+            setGesture(null);
+            onStatus?.(t('textEditor.typePrompt'));
+            return true;
+        }
         onCommit(
             addEntity(content, nextEntity),
             nextEntity.type === 'text' ? { coalesceKey: `text-edit-${nextEntity.id}` } : undefined,
@@ -369,10 +404,12 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         if (mode === 'tangentTangentRadius') return t(pointCount < 2 ? 'canvas.circleTangentTarget' : 'canvas.circleTangentRadius');
         if (mode === 'tangentTangentTangent') return t('canvas.circleTangentTarget');
         if (activeTool === 'polygon') return t('canvas.polygonSecondPoint');
+        if (activeTool === 'line') return t('canvas.lineNextPoint');
+        if (activeTool === 'rectangle') return t('canvas.rectangleSecondCorner');
         return t(activeTool === 'circle' ? 'canvas.circleSecondPoint' : 'canvas.secondPoint');
     };
 
-    const handleCreationPoint = (point, targetId = null) => {
+    const handleCreationPoint = (point, targetId = null, { pointer = false } = {}) => {
         const target = content.entities.find(entity => entity.id === targetId);
         const tangentMode = activeTool === 'circle'
             && ['tangentTangentRadius', 'tangentTangentTangent'].includes(creationMode);
@@ -450,6 +487,10 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                     ? points.length >= 3 || (points.length >= 2 && Number.isFinite(nextGesture.options.radius))
                     : false
         );
+        if (pointer && activeTool === 'text' && nextGesture.options.textMode !== 'multiline' && points.length === 1) {
+            // A single-line text is placed with one click and typed in place; typed points still give a frame.
+            return commitCreationEntity(buildCreationEntity(nextGesture, singleClickTextFrame(point, nextGesture.options, content.textStyles)));
+        }
         const completes = activeTool === 'line' || activeTool === 'text'
             ? points.length >= 2
             : activeTool === 'arc' && ['startCenterAngle', 'startEndRadius'].includes(creationMode)
@@ -486,6 +527,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     };
 
     const submitCreationInputForTool = (tool, rawValue) => {
+        if (tool === 'dimension' && tool === activeTool) return submitDimensionToolInput(rawValue);
         if (!drawingTools.has(tool) || ['point', 'line', 'xline', 'ray', 'text'].includes(tool)) return false;
         if (tool === 'spline' && tool === activeTool && ['', 'DONE'].includes(String(rawValue).trim().toUpperCase())) {
             const entity = gesture?.kind === 'draw' && gesture.tool === 'spline'
@@ -501,7 +543,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         const current = tool === activeTool
             ? { mode: creationMode, options: creationOptions }
             : remembered;
-        const next = applyDrawingCreationMode(tool, current, rawValue);
+        const next = storedDrawingCreationConfig(applyDrawingCreationMode(tool, current, rawValue), parsed,
+            drawingUserSettings(content.settings, getInputYAxisUp()));
         rememberedCreationConfigsRef.current.set(tool, next);
         if (tool !== activeTool) {
             pendingCreationRef.current = {
@@ -516,7 +559,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 setCreationOptions(next.options || {});
             }
             setGesture(null);
-            onStatus?.(t('canvas.creationModeSet', { mode: String(parsed.mode) }));
+            const modeLabelKey = getDrawingCreationModeLabelKey(tool, parsed.mode);
+            onStatus?.(t('canvas.creationModeSet', { mode: modeLabelKey ? t(modeLabelKey) : String(parsed.mode) }));
         } else {
             if (tool === activeTool) setCreationOptions(next.options || {});
             onStatus?.(t('canvas.creationOptionsSet'));
@@ -533,6 +577,39 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         onStatus?.(t(statusKey));
         setGesture(null);
         return true;
+    };
+
+    // A new dimension follows the pointer until its line is placed (click) or accepted (Enter).
+    const beginDimensionPlacement = (dimension, statusKey = 'canvas.associativeDimensionAdded') => {
+        if (!dimension) return false;
+        if (!dimensionNeedsPlacement(dimension)) return commitDimensionEntity(dimension, statusKey);
+        const sources = drawingDimensionSources(content, dimension);
+        setGesture({ kind: 'dimension', dimensionKind: 'placement', dimension: withDefaultDimensionPlacement(content, dimension, sources),
+            sourceIds: getDrawingEntityDependencyIds(dimension), statusKey, current: null });
+        onStatus?.(t('canvas.dimensionPlacementPrompt'));
+        return true;
+    };
+
+    const submitDimensionToolInput = rawValue => {
+        const parsed = parseDimensionToolInput(rawValue);
+        if (!parsed) return false;
+        if (parsed.kind === 'pickMode') {
+            if (gesture?.dimensionKind === 'placement') return false;
+            setGesture(null);
+            setDimensionPickMode(parsed.mode);
+            onStatus?.(t(parsed.mode === 'points' ? 'canvas.dimensionPointsMode' : 'canvas.dimensionObjectMode'));
+            return true;
+        }
+        if (gesture?.kind !== 'dimension' || gesture.dimensionKind !== 'placement') return false;
+        const sources = drawingDimensionSources(content, gesture.dimension);
+        const dimension = parsed.kind === 'accept'
+            ? gesture.dimension
+            : dimensionWithTypedOffset(gesture.dimension, parsed.value, sources, gesture.current);
+        if (!dimension) {
+            onStatus?.(t('canvas.dimensionPlacementPrompt'));
+            return true;
+        }
+        return commitDimensionEntity(dimension, gesture.statusKey);
     };
 
     const commitDimensionResult = result => {
@@ -579,8 +656,11 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 if (!commitDimensionResult(result)) onStatus?.(t('messages.dimensionSelectionRequired'));
                 return true;
             }
+            if (gesture?.dimensionKind === 'placement') {
+                return commitDimensionEntity(placeDimensionAtPoint(gesture.dimension, point, drawingDimensionSources(content, gesture.dimension)), gesture.statusKey);
+            }
             if (targetEntity?.type === 'arc') {
-                return commitDimensionEntity(createDimensionForEntity(content, targetEntity, config, hitPoint));
+                return beginDimensionPlacement(createDimensionForEntity(content, targetEntity, config, hitPoint));
             }
             if (targetEntity?.type === 'line') {
                 setGesture({
@@ -627,16 +707,19 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             return true;
         }
 
+        if (gesture?.kind === 'dimension' && gesture.dimensionKind === 'placement') {
+            return commitDimensionEntity(placeDimensionAtPoint(gesture.dimension, point, drawingDimensionSources(content, gesture.dimension)), gesture.statusKey);
+        }
         if (gesture?.kind === 'dimension') {
             const dimension = createFreeDimension(content, gesture.first, point, config);
-            const committed = commitDimensionEntity(dimension, 'canvas.freeDimensionAdded');
-            if (!committed) setGesture(null);
-            return committed;
+            const started = beginDimensionPlacement(dimension, 'canvas.freeDimensionAdded');
+            if (!started) setGesture(null);
+            return started;
         }
-        const dimension = isDimensionableDrawingEntity(targetEntity)
+        const dimension = resolveDimensionPickTarget(targetEntity, dimensionPickMode)
             ? createDimensionForEntity(content, targetEntity, config, hitPoint)
             : null;
-        if (dimension) return commitDimensionEntity(dimension);
+        if (dimension) return beginDimensionPlacement(dimension);
         if (['arcLength', 'radius', 'diameter', 'joggedRadius', 'centerMark'].includes(mode)) {
             onStatus?.(t('messages.dimensionSelectionRequired'));
             return true;
@@ -815,6 +898,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         },
         cancel() {
             setGesture(null);
+            setPendingText(null);
             if (editingTextId) onEndCoalescing?.();
             setEditingTextId(null);
             setEditingTextInitialSelection(null);
@@ -1014,6 +1098,12 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
 
     const handlePointerDown = event => {
         if (event.button === 2) return;
+        if (editingTextId && event.button === 0) {
+            // Clicking outside the open text editor validates it; the click starts nothing else.
+            event.preventDefault();
+            document.activeElement?.blur?.();
+            return;
+        }
         const gripTarget = event.target.closest?.('[data-grip-id]');
         const gripId = gripTarget?.dataset?.gripId || null;
         const targetId = gripTarget?.dataset?.entityId || pickEntityId(event);
@@ -1021,6 +1111,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
 
         if (event.button === 1 || activeTool === 'pan' || spacePressed) {
             event.preventDefault();
+            spaceTapRef.current = false;
             svgRef.current.setPointerCapture(event.pointerId);
             setGesture({ kind: 'pan', clientX: event.clientX, clientY: event.clientY, viewBox });
             return;
@@ -1112,14 +1203,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         if (activeTool === 'dimension') {
             const snapped = snapPoint(event, [], gesture?.kind === 'dimension' ? gesture.first : null);
             showPointerFeedback(snapped);
-            const mode = normalizeCanvasDimensionMode(dimensionMode).mode;
-            const pointSnapPrefersFreeLinear = isDimensionPointSnap(snapped)
-                && ['auto', 'linear', 'aligned', 'horizontal', 'vertical', 'rotated'].includes(mode);
-            handleDimensionPoint(
-                snapped,
-                isDimensionableDrawingEntity(targetEntity) && !pointSnapPrefersFreeLinear ? targetEntity : null,
-                worldPoint(event),
-            );
+            handleDimensionPoint(snapped, resolveDimensionPickTarget(targetEntity, dimensionPickMode), worldPoint(event));
             return;
         }
 
@@ -1131,11 +1215,14 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             }
             const finalPoint = snapPoint(event, [], gestureReferenceOrigin(gesture));
             showPointerFeedback(finalPoint);
-            handleCreationPoint(finalPoint, targetId);
+            if (activeTool === 'text') event.preventDefault(); // Keep the browser from moving focus away from the editor about to open.
+            handleCreationPoint(finalPoint, targetId, { pointer: true });
             return;
         }
 
         if (activeTool === 'select' || interactiveOperation?.stage === 'select') {
+            // A new selection or grip gesture replaces whatever the last command reported.
+            if (!interactiveOperation && gesture?.kind !== 'select-window') onGestureStart?.();
             if (gesture?.kind === 'select-window') {
                 event.preventDefault();
                 completeSelectionWindow(worldPoint(event));
@@ -1169,11 +1256,15 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 return;
             }
             const start = worldPoint(event);
+            svgRef.current?.setPointerCapture?.(event.pointerId);
             setGesture({
                 kind: 'select-window',
                 start,
                 current: start,
                 operation: event.shiftKey ? 'remove' : 'add',
+                // Press-drag-release confirms on release; a plain click keeps
+                // the AutoCAD click-click window (second click confirms).
+                pressedAt: { x: event.clientX, y: event.clientY },
             });
             setHoverSnap(null);
             return;
@@ -1181,6 +1272,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     };
 
     const handlePointerMove = event => {
+        const pointerRect = canvasRectRef.current;
+        if (pointerRect) pointerPixelRef.current = { x: event.clientX - pointerRect.left, y: event.clientY - pointerRect.top };
         if (gesture?.kind === 'sketch') {
             const point = worldPoint(event);
             if (drawingPointWithinLimits(point, content.settings)) setGesture(current => current?.kind === 'sketch' ? { ...current, sketch: appendDrawingSketch(current.sketch, point) } : current);
@@ -1283,8 +1376,16 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         const targetId = pickEntityId(event);
         const target = targetId ? entityById.get(targetId) : null;
         const selectionHover = activeTool === 'select' && target && canSelectEntity(content, target);
-        const dimensionHover = activeTool === 'dimension' && isDimensionableDrawingEntity(target) && !isDimensionPointSnap(snapped);
+        const dimensionHover = activeTool === 'dimension' && !gesture && Boolean(resolveDimensionPickTarget(target, dimensionPickMode));
         setHoveredEntityId(selectionHover || dimensionHover ? targetId : null);
+        if (activeTool === 'dimension' && !gesture && ['auto', 'linear', 'aligned', 'horizontal', 'vertical', 'rotated'].includes(normalizeCanvasDimensionMode(dimensionMode).mode)) {
+            // The prompt announces which mode a click will use, only when that changes.
+            const promptKey = dimensionHover ? 'canvas.dimensionPickObjectHint' : dimensionPickMode === 'points' ? 'canvas.dimensionPointsMode' : 'canvas.dimensionPickPointHint';
+            if (dimensionHoverPromptRef.current !== promptKey) {
+                dimensionHoverPromptRef.current = promptKey;
+                onStatus?.(t(promptKey));
+            }
+        }
     };
 
     const handlePointerUp = event => {
@@ -1294,8 +1395,10 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             return;
         }
         if (gesture?.kind === 'select-window') {
-            // Selection windows are confirmed by a second click, not by button
-            // release, so pointer-up intentionally leaves the preview active.
+            if (svgRef.current?.hasPointerCapture(event.pointerId)) svgRef.current.releasePointerCapture(event.pointerId);
+            if (!gesture.pressedAt) return;
+            if (isSelectionDrag(gesture.pressedAt, event)) completeSelectionWindow(worldPoint(event));
+            else setGesture(current => current?.kind === 'select-window' ? { ...current, pressedAt: null } : current);
             return;
         }
         if (gesture && !drawingPointWithinLimits(worldPoint(event), content.settings)) {
@@ -1334,6 +1437,19 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             return;
         }
         if (svgRef.current?.hasPointerCapture(event.pointerId)) svgRef.current.releasePointerCapture(event.pointerId);
+    };
+
+    // Right click: Enter while a command or a tool runs (ends LINE, confirms),
+    // otherwise the canvas menu. An open selection window is simply dropped.
+    const handleContextMenu = event => {
+        event.preventDefault();
+        if (gesture?.kind === 'select-window') { setGesture(null); return; }
+        if (gesture?.kind === 'pan' || gesture?.kind === 'grip') return;
+        onContextAction?.({
+            clientX: event.clientX,
+            clientY: event.clientY,
+            busy: Boolean(interactiveOperation || activeTool !== 'select' || gesture),
+        });
     };
 
     const handleWheel = event => {
@@ -1517,7 +1633,11 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 options: { ...(gesture.options || {}), ...(creationOptions || {}) },
             })
         : gesture?.kind === 'dimension'
-            ? dimensionGestureDraft(gesture, content.activeLayerId)
+            ? gesture.dimensionKind === 'placement'
+                ? styledDimensionDraft(content, { ...(gesture.current
+                    ? placeDimensionAtPoint(gesture.dimension, gesture.current, drawingDimensionSources(content, gesture.dimension))
+                    : gesture.dimension), id: 'dimension-draft' })
+                : dimensionGestureDraft(gesture, content.activeLayerId)
             : gesture?.kind === 'trim-fence'
                 ? { id: 'trim-fence-draft', type: 'polyline', layerId: content.activeLayerId,
                     points: [...(gesture.points || [gesture.start]), gesture.current], closed: false }
@@ -1562,7 +1682,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         ...(clipboardPreview?.entities || []), ...offsetPreview,
         ...copyPreview, ...transformCopyPreview, ...trimPreviewEntities, ...extendPreviewEntities].filter(Boolean);
     const markerSize = worldUnitsPerPixel * 12;
-    const gripSize = renderedUnitsPerPixel * 9;
+    const gripSize = renderedUnitsPerPixel * 11;
     const stretchSelectionWindow = interactiveOperation?.type === 'stretch'
         && interactiveOperation.stage === 'stretch-window-second'
         && interactiveOperation.windowStart && operationPoint
@@ -1621,17 +1741,28 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const sceneHighlightedIds = useStableArray(highlightedIds);
     const sceneHitOnlyIds = useStableArray(cornerHiddenIds);
     const sceneHiddenIds = useStableArray([...previewHiddenIds, ...(editingText ? [editingText.id] : [])]);
+    const unstyledDimensionTextSize = useMemo(() => defaultDimensionTextSize(content), [content.dimensionStyles, content.activeDimensionStyleId]);
     const sceneContent = useMemo(() => (clipboardPreview
         ? { ...previewContent, layers: clipboardPreview.content.layers, blocks: clipboardPreview.content.blocks }
         : previewContent), [clipboardPreview, previewContent]);
-    const dynamicInputVisible = Boolean(content.settings?.dynamicInput && dynamicInput && (
+    // Typing goes to the text editor while it is open, not to the dynamic input.
+    const dynamicInputVisible = Boolean(content.settings?.dynamicInput && dynamicInput && !editingText && (
         drawingTools.has(activeTool)
         || activeTool === 'dimension'
         || (interactiveOperation && interactiveOperation.stage !== 'select')
     ));
     const dynamicInputPoint = gesture?.current || operationPoint;
-    const dynamicInputPosition = dynamicInputVisible
-        ? drawingDynamicInputAnchor(dynamicInputPoint, viewBox, canvasSize)
+    // Rubber-band length and angle from the previous point (or the grip origin).
+    const measureOrigin = gesture?.kind === 'grip' ? gesture.origin
+        : gestureReferenceOrigin(gesture) || (gesture ? null : getOperationOrthogonalOrigin(interactiveOperation));
+    const dynamicInputMeasure = content.settings?.dynamicInput && (dynamicInputVisible || gesture?.kind === 'grip')
+        && measureOrigin && dynamicInputPoint
+        ? formatDrawingPolarMeasure(measureOrigin, dynamicInputPoint, drawingUserSettings(content.settings, yAxisUp), locale)
+        : '';
+    const dynamicInputPosition = dynamicInputVisible || dynamicInputMeasure
+        ? drawingDynamicInputPointerAnchor(pointerPixelRef.current, canvasSize, {
+            width: dynamicInputVisible ? 200 : 140, height: dynamicInputVisible && dynamicInputMeasure ? 58 : 34,
+        }) || (dynamicInputVisible ? drawingDynamicInputAnchor(dynamicInputPoint, viewBox, canvasSize) : null)
         : null;
 
     const blurCreationControlBeforeDrawing = event => {
@@ -1686,17 +1817,18 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                     setHoverSnap(null);
                 }}
                 onWheel={handleWheel}
-                onContextMenu={event => event.preventDefault()}
+                onContextMenu={handleContextMenu}
                 role="application"
                 aria-label={t('canvas.area')}
             >
                 <DrawingGrid content={content} viewBox={renderedViewBox} worldUnitsPerPixel={renderedUnitsPerPixel} />
-                <DrawingCoordinateOverlay settings={content.settings} viewBox={renderedViewBox} worldUnitsPerPixel={renderedUnitsPerPixel} t={t} />
+                <DrawingCoordinateOverlay settings={content.settings} yAxisUp={yAxisUp} viewBox={renderedViewBox} worldUnitsPerPixel={renderedUnitsPerPixel} t={t} />
                 {backgroundContext && <g opacity="0.25" pointerEvents="none" aria-hidden="true" transform={affineMatrixToSvg(backgroundContext.transform)}>
                     <DrawingScene content={backgroundContext.content} assets={backgroundContext.assets}
                         viewBox={inverseAffineViewBox(renderedViewBox, backgroundContext.transform)} />
                 </g>}
                 <DrawingScene
+                    key={yAxisUp ? 'y-up' : 'y-down'}
                     content={sceneContent}
                     assets={clipboardPreview?.assets || assets}
                     selectedIds={selectedIds}
@@ -1704,7 +1836,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                     highlightedIds={sceneHighlightedIds}
                     interactive
                     hitShapes={false}
-                    dimensionTextSize={Math.max(0.18, renderedViewBox.width / 85)}
+                    dimensionTextSize={unstyledDimensionTextSize}
                     showGrips={activeTool === 'select' && !interactiveOperation}
                     gripSize={gripSize}
                     hiddenIds={sceneHiddenIds}
@@ -1722,7 +1854,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 aria-hidden="true"
             >
                 <DrawingDraftLayer content={sceneContent} assets={clipboardPreview?.assets || assets} draftEntities={sceneDraftEntities}
-                    dimensionTextSize={Math.max(0.18, viewBox.width / 85)} viewBox={viewBox} />
+                    dimensionTextSize={unstyledDimensionTextSize} viewBox={viewBox} />
                 <DrawingHighlightLayer content={sceneContent} entityId={hoverHighlightId} viewBox={viewBox} />
                 <DrawingInteractionOverlay
                     selectionWindow={selectionWindow}
@@ -1749,6 +1881,19 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                     style={textEditorStyle.root}
                     contentStyle={textEditorStyle.content}
                     onCommit={entity => {
+                        if (editingText === pendingText) {
+                            // An empty new text creates nothing; otherwise it is added in one undo step.
+                            const created = commitPendingDrawingText(content, entity);
+                            if (created) {
+                                onCommit(created);
+                                onSelectionChange([entity.id]);
+                            }
+                            setPendingText(null);
+                            setEditingTextId(null);
+                            setEditingTextInitialSelection(null);
+                            onStatus?.(t(created ? 'textEditor.committed' : 'textEditor.emptyDiscarded'));
+                            return;
+                        }
                         if (JSON.stringify(entity) !== JSON.stringify(editingText)) {
                             onCommit(
                                 updateSelectedEntities(content, [editingText.id], () => entity),
@@ -1761,6 +1906,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                         onStatus?.(t('textEditor.committed'));
                     }}
                     onCancel={() => {
+                        setPendingText(null);
                         setEditingTextId(null);
                         setEditingTextInitialSelection(null);
                         onEndCoalescing?.();
@@ -1771,11 +1917,14 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             <DrawingDynamicInput
                 {...dynamicInput}
                 anchor={dynamicInputPosition}
-                enabled={dynamicInputVisible}
+                enabled={dynamicInputVisible || Boolean(dynamicInputMeasure)}
+                measure={dynamicInputMeasure}
+                inputVisible={dynamicInputVisible}
             />
             {!editingText && creationControlsTarget && createPortal(
                 <DrawingCreationControls
                     content={content}
+                    yAxisUp={yAxisUp}
                     key={editEntity?.id || activeTool}
                     operation={interactiveOperation}
                     commandInput={dynamicInput}
@@ -1845,6 +1994,12 @@ function dimensionGestureDraft(gesture, layerId) {
         x2: gesture.current.x,
         y2: gesture.current.y,
     };
+}
+
+const SELECTION_DRAG_PIXELS = 5;
+
+function isSelectionDrag(pressedAt, event) {
+    return Math.hypot(event.clientX - pressedAt.x, event.clientY - pressedAt.y) > SELECTION_DRAG_PIXELS;
 }
 
 function gestureReferenceOrigin(gesture) {

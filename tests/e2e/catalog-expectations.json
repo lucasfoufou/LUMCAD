@@ -20,7 +20,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "toolPrompt.circle"
     ]
   },
   "pdf": {
@@ -102,7 +102,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionPrompt"
+      "messages.radialDimensionPrompt"
     ]
   },
   "multiLeaderEdit": {
@@ -161,7 +161,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionPrompt"
+      "messages.arcDimensionPrompt"
     ]
   },
   "layerUnisolate": {
@@ -198,7 +198,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "toolPrompt.arc"
     ]
   },
   "xline": {
@@ -210,7 +210,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "toolPrompt.xline"
     ]
   },
   "layerStateSave": {
@@ -282,7 +282,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "toolPrompt.ellipse"
     ]
   },
   "polar": {
@@ -472,7 +472,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionPrompt"
+      "messages.angularDimensionPrompt"
     ]
   },
   "textToFront": {
@@ -574,14 +574,14 @@
   },
   "quickDimension": {
     "activeTool": "select",
-    "operation": null,
-    "stage": null,
+    "operation": "dimensionSelection",
+    "stage": "select",
     "workspace": "model",
     "layoutTool": null,
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionSelectionRequired"
+      "messages.quickDimensionSelectPrompt"
     ]
   },
   "multilineEdit": {
@@ -883,7 +883,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionPrompt"
+      "messages.radialDimensionPrompt"
     ]
   },
   "dimensionDisassociate": {
@@ -943,7 +943,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "messages.multilineTextPrompt"
     ]
   },
   "openSheetSet": {
@@ -977,19 +977,19 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "toolPrompt.point"
     ]
   },
   "baselineDimension": {
     "activeTool": "select",
-    "operation": null,
-    "stage": null,
+    "operation": "dimensionSelection",
+    "stage": "select",
     "workspace": "model",
     "layoutTool": null,
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionSelectionRequired"
+      "messages.dimensionSeriesSelectPrompt"
     ]
   },
   "convertColorTable": {
@@ -1121,7 +1121,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "toolPrompt.rectangle"
     ]
   },
   "textStyle": {
@@ -1145,7 +1145,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionPrompt"
+      "messages.ordinateDimensionPrompt"
     ]
   },
   "hatchToBack": {
@@ -1654,7 +1654,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionPrompt"
+      "messages.linearDimensionPrompt"
     ]
   },
   "distanceInquiry": {
@@ -1833,7 +1833,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionPrompt"
+      "messages.linearDimensionPrompt"
     ]
   },
   "countArea": {
@@ -1973,7 +1973,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "messages.textPrompt"
     ]
   },
   "modelSpace": {
@@ -2028,9 +2028,11 @@
     "stage": null,
     "workspace": "model",
     "layoutTool": null,
-    "message": "",
     "entities": 0,
-    "fileChooser": false
+    "fileChooser": false,
+    "messageKeys": [
+      "messages.nothingToRedo"
+    ]
   },
   "move": {
     "activeTool": "select",
@@ -2155,6 +2157,18 @@
     ]
   },
   "saveAs": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "entities": 0,
+    "fileChooser": false,
+    "messageKeys": [
+      "file.savedAs"
+    ]
+  },
+  "quickSave": {
     "activeTool": "select",
     "operation": null,
     "stage": null,
@@ -2340,7 +2354,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionPrompt"
+      "messages.centerMarkPrompt"
     ]
   },
   "multiline": {
@@ -2421,9 +2435,11 @@
     "stage": null,
     "workspace": "model",
     "layoutTool": null,
-    "message": "",
     "entities": 0,
-    "fileChooser": false
+    "fileChooser": false,
+    "messageKeys": [
+      "messages.nothingToUndo"
+    ]
   },
   "autoConstrain": {
     "activeTool": "select",
@@ -2599,7 +2615,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "toolPrompt.polygon"
     ]
   },
   "jpegOut": {
@@ -2647,7 +2663,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionPrompt"
+      "messages.radialDimensionPrompt"
     ]
   },
   "line": {
@@ -2659,7 +2675,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "toolPrompt.line"
     ]
   },
   "gcPerpendicular": {
@@ -2711,6 +2727,18 @@
       "layout.viewportMinimized"
     ]
   },
+  "viewportScale": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "entities": 0,
+    "fileChooser": false,
+    "messageKeys": [
+      "layout.viewportSelectionRequired"
+    ]
+  },
   "blockTable": {
     "activeTool": "select",
     "operation": null,
@@ -2745,7 +2773,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "toolPrompt.spline"
     ]
   },
   "recoverAll": {
@@ -2814,9 +2842,11 @@
     "stage": null,
     "workspace": "model",
     "layoutTool": null,
-    "message": "",
     "entities": 0,
-    "fileChooser": false
+    "fileChooser": false,
+    "messageKeys": [
+      "zoom.factorDone"
+    ]
   },
   "tableStyle": {
     "activeTool": "select",
@@ -2881,14 +2911,14 @@
   },
   "continueDimension": {
     "activeTool": "select",
-    "operation": null,
-    "stage": null,
+    "operation": "dimensionSelection",
+    "stage": "select",
     "workspace": "model",
     "layoutTool": null,
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionSelectionRequired"
+      "messages.dimensionSeriesSelectPrompt"
     ]
   },
   "countTable": {
@@ -2924,7 +2954,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "layerManager.invalid"
+      "layerManager.opened"
     ]
   },
   "referenceEdit": {
@@ -3084,9 +3114,11 @@
     "stage": null,
     "workspace": "model",
     "layoutTool": null,
-    "message": "",
     "entities": 0,
-    "fileChooser": false
+    "fileChooser": false,
+    "messageKeys": [
+      "messages.deleteSelectionRequired"
+    ]
   },
   "ray": {
     "activeTool": "ray",
@@ -3097,7 +3129,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "toolPrompt.ray"
     ]
   },
   "blockImport": {
@@ -3260,7 +3292,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionPrompt"
+      "messages.linearDimensionPrompt"
     ]
   },
   "recover": {
@@ -3296,6 +3328,30 @@
     "message": "",
     "entities": 0,
     "fileChooser": false
+  },
+  "options": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "entities": 0,
+    "fileChooser": false,
+    "messageKeys": [
+      "messages.settingsOpened"
+    ]
+  },
+  "help": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "entities": 0,
+    "fileChooser": false,
+    "messageKeys": [
+      "commandPalette.opened"
+    ]
   },
   "overkill": {
     "activeTool": "select",
@@ -3523,6 +3579,28 @@
     "fileChooser": false,
     "messageKeys": [
       "cad.error.cadEmpty"
+    ]
+  },
+  "import": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": true
+  },
+  "export": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "entities": 0,
+    "fileChooser": false,
+    "messageKeys": [
+      "export.chooseFormat"
     ]
   }
 }

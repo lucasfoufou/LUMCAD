@@ -1,3 +1,4 @@
+import { drawingDisplayYAxisUp } from './drawingCoordinates.js';
 import { centerLineGeometry } from './drawingCenterLines.js';
 import { remapDrawingField } from './drawingFieldDefinition.js';
 import { normalizeDimensionStyleValues } from './drawingDimensionStyles.js';
@@ -695,7 +696,9 @@ export function formatDrawingDimensionLabel(geometry, dimension = {}, locale = '
     if (!geometry || geometry.value === null || geometry.value === undefined) {
         return { lines: [], plainText: '', inspection: null };
     }
-    const formatted = formatDrawingDimensionMeasurement(geometry, dimension, locale);
+    // A Y ordinate shows a coordinate: with Y up it is read upwards like every other Y.
+    const flipOrdinate = geometry.kind === 'ordinate' && geometry.axis === 'y' && drawingDisplayYAxisUp() && geometry.value !== 0;
+    const formatted = formatDrawingDimensionMeasurement(flipOrdinate ? { ...geometry, value: -geometry.value } : geometry, dimension, locale);
     let lines = [...formatted.lines];
     if (lines.length && geometry.kind === 'radial') {
         lines[0] = `${geometry.mode === 'diameter' ? 'Ø ' : 'R '}${lines[0]}`;

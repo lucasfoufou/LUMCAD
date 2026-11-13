@@ -5,8 +5,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import DrawingLayoutPage from '~components/drawing/DrawingLayoutPage';
 import DrawingPublishRenderer from '~components/drawing/DrawingPublishRenderer';
+import DrawingSheetSetupPanel, { getDrawingSheetSetupDefaults } from '~components/drawing/DrawingSheetSetupPanel';
 import { useI18n } from '~i18n/I18nProvider';
 import { getDrawingPaperSize } from '~utils/drawingLayouts';
+import { drawingPaperFormatLabel, formatDrawingScaleLabel, getDrawingLayoutScaleDenominator } from '~utils/drawingSheetSetup';
 import {
     DRAWING_PLOT_AREA_MODES,
     DRAWING_PLOT_COLOR_MODES,
@@ -20,15 +22,19 @@ export default function DrawingPublishDialog({
     drawing,
     initialFormat = 'pdf',
     initialLayoutIds = [],
+    initialStep = 'auto',
     onApplySettings = null,
+    onApplySheetSetup = null,
+    onPreviewSheetSetup = null,
     onClose,
     onPublish,
     onSystemPrint,
     open,
     pageSetups = [],
 }) {
-    const { t } = useI18n();
+    const { locale, t } = useI18n();
     const [selectedIds, setSelectedIds] = useState([]);
+    const [setup, setSetup] = useState(null);
     const [previewId, setPreviewId] = useState(null);
     const [settings, setSettings] = useState(() => normalizeDrawingPlotSettings());
     const [marginsById, setMarginsById] = useState({});
@@ -55,13 +61,16 @@ export default function DrawingPublishDialog({
         const first = drawing.layouts.find(layout => layout.id === fallbackIds[0]) || drawing.layouts[0];
         setSelectedIds(fallbackIds);
         setPreviewId(first?.id || null);
+        setSetup(first && onApplySheetSetup && (initialStep === 'setup' || (!first.viewports.length && !first.paperEntities?.length))
+            ? getDrawingSheetSetupDefaults(first)
+            : null);
         setSettings(normalizeDrawingPlotSettings(first?.plotSettings));
         setMarginsById(Object.fromEntries(drawing.layouts.map(layout => [layout.id, { ...layout.margins }])));
         setFormat(initialFormat === 'dwfx' ? 'dwfx' : 'pdf');
         setRememberSettings(true);
         setBusy(false);
         setError('');
-    }, [drawing, initialFormat, initialLayoutIds, open]);
+    }, [drawing, initialFormat, initialLayoutIds, initialStep, onApplySheetSetup, open]);
 
 
 
@@ -71,11 +80,29 @@ export default function DrawingPublishDialog({
         .map(layout => ({ ...layout, margins: marginsById[layout.id] || layout.margins })),
     [drawing.layouts, marginsById, selectedSet]);
     const previewLayout = layouts.find(layout => layout.id === previewId) || layouts[0] || null;
+    const setupPreview = useMemo(() => setup && previewLayout && onPreviewSheetSetup
+        ? onPreviewSheetSetup(previewLayout.id, setup)?.layout || null
+        : null, [onPreviewSheetSetup, previewLayout?.id, setup]);
+    const shownLayout = setupPreview || previewLayout;
     const rasterSize = useMemo(() => previewLayout
         ? getDrawingRasterSize(previewLayout, settings.quality.rasterDpi)
         : null, [previewLayout, settings.quality.rasterDpi]);
 
     if (!open) return null;
+
+    const sheetSummary = layout => t('publish.sheetSummary', {
+        format: drawingPaperFormatLabel(layout),
+        orientation: t(`layout.sheetSetup.orientation.${layout.orientation}`),
+        scale: getDrawingLayoutScaleDenominator(layout)
+            ? formatDrawingScaleLabel(getDrawingLayoutScaleDenominator(layout), locale)
+            : t('publish.noViewport'),
+    });
+    const openSetup = () => previewLayout && setSetup(getDrawingSheetSetupDefaults(previewLayout));
+    const applySetup = () => {
+        if (!previewLayout || !setup) return;
+        onApplySheetSetup?.(previewLayout.id, setup);
+        setSetup(null);
+    };
 
     const updateNestedSettings = (key, patch) => setSettings(current => normalizeDrawingPlotSettings({
         ...current,
@@ -132,7 +159,6 @@ export default function DrawingPublishDialog({
             <section ref={dialogRef} className="drawing-publish-dialog" role="dialog" aria-modal="true" aria-labelledby="drawing-publish-title">
                 <header className="drawing-publish-header">
                     <div>
-                        <span>{t('publish.kicker')}</span>
                         <h1 id="drawing-publish-title">{t('publish.title')}</h1>
                     </div>
                     <Button type="button" onClick={onClose} disabled={busy} aria-label={t('publish.close')}>×</Button>
@@ -147,33 +173,47 @@ export default function DrawingPublishDialog({
                                     checked={selectedSet.has(layout.id)}
                                     onChange={() => toggleLayout(layout.id)}
                                 />
-                                <Button type="button" onClick={() => {
+                                <Button type="button" title={layout.name} onClick={() => {
                                     if (!selectedSet.has(layout.id)) toggleLayout(layout.id);
+                                    if (layout.id !== previewLayout?.id) setSetup(null);
                                     setPreviewId(layout.id);
                                 }}>
                                     <span>{layout.name}</span>
-                                    <small>{paperLabel(layout)}</small>
+                                    <small>{sheetSummary(layout)}</small>
                                 </Button>
                             </label>
                         ))}
                     </aside>
                     <div className="drawing-publish-preview">
-                        {previewLayout ? (
+                        {shownLayout ? (
                             <div className="drawing-publish-preview-sheet" style={{
-                                aspectRatio: `${getDrawingPaperSize(previewLayout).width} / ${getDrawingPaperSize(previewLayout).height}`,
+                                aspectRatio: `${getDrawingPaperSize(shownLayout).width} / ${getDrawingPaperSize(shownLayout).height}`,
                             }}>
                                 <DrawingLayoutPage
                                     assets={drawing.assets}
                                     content={drawing.content}
-                                    layout={previewLayout}
-                                    plotSettings={settings}
+                                    layout={shownLayout}
+                                    plotSettings={setup ? null : settings}
                                     role="img"
-                                    aria-label={t('publish.previewLabel', { name: previewLayout.name })}
+                                    aria-label={t('publish.previewLabel', { name: shownLayout.name })}
                                 />
                             </div>
                         ) : <p>{t('publish.noSheets')}</p>}
                     </div>
                     <aside className="drawing-publish-settings" aria-label={t('publish.settings')}>
+                        {setup && previewLayout ? (
+                            <DrawingSheetSetupPanel content={drawing.content} layout={previewLayout} value={setup} onChange={setSetup} />
+                        ) : (<>
+                        {previewLayout && (
+                            <div className="drawing-publish-summary">
+                                <strong>{previewLayout.name}</strong>
+                                <span>{sheetSummary(previewLayout)}</span>
+                                {!previewLayout.viewports.length && <p className="drawing-publish-help is-warning">{t('publish.noViewportHelp')}</p>}
+                                {onApplySheetSetup && <Button type="button" onClick={openSetup}>{t('publish.openSheetSetup')}</Button>}
+                            </div>
+                        )}
+                        <details className="drawing-publish-advanced">
+                        <summary>{t('publish.advanced')}</summary>
                         <PublishSelect label={t('publish.outputFormat')} value={format} onChange={setFormat}>
                             <option value="pdf">PDF</option>
                             <option value="dwfx">DWFx</option>
@@ -307,10 +347,21 @@ export default function DrawingPublishDialog({
                             <p className="drawing-publish-help">{t('publish.imageDpiHelp')}</p>
                         </fieldset>
                         <PublishToggle checked={rememberSettings} label={t('publish.remember')} onChange={setRememberSettings} />
+                        </details>
+                        </>)}
                     </aside>
                 </div>
                 <footer className="drawing-publish-footer">
                     <span role="status" className={error ? 'is-error' : ''}>{error || (busy ? t('publish.preparing') : '')}</span>
+                    {setup ? (
+                    <div>
+                        {!previewLayout?.viewports.length && <Button type="button" disabled={busy} onClick={onClose}>{t('publish.cancel')}</Button>}
+                        <Button type="button" disabled={busy} onClick={() => setSetup(null)}>
+                            {t(previewLayout?.viewports.length ? 'layout.sheetSetup.back' : 'layout.sheetSetup.skip')}
+                        </Button>
+                        <Button type="button" className="is-primary" disabled={busy || !previewLayout} onClick={applySetup}>{t('layout.sheetSetup.apply')}</Button>
+                    </div>
+                    ) : (
                     <div>
                         <Button type="button" disabled={busy} onClick={onClose}>{t('publish.cancel')}</Button>
                         <Button type="button" disabled={busy || !layouts.length} onClick={() => run((pages, selectedLayouts, plotSettings) => onSystemPrint({
@@ -320,6 +371,7 @@ export default function DrawingPublishDialog({
                             format, pages, layouts: selectedLayouts, plotSettings,
                         }))}>{t(format === 'pdf' ? 'publish.exportPdf' : 'publish.exportDwfx')}</Button>
                     </div>
+                    )}
                 </footer>
                 <DrawingPublishRenderer
                     ref={rendererRef}
@@ -417,11 +469,6 @@ function PublishToggle({ checked, label, onChange }) {
             <span>{label}</span>
         </label>
     );
-}
-
-function paperLabel(layout) {
-    const paper = getDrawingPaperSize(layout);
-    return `${layout.format} · ${paper.width} × ${paper.height} mm`;
 }
 
 function roundInput(value) {

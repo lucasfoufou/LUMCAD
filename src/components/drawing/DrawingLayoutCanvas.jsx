@@ -6,6 +6,7 @@ import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, use
 
 import { DrawingReferenceControls } from '~components/drawing/DrawingInteractionOverlay';
 import DrawingLayoutPage from '~components/drawing/DrawingLayoutPage';
+import Icon from '~components/ui/Icon';
 import { DrawingTextEditor } from '~components/drawing/DrawingTextEditor';
 import { useI18n } from '~i18n/I18nProvider';
 import { canEditEntity, getEntityColor } from '~utils/drawingDocument';
@@ -30,6 +31,11 @@ import {
 import { operationScaleFactor, previewReferenceTransform } from '~utils/drawingOperations';
 import { getOperationOrthogonalOrigin } from '~utils/drawingOperationOptions';
 import { drawingTextFontSizeToPixels, resolveDrawingTextStyle } from '~utils/drawingText';
+import { snapDrawingViewportToStandardScale } from '~utils/drawingSheetSetup';
+
+// A press-drag-release longer than this (screen pixels) creates the viewport
+// directly; a shorter press starts the two-click creation.
+const VIEWPORT_DRAG_THRESHOLD_PX = 6;
 
 const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
     activeTool,
@@ -183,11 +189,12 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
         const modelViewBox = currentModelViewport
             ? modelViewBoxFromViewport(currentModelViewport, aspect)
             : fitViewBox(content, aspect);
-        const viewport = constrainViewportToPaper(createDrawingViewport({ rect, modelViewBox, hiddenLayerIds: content.layers.filter(layer => layer.newViewportFrozen).map(layer => layer.id) }), paper);
+        const viewport = snapDrawingViewportToStandardScale(constrainViewportToPaper(createDrawingViewport({ rect, modelViewBox, hiddenLayerIds: content.layers.filter(layer => layer.newViewportFrozen).map(layer => layer.id) }), paper));
         onChange({ ...layout, viewports: [...layout.viewports, viewport] });
+        setGesture(null);
+        onToolChange?.('select');
         onSelectedViewportChange(viewport.id);
         onStatus?.(t('layout.viewportCreated'));
-        setGesture(null);
     };
 
     useImperativeHandle(forwardedRef, () => ({
@@ -325,7 +332,8 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
             event.preventDefault();
             if (gesture?.kind === 'create') commitCreate(point);
             else {
-                setGesture({ kind: 'create', first: point, current: point });
+                svgRef.current.setPointerCapture(event.pointerId);
+                setGesture({ kind: 'create', first: point, current: point, pressed: true, startClient: { x: event.clientX, y: event.clientY } });
                 onStatus?.(t('layout.viewportSecondPoint'));
             }
             return;
@@ -364,7 +372,8 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
         if (!target.id) {
             onSelectedViewportChange(null);
             onSelectedPaperEntityChange?.(null);
-            setEditingPaperEntityId(null);
+            // Keep the open text editor mounted: losing focus commits what was typed.
+            if (editingPaperEntityId) document.activeElement?.blur?.();
             setGesture(null);
             return;
         }
@@ -474,6 +483,13 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
     };
 
     const handlePointerUp = event => {
+        if (gesture?.kind === 'create' && gesture.pressed) {
+            if (svgRef.current?.hasPointerCapture(event.pointerId)) svgRef.current.releasePointerCapture(event.pointerId);
+            const dragged = Math.hypot(event.clientX - gesture.startClient.x, event.clientY - gesture.startClient.y) >= VIEWPORT_DRAG_THRESHOLD_PX;
+            if (dragged) commitCreate(paperPoint(event));
+            else setGesture(current => ({ ...current, pressed: false }));
+            return;
+        }
         if (gesture?.kind === 'pan-paper') {
             if (svgRef.current?.hasPointerCapture(event.pointerId)) svgRef.current.releasePointerCapture(event.pointerId);
             setGesture(gesture.resume || null);
@@ -501,18 +517,21 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
         const { id } = targetDetails(event);
         const viewport = layout.viewports.find(item => item.id === id);
         event.preventDefault();
-        if (!viewport) {
+        // The wheel zooms the paper; it zooms the model only in the explicit
+        // "model inside a viewport" mode, and never changes a locked viewport.
+        const modelZoom = viewport && (activeTool === 'pan-view' || maximizedViewportId === viewport.id);
+        if (!modelZoom || viewport.locked) {
+            if (maximizedViewportId) {
+                if (viewport?.locked) onStatus?.(t('layout.viewportLocked'));
+                return;
+            }
             const factor = event.deltaY > 0 ? 1.15 : 0.87;
             const point = canvasPoint(event);
             setLayoutViewBox(current => zoomPaperViewBox(current, factor, point, paper));
-            onStatus?.(t('layout.paperZoomUpdated'));
+            onStatus?.(t(modelZoom ? 'layout.viewportLockedWheel' : 'layout.paperZoomUpdated'));
             return;
         }
         onSelectedViewportChange(viewport.id);
-        if (viewport.locked) {
-            onStatus?.(t('layout.viewportLocked'));
-            return;
-        }
         const point = paperPoint(event);
         const viewBox = viewport.modelViewBox;
         const focal = paperPointToViewportModelPoint(viewport, point);
@@ -535,8 +554,20 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
 
     const handleDoubleClick = event => {
         if (activeTool !== 'select' || maximizedViewportId) return;
-        const { paperEntityId } = targetDetails(event);
+        const { id: viewportId, paperEntityId } = targetDetails(event);
         const entity = layout.paperEntities?.find(candidate => candidate.id === paperEntityId);
+        const point = paperPoint(event);
+        const viewport = !entity && (layout.viewports.find(item => item.id === viewportId)
+            || [...layout.viewports].reverse().find(item => point.x >= item.x && point.x <= item.x + item.width
+                && point.y >= item.y && point.y <= item.y + item.height));
+        if (viewport) {
+            event.preventDefault();
+            setGesture(null);
+            onSelectedViewportChange(viewport.id);
+            if (viewport.locked) { onStatus?.(t('layout.viewportLocked')); return; }
+            onToolChange?.('pan-view');
+            return;
+        }
         if (entity?.type !== 'text' || !canEditEntity(content, entity)) return;
         event.preventDefault();
         event.stopPropagation();
@@ -613,6 +644,12 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
                 role="application"
                 aria-label={t('layout.canvas', { name: layout.name })}
             />
+            {activeTool === 'pan-view' && !maximizedViewportId && (
+                <p className="drawing-layout-mode-chip" role="status">
+                    <Icon name="move" size="sm" />
+                    <span>{t('layout.viewportModelMode')}</span>
+                </p>
+            )}
             {editingPaperEntity && textEditorStyle && (
                 <DrawingTextEditor
                     entity={editingPaperEntity}

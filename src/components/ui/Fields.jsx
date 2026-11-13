@@ -2,17 +2,26 @@ import { Button, Field, Input, TextArea } from '~components/ui/Controls';
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { formatDecimalValue, parseDecimalDraft } from '~utils/drawingFormValues';
 import Icon from './Icon';
+import { useI18n } from '~i18n/I18nProvider';
 
-export function NumberField({ label, value, onChange, min, max, step = 0.1, placeholder, disabled = false }) {
-    const formattedValue = formatDecimalValue(value);
+// Decimal field shared by the panels: shows the value in the interface
+// language (6,27 in French), accepts a comma or a point, commits complete
+// values while typing and restores the last value with Escape. Leaving the
+// field without editing never rewrites the value with its rounded display.
+export function NumberField({ label, value, onChange, min, max, step = 0.1, placeholder, disabled = false, precision, hint }) {
+    const { locale } = useI18n();
+    const formattedValue = formatDecimalValue(value, { locale, precision });
     const [draft, setDraft] = useState(formattedValue);
     const focusedRef = useRef(false);
+    const editedRef = useRef(false);
+    const initialRef = useRef(value);
 
     useEffect(() => {
         if (!focusedRef.current) setDraft(formattedValue);
     }, [formattedValue]);
 
     const applyDraft = rawValue => {
+        editedRef.current = true;
         setDraft(rawValue);
         const parsed = parseDecimalDraft(rawValue);
         if (parsed.kind === 'empty') onChange(undefined);
@@ -21,14 +30,17 @@ export function NumberField({ label, value, onChange, min, max, step = 0.1, plac
 
     const finishEditing = () => {
         focusedRef.current = false;
-        const parsed = parseDecimalDraft(draft);
-        if (parsed.kind === 'complete') onChange(parsed.value);
-        else if (parsed.kind === 'empty') onChange(undefined);
+        if (editedRef.current) {
+            const parsed = parseDecimalDraft(draft);
+            if (parsed.kind === 'complete') onChange(parsed.value);
+            else if (parsed.kind === 'empty') onChange(undefined);
+        }
+        editedRef.current = false;
         setDraft(formattedValue);
     };
 
     return (
-        <Field label={label}>
+        <Field label={label} hint={hint}>
             <Input
                 type="text"
                 role="spinbutton"
@@ -40,8 +52,19 @@ export function NumberField({ label, value, onChange, min, max, step = 0.1, plac
                 data-step={step}
                 placeholder={placeholder}
                 disabled={disabled}
-                onFocus={() => { focusedRef.current = true; }}
+                onFocus={() => { focusedRef.current = true; initialRef.current = value; }}
                 onChange={event => applyDraft(event.target.value)}
+                onKeyDown={event => {
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        event.currentTarget.blur();
+                    } else if (event.key === 'Escape' && editedRef.current) {
+                        event.preventDefault();
+                        editedRef.current = false;
+                        onChange(initialRef.current);
+                        setDraft(formatDecimalValue(initialRef.current, { locale, precision }));
+                    }
+                }}
                 onBlur={finishEditing}
             />
         </Field>

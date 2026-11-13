@@ -93,3 +93,50 @@ Native acceptance and platform limitations are tracked in [NATIVE_QA.md](./NATIV
 The Claude handoff requested updates to README.md, TOOL_ROADMAP.md and this audit after moving command controls. The current code and native captures establish the final arrangement: one command line in the header, with options below it. The intermediate proposal for a bottom-anchored command area is superseded. README and the roadmap already describe the final arrangement. The inventory above is now explicitly historical. LCAD_FORMAT.md already records compact JSON and the shared 64 MiB manifest limit; AGENTS.md already links the performance and UX documents.
 
 Remaining acceptance: real project drawings, full frontend command scenarios, Windows/Linux and macOS Intel native workflows. Shared React controls, shortcut recording, compact text options and targeted native macOS Apple Silicon acceptance are implemented, as recorded above and in NATIVE_QA.md.
+
+## Second audit — 2026-11-13
+
+The maintainer reported that the application was still hard to use daily. Three examples from colleagues (French speakers, often on Windows, with AutoCAD habits): Settings could not be found on Windows, importing a DWG required knowing `DWGIN`, and dimensions were too large or too small and hard to move. Five zones were audited by driving the application (French, 1500 × 950 and 1000 × 680, Windows simulated for the header); each finding was tied to a capture and a code location. 85 findings, 8 of them blocking.
+
+### Root causes
+
+1. **Functions could not be found.** 298 commands, 33 rail buttons, command search limited to the start of English names, no menu outside macOS, no help.
+2. **Natural gestures failed.** The dynamic input swallowed clicks (4 rectangles created out of 8 drawn with the mouse), Enter ran the first suggestion (a radius of 2 switched CIRCLE to its two-point mode), a drag selection window never committed on release, "New" then "Cancel" discarded the drawing.
+3. **AutoCAD reflexes did not work.** `ZOOM` was reported unknown, no Save, no repeat on Enter, no right click, Y axis down, `0,0` refused in French without explanation.
+4. **Feedback was invisible.** One truncated line, stale messages, silent failures (a JavaScript error behind "Standard viewport arrangement").
+5. **Dimensions had a fixed size in drawing metres** unrelated to the plan scale, no placement step, one 9 px grip, and a text-height field that turned `0.2` into 2 m.
+6. **Reaching a scaled PDF took 12 steps** and about 8 notions, plus a hand-drawn title block; "Plot" from the model produced an empty A0 sheet.
+
+### Decisions — 2026-11-13
+
+Validated by the maintainer:
+
+- Coordinates and angles are displayed and typed with the Y axis up, as in AutoCAD, without changing the file format.
+- French keeps `x;y` (comma as decimal separator), and the interface explains it wherever the user can get it wrong.
+- Annotation sizes are expressed in millimetres on paper, multiplied by a plan scale shown in the status bar.
+- A File menu sits in the header and is identical on every platform.
+- LibreDWG is bundled with the Windows installer if that is not too complicated.
+
+Earlier decisions stand (tool rail on the left, command line in the header, Properties/Layers/Library panel, status bar, dark interface). Two are refined: the rail may use two columns when one does not fit and must show that tools are hidden; the managers open from a permanent Manage menu in the panel header rather than from a section of the Properties tab.
+
+### Status — 2026-11-13
+
+Implemented in one pass (details per capability in TOOL_ROADMAP.md):
+
+- The 8 blocking findings.
+- Header: File menu, gear icon for Settings on every platform, save state in words, Print / PDF, help button. Settings in sections (General, Drawing, Files and DWG, Keyboard, Advanced) with Browse buttons; first launch follows the system language.
+- Command line: search on translated labels, palette of all commands, full messages and a session log, no unchosen completion, per-step prompts, French keywords.
+- Canvas: dynamic input beside the pointer with live length and angle, context menu, repeat, selection window on release, distinct snap markers, larger grips with a hover state.
+- Y axis up behind Settings › Drawing › "Y axis up (as in AutoCAD)", on by default.
+- Dimensions and text, layouts and PDF output, panels and status bar as listed in TOOL_ROADMAP.md.
+
+Remaining, known and accepted for now:
+
+- LibreDWG is not yet bundled: the application looks for a bundled `libredwg` resource folder, but the Windows release job does not download and ship the binaries yet (procedure in CAD_INTERCHANGE.md; it could not be executed here).
+- Undo confirms what it did without naming the operation: history entries carry no label.
+- Perpendicular, tangent and quadrant snaps are missing.
+- Hatches still draw over dimension text when they are later in draw order.
+- Paper space keeps millimetre positions from the top-left corner of the sheet. Some typed arguments stay in the stored frame: `COUNTAREA`, `COUNTTABLE`, `ATTDEF`, `PEDIT VERTEX/INSERT`, `SPLINEDIT`, `HATCHEDIT ORIGIN`, hatch line angles, the `AT x y` placement of imports, `DIMBREAK`, `OBJECTSCALE OFFSET`, FIELD X/Y values and dynamic-block parameters. A default "start, centre, end" arc still sweeps in the stored direction.
+- The default side of a dimension accepted with Enter relies on bounding boxes and can land in an adjoining object.
+- The multiline-text rail button does not show as active; the right panel collapses but is not resizable; text styles are still expressed in metres.
+- Native acceptance on Windows, Linux and macOS has not been done for this pass (see NATIVE_QA.md).

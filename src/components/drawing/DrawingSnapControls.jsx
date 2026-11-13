@@ -4,7 +4,9 @@ import React, { useEffect, useRef, useState } from 'react';
 
 import Icon from '~components/ui/Icon';
 import { useI18n } from '~i18n/I18nProvider';
-import { parsePolarAnglesInput } from '~utils/drawingDraftingSettings';
+import { normalizePolarAngles, parsePolarAnglesInput } from '~utils/drawingDraftingSettings';
+import { drawingUserRotationToWorld, drawingUserSettings, drawingWorldRotationToUser } from '~utils/drawingCoordinates';
+import DrawingCursorCoordinates from '~components/drawing/DrawingCursorCoordinates';
 
 const objectSnapKeys = ['endpoint', 'midpoint', 'center', 'intersection', 'nearest'];
 
@@ -18,28 +20,34 @@ export default function DrawingSnapControls({
     draftingSettingsOpen = false,
     onDraftingSettingsOpenChange,
     onTemporaryTrackingPoint,
+    yAxisUp = false,
 }) {
     const { locale, t } = useI18n();
     const shortcutLabel = useDrawingShortcutLabel();
     const settings = content.settings;
+    const userSettings = drawingUserSettings(settings, yAxisUp);
+    // Additional polar angles are stored in the stored frame and read in the user frame.
+    const userPolarAngles = angles => normalizePolarAngles((angles || []).map(angle => drawingWorldRotationToUser(angle, userSettings)));
     const snaps = settings.snaps;
     const [snapMenuOpen, setSnapMenuOpen] = useState(false);
     const [scaleDraft, setScaleDraft] = useState(() => formatScaleRatio(scaleRatio, locale));
-    const [polarAnglesDraft, setPolarAnglesDraft] = useState(() => formatPolarAngles(settings.polarAngles, locale));
+    const [polarAnglesDraft, setPolarAnglesDraft] = useState(() => formatPolarAngles(userPolarAngles(settings.polarAngles), locale));
     useEffect(() => setScaleDraft(formatScaleRatio(scaleRatio, locale)), [locale, scaleRatio]);
-    useEffect(() => setPolarAnglesDraft(formatPolarAngles(settings.polarAngles, locale)), [settings.polarAngles, locale]);
+    useEffect(() => setPolarAnglesDraft(formatPolarAngles(userPolarAngles(settings.polarAngles), locale)), [settings.polarAngles, locale, yAxisUp]);
 
     const updateSettings = patch => onChange({ ...content, settings: { ...content.settings, ...patch } });
     const updateSnaps = patch => updateSettings({ snaps: { ...snaps, ...patch } });
     const objectSnapsOn = objectSnapKeys.some(key => snaps[key]);
     const applyScale = () => {
+        // Leaving the field unchanged keeps the exact zoom instead of its rounded display.
+        if (scaleDraft === formatScaleRatio(scaleRatio, locale)) return;
         const next = Number.parseFloat(String(scaleDraft).replace(',', '.'));
         if (Number.isFinite(next) && next >= 0.0001 && next <= 1e6) onScaleChange?.(next);
         else setScaleDraft(formatScaleRatio(scaleRatio, locale));
     };
     const applyPolarAngles = () => {
         const angles = parsePolarAnglesInput(polarAnglesDraft, locale);
-        updateSettings({ polarAngles: angles });
+        updateSettings({ polarAngles: normalizePolarAngles(angles.map(angle => drawingUserRotationToWorld(angle, userSettings))) });
         setPolarAnglesDraft(formatPolarAngles(angles, locale));
     };
     const relations = settings.trackingRelations || {};
@@ -51,7 +59,9 @@ export default function DrawingSnapControls({
     };
 
     return (
-        <div className="drawing-snap-controls" role="group" aria-label={t('snap.controls')}>
+        <div className="drawing-snap-controls" role="group" aria-label={t('snap.aids')}>
+            <DrawingCursorCoordinates settings={userSettings} />
+            <span className="drawing-status-separator" aria-hidden="true" />
             <StatusPopover
                 open={snapMenuOpen}
                 onOpenChange={setSnapMenuOpen}
@@ -77,8 +87,8 @@ export default function DrawingSnapControls({
                     </div>
                 </div>
             </StatusPopover>
-            <Button type="button" className="drawing-status-aid" aria-pressed={Boolean(snaps.grid)} title={t('snap.grid')}
-                onClick={() => updateSnaps({ grid: !snaps.grid })}>{t('status.grid')}</Button>
+            <Button type="button" className="drawing-status-aid" aria-pressed={Boolean(snaps.grid)} title={t('snap.gridTitle')}
+                aria-label={t('snap.grid')} onClick={() => updateSnaps({ grid: !snaps.grid })}>{t('status.grid')}</Button>
             <Button type="button" className="drawing-status-aid" aria-pressed={Boolean(settings.ortho)} title={`${shortcutLabel('toggleOrtho')}; ${t('commandPreferences.temporaryOrtho')}`}
                 aria-label={t('snap.orthoMode')}
                 onClick={() => updateSettings({ ortho: !settings.ortho, ...(!settings.ortho ? { polarTracking: false } : {}) })}>{t('status.ortho')}</Button>
@@ -90,7 +100,7 @@ export default function DrawingSnapControls({
                 onClick={() => updateSettings({ tracking: !settings.tracking })}>{t('status.tracking')}</Button>
             <Button type="button" className="ui-icon-button is-small" onClick={onTemporaryTrackingPoint}
                 aria-label={t('snap.temporaryTrackingPoint')} title={t('snap.temporaryTrackingPointTitle')}>
-                <Icon name="point" size="sm" />
+                <Icon name="trackingPoint" size="sm" />
             </Button>
             <StatusPopover
                 open={draftingSettingsOpen}
@@ -99,7 +109,7 @@ export default function DrawingSnapControls({
                     <Button type="button" className="ui-icon-button is-small" aria-expanded={draftingSettingsOpen}
                         onClick={() => onDraftingSettingsOpenChange?.(!draftingSettingsOpen)}
                         aria-label={t('snap.draftingSettings')} title={t('snap.draftingSettingsTitle')}>
-                        <Icon name="settings" size="sm" />
+                        <Icon name="draftingSettings" size="sm" />
                     </Button>
                 )}
             >
@@ -138,7 +148,7 @@ export default function DrawingSnapControls({
             </StatusPopover>
             <span className="drawing-status-separator" aria-hidden="true" />
             <label className="drawing-snap-scale" title={t('snap.screenScaleTitle')}>
-                <span aria-hidden="true">1:</span>
+                <span aria-hidden="true">{t('snap.screenScaleLabel')}</span>
                 <Input type="text" inputMode="decimal" value={scaleDraft} aria-label={t('snap.screenScaleAria')}
                     onChange={event => setScaleDraft(event.target.value)} onBlur={applyScale} onKeyDown={commitOnEnter(applyScale)} />
             </label>
@@ -175,11 +185,11 @@ function formatPolarAngles(values, locale) {
         .join('; ');
 }
 
+// The screen scale is an indication: whole numbers above 10, two decimals below.
 function formatScaleRatio(value, locale) {
     const ratio = Number(value);
     if (!Number.isFinite(ratio) || ratio <= 0) return '';
-    const rounded = Math.round(ratio);
-    if (Math.abs(ratio - rounded) < 1e-8) return String(rounded);
-    const decimal = ratio.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
+    if (ratio >= 10) return String(Math.round(ratio));
+    const decimal = ratio.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
     return locale === 'fr' ? decimal.replace('.', ',') : decimal;
 }

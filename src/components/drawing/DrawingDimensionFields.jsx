@@ -1,5 +1,10 @@
 import { Button, Input, Select } from '~components/ui/Controls';
-import React from 'react';
+import React, { createContext, useContext } from 'react';
+import { drawingEntryDirectionToWorld, drawingEntryPointToWorld, drawingWorldDirectionForDisplay, drawingWorldPointForDisplay } from '~utils/drawingCoordinates';
+
+// Drawing settings seen through the "Y axis up" preference (identity when Y is down).
+const UserSettingsContext = createContext(null);
+import DrawingCommittedNumberField from './DrawingCommittedNumberField';
 
 import {
     DRAWING_DIMENSION_TOLERANCE_MODES,
@@ -9,19 +14,27 @@ import {
     getDrawingEntityDependencyIds,
     normalizeDrawingDimension,
     normalizeDrawingDimensionFormat,
+    getDimensionGeometry,
 } from '~utils/drawingDimensions';
+import { presentDrawingDimension } from '~utils/drawingDimensionPresentation';
 
 export default function DrawingDimensionFields({
     dimension,
+    sources = null,
     automaticBreakTruncated = false,
     disabled = false,
     onChange,
     t,
+    userSettings = null,
 }) {
     if (!dimension || typeof onChange !== 'function' || typeof t !== 'function') return null;
     const normalized = normalizeDrawingDimension(dimension);
     const format = normalizeDrawingDimensionFormat(normalized.dimensionFormat);
     const associated = getDrawingEntityDependencyIds(normalized).length > 0;
+    // Optional overrides start from what is drawn now, not from the origin.
+    const presented = presentDrawingDimension(getDimensionGeometry(normalized, sources), normalized, normalized.textSize);
+    const currentLabelPoint = presented?.label?.point || null;
+    const currentLinePoint = presented?.kind === 'linear' ? presented.points?.[0] : null;
     const emit = patch => onChange(normalizeDrawingDimension({ ...normalized, ...patch }), patch);
     const emitFormat = patch => {
         const dimensionFormat = normalizeDrawingDimensionFormat({ ...format, ...patch });
@@ -30,6 +43,7 @@ export default function DrawingDimensionFields({
 
 
     return (
+        <UserSettingsContext.Provider value={userSettings}>
         <section className="drawing-dimension-fields">
             {automaticBreakTruncated && <p role="status" className="drawing-sidebar-empty">{t('dimension.autoBreakTooComplex')}</p>}
             {normalized.dimensionAutoBreak && (
@@ -71,6 +85,7 @@ export default function DrawingDimensionFields({
                     />
                     <OptionalPointField
                         disabled={disabled}
+                        initialPoint={currentLinePoint}
                         label={t('dimension.fields.linePoint')}
                         onChange={linePoint => emit({ linePoint })}
                         point={normalized.linePoint}
@@ -134,6 +149,7 @@ export default function DrawingDimensionFields({
                             />
                             <OptionalPointField
                                 disabled={disabled}
+                                initialPoint={presented?.jogCenter}
                                 label={t('dimension.fields.jogCenter')}
                                 onChange={jogCenter => emit({ jogCenter })}
                                 point={normalized.jogCenter}
@@ -141,6 +157,7 @@ export default function DrawingDimensionFields({
                             />
                             <OptionalPointField
                                 disabled={disabled}
+                                initialPoint={presented?.jogPoint}
                                 label={t('dimension.fields.jogPoint')}
                                 onChange={jogPoint => emit({ jogPoint })}
                                 point={normalized.jogPoint}
@@ -242,6 +259,7 @@ export default function DrawingDimensionFields({
                     )}
                     <OptionalPointField
                         disabled={disabled}
+                        initialPoint={presented?.text || currentLabelPoint}
                         label={t('dimension.fields.leaderPoint')}
                         onChange={leaderPoint => emit({ leaderPoint })}
                         point={normalized.leaderPoint}
@@ -275,26 +293,16 @@ export default function DrawingDimensionFields({
                     />
                 </>
             )}
-            {!['centerMark', 'centerLine'].includes(normalized.type) && (
-                <NumberField
-                    disabled={disabled}
-                    label={t('dimension.fields.textSize')}
-                    min="0.01"
-                    onChange={textSize => emit({ textSize })}
-                    step="0.05"
-                    value={Number.isFinite(Number(normalized.textSize)) ? Number(normalized.textSize) : 0.35}
-                />
-            )}
 
             {!['centerMark', 'centerLine'].includes(normalized.type) && (
                 <>
                     <h4>{t('dimension.fields.format')}</h4>
-                    <OptionalPointField disabled={disabled} label={t('dimension.fields.textPosition')}
+                    <OptionalPointField disabled={disabled} initialPoint={currentLabelPoint} label={t('dimension.fields.textPosition')}
                         point={normalized.dimensionTextPosition} t={t}
                         onChange={dimensionTextPosition => emit({ dimensionTextPosition })} />
                     <CheckboxField disabled={disabled} label={t('dimension.fields.textAngleOverride')}
                         checked={Number.isFinite(normalized.dimensionTextAngle)}
-                        onChange={checked => emit({ dimensionTextAngle: checked ? 0 : undefined })} />
+                        onChange={checked => emit({ dimensionTextAngle: checked ? Number(presented?.label?.angle) || 0 : undefined })} />
                     {Number.isFinite(normalized.dimensionTextAngle) && (
                         <AngleField disabled={disabled} label={t('dimension.fields.textAngle')}
                             value={normalized.dimensionTextAngle}
@@ -336,6 +344,7 @@ export default function DrawingDimensionFields({
                 </>
             )}
         </section>
+        </UserSettingsContext.Provider>
     );
 }
 
@@ -453,31 +462,30 @@ function SelectField({ disabled, label, onChange, options, value }) {
     );
 }
 
-function NumberField({ disabled, label, max, min, onChange, step, value }) {
+function NumberField({ disabled, label, max, min, mixed = false, onChange, step, value }) {
     return (
-        <label className="drawing-sidebar-field">
-            <span>{label}</span>
-            <Input
-                disabled={disabled}
-                max={max}
-                min={min}
-                onChange={event => onChange(Number(event.target.value))}
-                step={step}
-                type="number"
-                value={value}
-            />
-        </label>
+        <DrawingCommittedNumberField
+            digits={String(step) === '1' ? 0 : 4}
+            disabled={disabled}
+            label={label}
+            max={max === undefined ? Infinity : Number(max)}
+            min={min === undefined ? -Infinity : Number(min)}
+            mixed={mixed}
+            onChange={onChange}
+            value={value}
+        />
     );
 }
 
 function AngleField({ disabled, label, onChange, value }) {
+    const settings = useContext(UserSettingsContext);
     return (
         <NumberField
             disabled={disabled}
             label={label}
-            onChange={degrees => onChange(degrees * Math.PI / 180)}
+            onChange={degrees => onChange(drawingEntryDirectionToWorld(degrees, settings) * Math.PI / 180)}
             step="1"
-            value={Number(value || 0) * 180 / Math.PI}
+            value={drawingWorldDirectionForDisplay(Number(value || 0) * 180 / Math.PI, settings)}
         />
     );
 }
@@ -535,8 +543,10 @@ function CheckboxField({ checked, disabled, label, onChange }) {
     );
 }
 
-function PointField({ disabled, label, onChange, point, t }) {
-    const value = finitePoint(point);
+function PointField({ disabled, label, onChange: onWorldChange, point, t }) {
+    const settings = useContext(UserSettingsContext);
+    const value = drawingWorldPointForDisplay(finitePoint(point), settings);
+    const onChange = next => onWorldChange(drawingEntryPointToWorld(next, settings));
     return (
         <fieldset className="drawing-dimension-point-field" disabled={disabled}>
             <legend>{label}</legend>
@@ -558,7 +568,7 @@ function PointField({ disabled, label, onChange, point, t }) {
     );
 }
 
-function OptionalPointField({ disabled, label, onChange, point, t }) {
+function OptionalPointField({ disabled, initialPoint = null, label, onChange, point, t }) {
     const enabled = Boolean(point && Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.y)));
     return (
         <div className="drawing-dimension-optional-point">
@@ -566,7 +576,7 @@ function OptionalPointField({ disabled, label, onChange, point, t }) {
                 checked={enabled}
                 disabled={disabled}
                 label={label}
-                onChange={checked => onChange(checked ? { x: 0, y: 0 } : undefined)}
+                onChange={checked => onChange(checked ? finitePoint(initialPoint) : undefined)}
             />
             {enabled && (
                 <PointField

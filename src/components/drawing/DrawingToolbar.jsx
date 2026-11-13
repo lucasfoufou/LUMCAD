@@ -1,13 +1,17 @@
 import { Button } from '~components/ui/Controls';
 import useDrawingShortcutLabel from '~hooks/useDrawingShortcutLabel';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import Icon from '~components/ui/Icon';
 import { useI18n } from '~i18n/I18nProvider';
+import { resolveToolbarLayout } from '~utils/drawingToolbarLayout';
 
 const tool = (id, labelKey, alias, icon = id) => ({ id, kind: 'tool', labelKey, alias, icon });
 // Operation labels already carry their command alias, e.g. "Move (M)".
 const operation = (id, labelKey, action = id, icon = id) => ({ id, kind: 'operation', labelKey, action, icon });
+// A catalogue command started through the command line, e.g. PLINE or DIST.
+// `operationType` marks it active while its interactive operation runs.
+const command = (id, name, labelKey, alias, icon, operationType = null) => ({ id, kind: 'command', name, labelKey, alias, icon, operationType });
 const family = (id, members) => ({ id, family: true, members });
 
 // Tool rail: one slot per tool or family. A family shows its active or last
@@ -15,7 +19,12 @@ const family = (id, members) => ({ id, family: true, members });
 const sections = [
     [tool('select', 'toolbar.select', 'V'), tool('pan', 'toolbar.pan', 'P')],
     [
-        family('line', [tool('line', 'toolbar.line', 'L'), tool('xline', 'toolbar.xline', 'XL'), tool('ray', 'toolbar.ray', 'RAY')]),
+        family('line', [
+            tool('line', 'toolbar.line', 'L'),
+            command('pline', 'PLINE', 'commands.widePolyline', 'PL', 'polyline', 'linework'),
+            tool('xline', 'toolbar.xline', 'XL'),
+            tool('ray', 'toolbar.ray', 'RAY'),
+        ]),
         family('rectangle', [tool('rectangle', 'toolbar.rectangle', 'REC'), tool('polygon', 'toolbar.polygon', 'POL')]),
         tool('circle', 'toolbar.circle', 'C'),
         tool('arc', 'toolbar.arc', 'A'),
@@ -23,11 +32,25 @@ const sections = [
         tool('spline', 'toolbar.spline', 'SPL'),
         tool('point', 'toolbar.point', 'POINT'),
         tool('hatch', 'toolbar.hatch', 'H'),
-        tool('text', 'toolbar.text', 'T'),
+        family('text', [tool('text', 'toolbar.text', 'T'), command('mtext', 'MTEXT', 'commands.multilineText', 'MT', 'mtext')]),
     ],
     [
-        tool('dimension', 'toolbar.dimension', 'DIM'),
+        family('dimension', [
+            tool('dimension', 'toolbar.dimension', 'DIM'),
+            command('dimLinear', 'DIMLINEAR', 'commands.linearDimension', 'DLI', 'dimLinear'),
+            command('dimAligned', 'DIMALIGNED', 'commands.alignedDimension', 'DAL', 'dimAligned'),
+            command('dimRadius', 'DIMRADIUS', 'commands.radiusDimension', 'DRA', 'dimRadius'),
+            command('dimDiameter', 'DIMDIAMETER', 'commands.diameterDimension', 'DDI', 'dimDiameter'),
+            command('dimAngular', 'DIMANGULAR', 'commands.angularDimension', 'DAN', 'dimAngular'),
+            command('dimContinue', 'DIMCONTINUE', 'commands.continueDimension', 'DCO', 'dimContinue'),
+            command('leader', 'MLEADER', 'commands.leader', 'ML', 'leader', 'leaderCreation'),
+        ]),
+        command('insert', 'INSERT', 'commands.blockInsert', 'I', 'insertBlock', 'blockInsert'),
         { id: 'importImage', kind: 'action', labelKey: 'toolbar.importImage', action: 'importImage', icon: 'image' },
+        family('measure', [
+            command('dist', 'DIST', 'commands.distanceInquiry', 'DI', 'measure', 'inquiry:distance'),
+            command('area', 'AREA', 'commands.areaInquiry', 'AA', 'measureArea', 'inquiry:area'),
+        ]),
     ],
     [
         operation('move', 'toolbar.move'),
@@ -57,6 +80,7 @@ const sections = [
 ];
 
 const LONG_PRESS_MS = 400;
+const GROUP_SIZES = sections.map(section => section.length);
 
 export default function DrawingToolbar({ activeTool, activeOperation, onToolChange, actions, selectionCount }) {
     const { t } = useI18n();
@@ -64,10 +88,15 @@ export default function DrawingToolbar({ activeTool, activeOperation, onToolChan
     const [choices, setChoices] = useState({});
     const [tooltip, setTooltip] = useState(null);
     const [flyout, setFlyout] = useState(null);
+    const [layout, setLayout] = useState({ columns: 1, overflow: false });
+    const [hidden, setHidden] = useState({ above: false, below: false });
+    const railRef = useRef(null);
     const flyoutRef = useRef(null);
 
     const label = item => (item.shortcut ? shortcutLabel(item.shortcut) : t(item.labelKey));
-    const isActive = item => (item.kind === 'tool' ? activeTool === item.id : item.kind === 'operation' && activeOperation === item.id);
+    const isActive = item => (item.kind === 'tool' ? activeTool === item.id
+        : item.kind === 'operation' ? activeOperation === item.id
+            : item.kind === 'command' && Boolean(item.operationType) && activeOperation === item.operationType);
     const isDisabled = item => (item.needsSelection && !selectionCount) || (item.needsSingleSelection && selectionCount !== 1);
     const shown = slot => (slot.family
         ? slot.members.find(isActive) || slot.members.find(member => member.id === choices[slot.id]) || slot.members[0]
@@ -76,6 +105,7 @@ export default function DrawingToolbar({ activeTool, activeOperation, onToolChan
         if (slot) setChoices(current => ({ ...current, [slot.id]: item.id }));
         setFlyout(null);
         if (item.kind === 'tool') onToolChange(item.id);
+        else if (item.kind === 'command') actions.command?.(item.name);
         else actions[item.action]?.();
     };
     const showTooltip = (event, item) => {
@@ -85,8 +115,39 @@ export default function DrawingToolbar({ activeTool, activeOperation, onToolChan
     const openFlyout = (event, slot) => {
         const rect = event.currentTarget.closest('.drawing-tool-slot').getBoundingClientRect();
         setTooltip(null);
-        setFlyout({ slot, top: rect.top, left: rect.right + 6 });
+        // Keep the whole flyout on screen for families low in the rail.
+        const height = slot.members.length * FLYOUT_ITEM_HEIGHT + 8;
+        setFlyout({ slot, top: Math.max(8, Math.min(rect.top, window.innerHeight - height - 8)), left: rect.right + 6 });
     };
+    // Tools hidden above or below the visible part of the rail are signalled
+    // by a fade and a chevron that scrolls to them.
+    const updateHidden = () => {
+        const rail = railRef.current;
+        if (!rail) return;
+        const above = rail.scrollTop > 1;
+        const below = rail.scrollTop + rail.clientHeight < rail.scrollHeight - 1;
+        setHidden(current => (current.above === above && current.below === below ? current : { above, below }));
+    };
+    const scrollRail = direction => {
+        const rail = railRef.current;
+        rail?.scrollBy({ top: direction * Math.max(TOOL_SCROLL_STEP, rail.clientHeight * 0.7), behavior: 'smooth' });
+    };
+
+    useLayoutEffect(() => {
+        const rail = railRef.current;
+        if (!rail) return undefined;
+        const measure = () => {
+            const next = resolveToolbarLayout(GROUP_SIZES, rail.clientHeight);
+            setLayout(current => (current.columns === next.columns && current.overflow === next.overflow ? current : next));
+            updateHidden();
+        };
+        measure();
+        if (typeof ResizeObserver !== 'function') return undefined;
+        const observer = new ResizeObserver(measure);
+        observer.observe(rail);
+        return () => observer.disconnect();
+    }, []);
+    useLayoutEffect(updateHidden, [layout]);
 
     useEffect(() => {
         if (!flyout) return undefined;
@@ -103,7 +164,18 @@ export default function DrawingToolbar({ activeTool, activeOperation, onToolChan
     }, [flyout]);
 
     return (
-        <aside className="drawing-toolbar" aria-label={t('toolbar.label')} onScroll={() => setTooltip(null)}>
+        <aside
+            ref={railRef}
+            className={['drawing-toolbar', layout.columns === 2 && 'is-two-columns'].filter(Boolean).join(' ')}
+            aria-label={t('toolbar.label')}
+            onScroll={() => { setTooltip(null); updateHidden(); }}
+        >
+            {hidden.above && (
+                <Button type="button" className="drawing-toolbar-scroll is-up" aria-label={t('toolbar.scrollUp')} title={t('toolbar.scrollUp')}
+                    onClick={() => scrollRail(-1)}>
+                    <Icon name="chevronUp" size="sm" />
+                </Button>
+            )}
             {sections.map((section, sectionIndex) => (
                 <div className="drawing-toolbar-group" key={sectionIndex}>
                     {section.map(slot => {
@@ -126,6 +198,12 @@ export default function DrawingToolbar({ activeTool, activeOperation, onToolChan
                     })}
                 </div>
             ))}
+            {hidden.below && (
+                <Button type="button" className="drawing-toolbar-scroll is-down" aria-label={t('toolbar.scrollDown')} title={t('toolbar.scrollDown')}
+                    onClick={() => scrollRail(1)}>
+                    <Icon name="chevronDown" size="sm" />
+                </Button>
+            )}
             {tooltip && (
                 <div className="ui-tooltip drawing-toolbar-tooltip" role="tooltip" style={{ top: tooltip.top, left: tooltip.left }}>
                     {tooltip.text}{tooltip.alias && <kbd>{tooltip.alias}</kbd>}
@@ -152,6 +230,9 @@ export default function DrawingToolbar({ activeTool, activeOperation, onToolChan
         </aside>
     );
 }
+
+const TOOL_SCROLL_STEP = 160;
+const FLYOUT_ITEM_HEIGHT = 30;
 
 function ToolSlot({ item, label, active, disabled, hasMembers, moreLabel, onRun, onOpenMembers, onHover, onLeave }) {
     const pressRef = useRef(null);

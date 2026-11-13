@@ -259,6 +259,8 @@ test('DCCONVERT turns an associative dimension into a driving constraint', async
     await command(page, 'DIMENSION');
     const { clickWorld } = await import('./helpers.js');
     await clickWorld(page, { x: 3, y: 0.3 });
+    // Enter accepts the default position of the dimension line.
+    await page.keyboard.press('Enter');
     await page.keyboard.press('Escape');
     await command(page, 'QSELECT TYPE linearDimension');
     await command(page, 'DCCONVERT');

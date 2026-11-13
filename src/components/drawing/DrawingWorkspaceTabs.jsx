@@ -1,6 +1,7 @@
 import { Button, Input } from '~components/ui/Controls';
 import React, { useEffect, useRef, useState } from 'react';
 
+import Icon from '~components/ui/Icon';
 import { useI18n } from '~i18n/I18nProvider';
 import { DRAWING_LAYOUT_TEMPLATE_OPTIONS } from '~utils/drawingLayouts';
 
@@ -32,6 +33,44 @@ export default function DrawingWorkspaceTabs({
     ));
     const selection = Array.isArray(selectedLayoutIds) ? selectedLayoutIds : internalSelectedIds;
     const selectedSet = new Set(selection);
+    // Several layouts selected with Ctrl/Cmd+click (for publication) are marked;
+    // a single selected layout is not, so only the open tab looks active.
+    const showSelection = selection.length > 1;
+    const addRef = useRef(null);
+    const [overflow, setOverflow] = useState({ left: false, right: false });
+    const updateOverflow = () => {
+        const strip = stripRef.current;
+        if (!strip) return;
+        const left = strip.scrollLeft > 1;
+        const right = strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 1;
+        setOverflow(current => (current.left === left && current.right === right ? current : { left, right }));
+    };
+
+    useEffect(() => {
+        const strip = stripRef.current;
+        if (!strip) return undefined;
+        updateOverflow();
+        if (typeof ResizeObserver !== 'function') return undefined;
+        const observer = new ResizeObserver(updateOverflow);
+        observer.observe(strip);
+        return () => observer.disconnect();
+    }, []);
+    useEffect(updateOverflow, [layouts]);
+
+    useEffect(() => {
+        if (!addMenuOpen) return undefined;
+        const close = event => {
+            if (event.type === 'keydown' ? event.key !== 'Escape' : addRef.current?.contains(event.target)) return;
+            if (event.type === 'keydown') event.preventDefault();
+            setAddMenuOpen(false);
+        };
+        window.addEventListener('keydown', close, true);
+        window.addEventListener('pointerdown', close, true);
+        return () => {
+            window.removeEventListener('keydown', close, true);
+            window.removeEventListener('pointerdown', close, true);
+        };
+    }, [addMenuOpen]);
 
     useEffect(() => {
         if (!menu) return undefined;
@@ -159,10 +198,12 @@ export default function DrawingWorkspaceTabs({
             <Button type="button" className={mode === 'model' ? 'is-active is-model' : 'is-model'} onClick={openModel}>
                 {t('layout.model')}
             </Button>
-            <Button type="button" className="is-tab-scroll" onClick={() => scrollTabs(-1)} aria-label={t('layout.scrollTabsLeft')} title={t('layout.scrollTabsLeft')}>
-                <span aria-hidden="true">‹</span>
-            </Button>
-            <div className="drawing-workspace-tab-strip" ref={stripRef} onScroll={() => setMenu(null)}>
+            {(overflow.left || overflow.right) && (
+                <Button type="button" className="is-tab-scroll" disabled={!overflow.left} onClick={() => scrollTabs(-1)} aria-label={t('layout.scrollTabsLeft')} title={t('layout.scrollTabsLeft')}>
+                    <Icon name="chevronLeft" size="sm" />
+                </Button>
+            )}
+            <div className="drawing-workspace-tab-strip" ref={stripRef} onScroll={() => { setMenu(null); updateOverflow(); }}>
                 {layouts.map((layout, index) => (
                     <div
                         className={[
@@ -199,11 +240,12 @@ export default function DrawingWorkspaceTabs({
                                 type="button"
                                 className={[
                                     mode === 'layout' && activeLayoutId === layout.id && 'is-active',
-                                    selectedSet.has(layout.id) && 'is-selected',
+                                    showSelection && selectedSet.has(layout.id) && 'is-selected',
                                 ].filter(Boolean).join(' ')}
                                 aria-current={mode === 'layout' && activeLayoutId === layout.id ? 'page' : undefined}
                                 aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight"
-                                aria-pressed={selectedSet.has(layout.id)}
+                                aria-pressed={showSelection ? selectedSet.has(layout.id) : undefined}
+                                title={showSelection && selectedSet.has(layout.id) ? t('layout.selectedForPublication', { name: layout.name }) : t('layout.tabHint', { name: layout.name })}
                                 onClick={event => openLayout(event, layout)}
                                 onDoubleClick={() => beginRename(layout)}
                                 onKeyDown={event => reorderFromKeyboard(event, layout, index)}
@@ -221,30 +263,33 @@ export default function DrawingWorkspaceTabs({
                                 title={t('layout.layoutMenu', { name: layout.name })}
                                 onClick={event => toggleMenu(event, layout)}
                             >
-                                <span aria-hidden="true">⋮</span>
+                                <Icon name="moreVertical" size="sm" />
                             </Button>
                         )}
                     </div>
                 ))}
             </div>
-            <Button type="button" className="is-tab-scroll" onClick={() => scrollTabs(1)} aria-label={t('layout.scrollTabsRight')} title={t('layout.scrollTabsRight')}>
-                <span aria-hidden="true">›</span>
-            </Button>
-            <div className="drawing-workspace-add-tab">
+            {(overflow.left || overflow.right) && (
+                <Button type="button" className="is-tab-scroll" disabled={!overflow.right} onClick={() => scrollTabs(1)} aria-label={t('layout.scrollTabsRight')} title={t('layout.scrollTabsRight')}>
+                    <Icon name="chevronRight" size="sm" />
+                </Button>
+            )}
+            <div className="drawing-workspace-add-tab" ref={addRef}>
                 <Button
                     type="button"
                     className="is-add"
                     onClick={() => onAddLayoutFromTemplate ? setAddMenuOpen(current => !current) : onAddLayout()}
                     aria-label={t('layout.addLayout')}
                     aria-expanded={onAddLayoutFromTemplate ? addMenuOpen : undefined}
+                    aria-haspopup={onAddLayoutFromTemplate ? 'menu' : undefined}
                     title={t('layout.addLayout')}
                 >
-                    +
+                    <Icon name="plus" size="sm" />
                 </Button>
                 {addMenuOpen && (
-                    <div className="drawing-workspace-layout-menu is-add-menu">
+                    <div className="drawing-workspace-layout-menu is-add-menu" role="menu" aria-label={t('layout.addLayout')}>
                         {DRAWING_LAYOUT_TEMPLATE_OPTIONS.map(template => (
-                            <Button type="button" key={template} onClick={() => addFromTemplate(template)}>
+                            <Button type="button" role="menuitem" key={template} onClick={() => addFromTemplate(template)}>
                                 {t(`layout.template.${template}`)}
                             </Button>
                         ))}

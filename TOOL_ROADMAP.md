@@ -1,6 +1,6 @@
 # 2D tool coverage and LUMCAD roadmap
 
-- Last reviewed: 2026-10-08
+- Last reviewed: 2026-11-13
 - Scope: 2D drafting, annotation, organisation, layouts, output, interoperability, and related productivity tools
 - Reference: current working tree
 
@@ -184,7 +184,7 @@ These remaining gaps are intentionally deferred and do not block the retained P2
 | Remaining polyline creation and editing | `PLINE`, `PEDIT`, `CONVERTPOLY`, `REVERSE` | 🟡 **Partial**<br>• First-class `PLINE` drawing<br>• Line/arc segment switching<br>• Width and taper<br>• Close/open workflow<br>• Fit and spline modes<br>• Add/remove vertex<br>• Reverse workflow |
 | Remaining grip types | Drawing grips and multifunction grips | 🟡 **Partial**<br>• Circle quadrant grips<br>• Hatch grips<br>• Block grips<br>• Leader grips<br>• Multifunction grips |
 | Remaining selection modes | `SELECT`; window, crossing, click, add/remove, Previous/Last/All selection modes | 🟡 **Partial**<br>• Fence selection<br>• Crossing-polygon and window-polygon selection<br>• Lasso/freehand selection<br>• Previous, Last, and All modes<br>• Nested selection<br>• Selection cycling<br>• Saved selection sets |
-| Remaining zoom variants and history | `PAN`, `ZOOM`, Zoom Extents/All/Window/Previous, view history | 🟡 **Partial**<br>• Zoom Window<br>• Zoom Previous<br>• Saved view history<br>• Typed zoom suffixes (`X`, `XP`) |
+| Remaining zoom variants and history | `PAN`, `ZOOM`, Zoom Extents/All/Window/Previous, view history | 🟡 **Partial**<br>• Zoom Previous<br>• Saved view history<br>• Typed `XP` suffix |
 | Remaining object snaps | `OSNAP`, `-OSNAP`; Endpoint, Midpoint, Center, Geometric Center, Node, Quadrant, Intersection, Extension, Insertion, Perpendicular, Tangent, Nearest, Apparent Intersection, Parallel | 🟡 **Partial**<br>• Geometric centre<br>• Node<br>• Quadrant<br>• Extension<br>• Insertion<br>• Perpendicular<br>• True tangent construction<br>• Apparent intersection<br>• Parallel<br>• One-shot overrides<br>• Tab cycling<br>Details : `Nearest` is not a mathematical tangent snap. |
 | Remaining grid-snap features | `GRID`, `SNAP`, `DSETTINGS` | 🟡 **Partial**<br>• Independent X/Y spacing<br>• Rotated/isometric grids<br>• Major-line configuration<br>• Full drafting-settings view |
 | Remaining layer features | `LAYER`, `-LAYER`, `LAYMCUR`, `LAYCUR`, `LAYON`, `LAYOFF`, `LAYFRZ`, `LAYTHW`, `LAYLCK`, `LAYULK`, `LAYDEL`, `RENAME` | 🟡 **Partial**<br>• Freeze/thaw distinct from on/off<br>• Plot/no-plot<br>• Descriptions<br>• Reconciliation<br>• Bulk actions<br>• Command aliases |
@@ -860,3 +860,16 @@ The shared DXF boundary now imports referenced cached annotation blocks, rich MT
 ### Windows LibreDWG intermediate line endings — 2026-11-06
 
 The native DWG adapter now repairs CRCRLF line endings from LibreDWG Windows text-mode output before passing the intermediate DXF to the shared reader. Previously the extra carriage returns became empty group lines and caused a generic invalid-file refusal despite successful conversion. The repair preserves empty values, legacy text bytes and ordinary LF/CRLF output. Native macOS regression imports a private AC1024 drawing through both real LibreDWG and simulated Windows newline expansion: both return 1,926 model entities with exact undo/redo. Native Windows acceptance remains pending.
+
+### UX overhaul — 2026-11-13
+
+A second UX audit (85 findings, 8 blocking; see UX_AUDIT.md) led to one cross-cutting pass. No entity type was added; existing capabilities became reachable and predictable.
+
+- **Reachability.** File menu in the header (New, Open, Import, Export, Save, Save as, Print / PDF, Settings); `IMPORT`/`EXPORT` dispatch on the file extension; Open accepts DWG/DXF; `QSAVE` and Ctrl/Cmd+S; `OPTIONS` and Ctrl/Cmd+,; `HELP` palette of all commands by family; search on translated labels; session log of commands and replies. The tool rail adds polyline, multiline text, a dimension family, block insertion and measurement, and switches to two columns when one does not fit.
+- **Input.** The dynamic input no longer intercepts clicks; Enter no longer runs an unchosen suggestion; `ZOOM` gains Extents/All/Window/factor and the `Z` alias; `E`/`ERASE` delete; Enter/Space repeat the last command; right click is Enter during a command and a context menu when idle; Ctrl/Cmd+A; drag selection windows commit on release; per-step prompts with translated keywords; grid snap is off in new drawings; distinct snap markers (perpendicular, tangent and quadrant snaps are still missing).
+- **Coordinates.** Y axis up and counter-clockwise angles for everything shown or typed, behind an application setting that is on by default; storage, rendering, interchange and MCP are unchanged. Remaining stored-frame inputs are listed in UX_AUDIT.md.
+- **Dimensions and text.** Object picking no longer turns into a two-point dimension near a snap point; a placement step positions the dimension line; plan scale in the status bar with paper-millimetre dimension styles; unstyled dimensions no longer follow the zoom; selectable dimension text with text, line and origin grips; common fields for several selected dimensions; single-click text creation with an editor on the sheet background.
+- **Layouts and output.** Page-setup step (paper size, orientation, scale or fit, optional title block) when a sheet has no viewport, creating a locked viewport in one undo step; ready-made title block from ordinary paper annotations; `VPSCALE`; the wheel always zooms the paper; viewport scale shown on its frame and first in its properties; new layouts default to A3 landscape.
+- **Panels.** Permanent Manage menu; movable manager windows closed by Escape; reordered Properties with line length/angle, rectangle size and block name/rotation/scale; clearer layer states, single-step rename, French filter keywords, merge-and-delete; cursor coordinates and a readable zoom in the status bar; readable `LIST`; collapsible right panel; block thumbnails.
+
+The catalog now holds 304 commands (new: `IMPORT`, `EXPORT`, `QSAVE`, `OPTIONS`, `HELP`, `VPSCALE`).

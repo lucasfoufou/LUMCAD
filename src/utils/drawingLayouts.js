@@ -28,7 +28,7 @@ export const DRAWING_PAPER_FORMAT_OPTIONS = Object.freeze([
     DRAWING_CUSTOM_PAPER_FORMAT,
 ]);
 export const DRAWING_ORIENTATION_OPTIONS = Object.freeze(['landscape', 'portrait']);
-export const DRAWING_VIEWPORT_SCALE_OPTIONS = Object.freeze([10, 20, 25, 50, 75, 100, 125, 200, 250, 500, 1000]);
+export const DRAWING_VIEWPORT_SCALE_OPTIONS = Object.freeze([1, 2, 5, 10, 20, 25, 50, 75, 100, 125, 200, 250, 500, 1000, 2000, 5000]);
 export const DRAWING_VIEWPORT_VISUAL_STYLE_OPTIONS = Object.freeze(['normal', 'grayscale', 'monochrome']);
 export const DRAWING_VIEWPORT_CLIP_PRESET_OPTIONS = Object.freeze(['rectangle', 'triangle', 'hexagon']);
 export const DRAWING_VIEWPORT_ARRANGEMENT_OPTIONS = Object.freeze([
@@ -49,6 +49,9 @@ export const MIN_PAPER_SIZE_MM = 10;
 export const MAX_PAPER_SIZE_MM = 5_000;
 export const MIN_PRINTABLE_SIZE_MM = 8;
 
+// New layouts start on an A3 landscape sheet; stored layouts keep their own
+// format, and a stored layout without one still normalizes to A0.
+export const DRAWING_NEW_LAYOUT_FORMAT = 'A3';
 const DEFAULT_CUSTOM_PAPER_SIZE = Object.freeze({ width: 420, height: 297 });
 const DEFAULT_MARGINS = Object.freeze({ top: 0, right: 0, bottom: 0, left: 0 });
 const DEFAULT_VIEWPORT_VISUAL_SETTINGS = Object.freeze({
@@ -65,7 +68,7 @@ const STANDARD_ARRANGEMENT_GAP_MM = 5;
 const POLYGON_AREA_EPSILON = 1e-8;
 
 export function createDefaultDrawingLayouts({ name = 'Layout 1' } = {}) {
-    return [createDrawingLayout({ name })];
+    return [createDrawingLayout({ name, format: DRAWING_NEW_LAYOUT_FORMAT })];
 }
 
 export function createDrawingLayout({

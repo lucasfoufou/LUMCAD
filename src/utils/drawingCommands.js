@@ -58,15 +58,68 @@ export function getDrawingCommandSuggestions(value, limit = 5) {
         }));
 }
 
-export function resolveDrawingAutocompleteSubmission(value, suggestions = [], selectedIndex = -1) {
+/**
+ * Command search over names, aliases, alternatives and the translated label.
+ * Accents and case are ignored. Ranking: exact token, token prefix, then a
+ * label word starting with each query word, then a label containing the query.
+ * `translate` maps a labelKey to the label in the current language.
+ */
+export function searchDrawingCommands(value, { translate = key => key, limit = 50, allowSpaces = false } = {}) {
+    const query = foldDrawingSearchText(value);
+    if (!query || (!allowSpaces && /\s/.test(query))) return [];
+    const token = query.toUpperCase();
+    const words = query.split(/\s+/).filter(Boolean);
+    const results = [];
+    for (const definition of drawingCommandDefinitions) {
+        const tokens = definition.tokens.map(item => foldDrawingSearchText(item).toUpperCase());
+        let rank = null;
+        if (tokens.includes(token)) rank = definition.alias === token ? 0 : definition.name === token ? 1 : 2;
+        else if (tokens.some(item => item.startsWith(token))) rank = 3 + suggestionScore(definition, token) / 10;
+        else {
+            const label = foldDrawingSearchText(translate(definition.labelKey));
+            const labelWords = label.split(/[^a-z0-9]+/).filter(Boolean);
+            if (words.every(word => labelWords.some(item => item.startsWith(word)))) rank = 5;
+            else if (query.length >= 3 && label.includes(query)) rank = 6;
+        }
+        if (rank !== null) results.push({ definition, rank });
+    }
+    results.sort((left, right) => left.rank - right.rank || left.definition.name.localeCompare(right.definition.name, 'en'));
+    return results.slice(0, limit).map(({ definition, rank }) => ({
+        command: definition.command,
+        name: definition.name,
+        alias: definition.alias,
+        labelKey: definition.labelKey,
+        completion: definition.name,
+        tokens: definition.tokens,
+        matchedLabel: rank >= 5,
+    }));
+}
+
+/** Lower case without diacritics, for accent-insensitive search. */
+export function foldDrawingSearchText(value) {
+    return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
+/**
+ * What Enter submits from the command line. A suggestion runs only when it was
+ * chosen explicitly (arrow keys, Tab, click) or when the text is exactly one of
+ * its names or aliases; numbers, coordinates and expressions are never completed.
+ * At an option prompt (`options: true`) a prefix matching a single keyword is
+ * accepted, as AutoCAD accepts any unambiguous keyword abbreviation; a command
+ * prefix is never run, so "OP" cannot open a file dialog by accident.
+ */
+export function resolveDrawingAutocompleteSubmission(value, suggestions = [], selectedIndex = -1, { options = false } = {}) {
     const trimmed = String(value || '').trim();
-    if (!trimmed || !suggestions.length) return trimmed;
     const selected = selectedIndex >= 0 ? suggestions[selectedIndex] : null;
     if (selected) return selected.completion;
+    if (!trimmed || !suggestions.length || !isKeywordLikeInput(trimmed)) return trimmed;
     const token = normalizeCommandToken(trimmed);
-    return suggestions.some(suggestion => suggestion.tokens?.includes(token))
-        ? trimmed
-        : suggestions[0].completion;
+    if (suggestions.some(suggestion => suggestion.tokens?.includes(token))) return trimmed;
+    return options && suggestions.length === 1 ? suggestions[0].completion : trimmed;
+}
+
+function isKeywordLikeInput(value) {
+    return /^[-_]?[\p{L}][\p{L}\d_-]*$/u.test(value);
 }
 
 export function getDrawingCommandDefinition(value) {

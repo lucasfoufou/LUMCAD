@@ -1,5 +1,9 @@
 import { defineConfig } from '@playwright/test';
 
+// LUMCAD_E2E_PORT lets several checkouts run the suite side by side.
+const port = Number(process.env.LUMCAD_E2E_PORT) || 1429;
+const baseURL = `http://127.0.0.1:${port}`;
+
 export default defineConfig({
     testDir: './tests/e2e',
     timeout: 30_000,
@@ -9,7 +13,7 @@ export default defineConfig({
     retries: 0,
     reporter: [['list'], ['html', { open: 'never' }]],
     use: {
-        baseURL: 'http://127.0.0.1:1429',
+        baseURL,
         viewport: { width: 1440, height: 900 },
         trace: 'retain-on-failure',
         screenshot: 'only-on-failure',
@@ -17,7 +21,7 @@ export default defineConfig({
     },
     webServer: {
         command: 'npm run dev:e2e',
-        url: 'http://127.0.0.1:1429',
+        url: baseURL,
         reuseExistingServer: false,
         timeout: 60_000,
     },

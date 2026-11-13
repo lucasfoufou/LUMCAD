@@ -21,7 +21,8 @@ export default function DrawingEditorBody({
             <main className="drawing-editor-stage">
                 <DrawingCanvas ref={canvasRef} {...canvas} optionsTarget={optionsTarget} propertiesTarget={propertiesTarget} />
             </main>
-            <DrawingSidebar {...sidebar} editEntityId={canvas.editEntity?.id || null} selectedIds={canvas.activeTool === 'select' && !canvas.interactiveOperation ? sidebar.selectedIds : []} onCreationControlsMount={setPropertiesTarget} />
+            <DrawingSidebar {...sidebar} editEntityId={canvas.editEntity?.id || null} selectedIds={canvas.activeTool === 'select' && !canvas.interactiveOperation ? sidebar.selectedIds : []} onCreationControlsMount={setPropertiesTarget}
+                commandActive={canvas.activeTool !== 'select' || Boolean(canvas.interactiveOperation)} />
         </div>
     );
 }

@@ -2,7 +2,10 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{self, BufReader, BufWriter, Write},
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -139,6 +142,8 @@ pub struct DrawingDefaults {
     pub angle_unit: String,
     pub clockwise_angles: bool,
     pub mirror_text: bool,
+    /// Y axis up for typed and displayed coordinates (AutoCAD); stored geometry keeps Y down.
+    pub y_axis_up: bool,
 }
 
 impl Default for DrawingDefaults {
@@ -151,6 +156,7 @@ impl Default for DrawingDefaults {
             angle_unit: "degrees".into(),
             clockwise_angles: false,
             mirror_text: false,
+            y_axis_up: true,
         }
     }
 }
@@ -222,11 +228,21 @@ impl McpPreferences {
     }
 }
 
-pub struct AppSettingsState(Mutex<AppSettings>);
+/// Current settings, and whether a settings file existed or was written. Until
+/// then the frontend may adopt the system language on first launch.
+pub struct AppSettingsState(Mutex<AppSettings>, AtomicBool);
 
 impl AppSettingsState {
     pub fn new(settings: AppSettings) -> Self {
-        Self(Mutex::new(settings.normalized()))
+        Self::with_origin(settings, true)
+    }
+
+    fn with_origin(settings: AppSettings, stored: bool) -> Self {
+        Self(Mutex::new(settings.normalized()), AtomicBool::new(stored))
+    }
+
+    pub fn is_stored(&self) -> bool {
+        self.1.load(Ordering::SeqCst)
     }
 
     pub fn snapshot(&self) -> AppSettings {
@@ -240,12 +256,14 @@ impl AppSettingsState {
         if let Ok(mut current) = self.0.lock() {
             *current = settings;
         }
+        self.1.store(true, Ordering::SeqCst);
     }
 }
 
 pub fn load(app: &AppHandle) -> Result<AppSettingsState, String> {
     if crate::runtime::is_headless() { return Ok(AppSettingsState::new(AppSettings::default())); }
     let path = settings_path(app)?;
+    let mut stored = true;
     let settings = match File::open(&path) {
         Ok(file) => match serde_json::from_reader::<_, AppSettings>(BufReader::new(file)) {
             Ok(settings) => settings.normalized(),
@@ -257,7 +275,10 @@ pub fn load(app: &AppHandle) -> Result<AppSettingsState, String> {
                 AppSettings::default()
             }
         },
-        Err(error) if error.kind() == io::ErrorKind::NotFound => AppSettings::default(),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            stored = false;
+            AppSettings::default()
+        }
         Err(error) => {
             eprintln!(
                 "LUMCAD could not read settings from {}: {error}",
@@ -266,12 +287,18 @@ pub fn load(app: &AppHandle) -> Result<AppSettingsState, String> {
             AppSettings::default()
         }
     };
-    Ok(AppSettingsState::new(settings))
+    Ok(AppSettingsState::with_origin(settings, stored))
 }
 
 #[tauri::command]
 pub fn get_app_settings(state: State<'_, AppSettingsState>) -> AppSettings {
     state.snapshot()
+}
+
+/// False only before the first settings file exists (first launch).
+#[tauri::command]
+pub fn app_settings_stored(state: State<'_, AppSettingsState>) -> bool {
+    state.is_stored()
 }
 
 #[tauri::command]
@@ -408,6 +435,25 @@ mod tests {
     }
 
     #[test]
+    fn y_axis_up_defaults_on_for_settings_saved_before_it_existed() {
+        assert!(AppSettings::default().drawing_defaults.y_axis_up);
+        let legacy: DrawingDefaults = serde_json::from_str(r#"{"angleUnit":"degrees","clockwiseAngles":false}"#).unwrap();
+        assert!(legacy.y_axis_up);
+        let disabled: DrawingDefaults = serde_json::from_str(r#"{"yAxisUp":false}"#).unwrap();
+        assert!(!disabled.normalized().y_axis_up);
+    }
+
+    #[test]
+    fn first_launch_state_becomes_stored_after_the_first_update() {
+        let state = AppSettingsState::with_origin(AppSettings::default(), false);
+        assert!(!state.is_stored());
+        state.replace(AppSettings { language: "fr".into(), ..AppSettings::default() }.normalized());
+        assert!(state.is_stored());
+        assert_eq!(state.snapshot().language, "fr");
+        assert!(AppSettingsState::new(AppSettings::default()).is_stored());
+    }
+
+    #[test]
     fn settings_are_normalized_to_safe_supported_values() {
         let settings = AppSettings {
             command_aliases: Vec::new(),
@@ -423,6 +469,7 @@ mod tests {
                 angle_unit: "turns".into(),
                 clockwise_angles: true,
                 mirror_text: true,
+                y_axis_up: false,
             },
             mcp: McpPreferences {
                 enabled: true,
@@ -442,6 +489,7 @@ mod tests {
         assert_eq!(settings.drawing_defaults.angle_unit, "degrees");
         assert!(settings.drawing_defaults.clockwise_angles);
         assert!(settings.drawing_defaults.mirror_text);
+        assert!(!settings.drawing_defaults.y_axis_up);
         assert_eq!(settings.mcp.preferred_port, 1_024);
     }
 
@@ -461,6 +509,7 @@ mod tests {
                 angle_unit: "radians".into(),
                 clockwise_angles: true,
                 mirror_text: true,
+                y_axis_up: false,
             },
             mcp: McpPreferences {
                 enabled: false,

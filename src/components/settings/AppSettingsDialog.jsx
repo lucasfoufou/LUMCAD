@@ -3,12 +3,18 @@ import { Button, Input, Select } from '~components/ui/Controls';
 import CommandAliasFields from './CommandAliasFields';
 import { validateDrawingAliases, validateDrawingCommandShortcuts, DEFAULT_DRAWING_SHORTCUTS } from '~utils/drawingCommandPreferences';
 import React, { useEffect, useState } from 'react';
+import Icon from '~components/ui/Icon';
+import { isTauriRuntime } from '~utils/lcadStorage';
+import { open as openNativeDialog } from '~utils/nativeDialogs';
 
 import { useI18n } from '~i18n/I18nProvider';
 import { useAppSettings } from '~settings/AppSettingsProvider';
 import { getMcpStatus, locateLibreDwg, normalizeAbsolutePath, normalizeAppSettings } from '~settings/appSettings';
 
-export default function AppSettingsDialog({ open, onClose }) {
+// Sections of the dialog, in navigation order; `section` opens one directly.
+export const APP_SETTINGS_SECTIONS = Object.freeze(['general', 'drawing', 'files', 'keyboard', 'advanced']);
+
+export default function AppSettingsDialog({ open, onClose, section = 'general' }) {
     const { locale, setLocale, t } = useI18n();
     const { settings, updateSettings } = useAppSettings();
     const [draft, setDraft] = useState(settings);
@@ -21,6 +27,12 @@ export default function AppSettingsDialog({ open, onClose }) {
     const dialogRef = useDialogFocus(open, onClose, saving);
     const libredwgDirectory = draft?.cadInterchange?.libredwgDirectory || '';
     const [copied, setCopied] = useState(false);
+    const [activeSection, setActiveSection] = useState(section);
+    const desktop = isTauriRuntime();
+
+    useEffect(() => {
+        if (open) setActiveSection(APP_SETTINGS_SECTIONS.includes(section) ? section : 'general');
+    }, [open, section]);
 
     useEffect(() => {
         if (!open) return undefined;
@@ -68,10 +80,10 @@ export default function AppSettingsDialog({ open, onClose }) {
     const save = async event => {
         event.preventDefault();
         try { validateDrawingAliases(draft.commandAliases); }
-        catch { setAliasError(true); return; }
+        catch { setAliasError(true); setActiveSection('advanced'); return; }
         setAliasError(false);
         try { validateDrawingCommandShortcuts(draft.commandShortcuts); }
-        catch { setShortcutError(true); return; }
+        catch { setShortcutError(true); setActiveSection('keyboard'); return; }
         setShortcutError(false);
         setSaving(true);
         setSaveError(false);
@@ -113,119 +125,157 @@ export default function AppSettingsDialog({ open, onClose }) {
                 </header>
 
                 <form onSubmit={save}>
-                    <div className="lumcad-settings-content">
-                        <SettingsSection title={t('settings.generalTitle')} description={t('settings.generalDescription')}>
-                            <SettingsField label={t('language.label')}>
-                                <Select value={draft.language} onChange={event => update({ language: event.target.value })}>
-                                    <option value="en">{t('language.english')}</option>
-                                    <option value="fr">{t('language.french')}</option>
-                                </Select>
-                            </SettingsField>
-                            <SettingsField label={t('settings.autosaveDelay')} hint={t('settings.autosaveDelayHint')}>
-                                <div className="lumcad-settings-input-unit">
-                                    <Input
-                                        type="number"
-                                        min="0.3"
-                                        max="10"
-                                        step="0.1"
-                                        value={draft.autosaveDelayMs / 1000}
-                                        onChange={event => update({ autosaveDelayMs: Number(event.target.value) * 1000 })}
+                    <div className="lumcad-settings-layout">
+                        <nav className="lumcad-settings-nav" aria-label={t('settings.sections')}>
+                            {APP_SETTINGS_SECTIONS.map(id => (
+                                <Button key={id} type="button" aria-current={activeSection === id ? 'page' : undefined}
+                                    className={activeSection === id ? 'is-active' : ''} onClick={() => setActiveSection(id)}>
+                                    {t(`settings.section.${id}`)}
+                                </Button>
+                            ))}
+                        </nav>
+                        <div className="lumcad-settings-content">
+                            {activeSection === 'general' && (
+                                <SettingsSection title={t('settings.generalTitle')} description={t('settings.generalDescription')}>
+                                    <SettingsField label={t('language.label')}>
+                                        <Select value={draft.language} onChange={event => update({ language: event.target.value })}>
+                                            <option value="en">{t('language.english')}</option>
+                                            <option value="fr">{t('language.french')}</option>
+                                        </Select>
+                                    </SettingsField>
+                                    <SettingsField label={t('settings.autosaveDelay')} hint={t('settings.autosaveDelayHint')}>
+                                        <div className="lumcad-settings-input-unit">
+                                            <Input
+                                                type="number"
+                                                min="0.3"
+                                                max="10"
+                                                step="0.1"
+                                                value={draft.autosaveDelayMs / 1000}
+                                                onChange={event => update({ autosaveDelayMs: Number(event.target.value) * 1000 })}
+                                            />
+                                            <span>{t('settings.seconds')}</span>
+                                        </div>
+                                    </SettingsField>
+                                </SettingsSection>
+                            )}
+
+                            {activeSection === 'drawing' && <>
+                                <SettingsSection title={t('settings.newDrawingsTitle')} description={t('settings.newDrawingsDescription')}>
+                                    <SettingsField label={t('template.defaultPath')} hint={t('template.defaultPathHint')} wide>
+                                        <PathInput
+                                            value={draft.drawingDefaults.templatePath}
+                                            placeholder={t('settings.templateNone')}
+                                            onChange={templatePath => updateDrawingDefaults({ templatePath })}
+                                            onBrowse={desktop ? () => openNativeDialog({ multiple: false, directory: false,
+                                                filters: [{ name: t('fileDialog.lcadDrawing'), extensions: ['lcad'] }] }) : null}
+                                            t={t}
+                                        />
+                                    </SettingsField>
+                                    <SettingsField label={t('settings.defaultGridSpacing')}>
+                                        <div className="lumcad-settings-input-unit">
+                                            <Input
+                                                type="number"
+                                                min="0.0001"
+                                                max="1000"
+                                                step="any"
+                                                value={draft.drawingDefaults.gridSpacing}
+                                                onChange={event => updateDrawingDefaults({ gridSpacing: Number(event.target.value) })}
+                                            />
+                                            <span>m</span>
+                                        </div>
+                                    </SettingsField>
+                                    <SettingsToggle
+                                        checked={draft.drawingDefaults.tracking}
+                                        onChange={tracking => updateDrawingDefaults({ tracking })}
+                                        label={t('settings.defaultTracking')}
+                                        hint={t('settings.defaultTrackingHint')}
                                     />
-                                    <span>{t('settings.seconds')}</span>
-                                </div>
-                            </SettingsField>
-                        </SettingsSection>
+                                </SettingsSection>
 
-                        <SettingsSection title={t('commandPreferences.aliasTitle')} description={t('commandPreferences.aliasHint')}>
-                            <CommandAliasFields value={draft.commandAliases} onChange={commandAliases => { update({ commandAliases }); setAliasError(false); }} />
-                            {aliasError && <p role="alert" className="lumcad-settings-error is-visible">{t('commandPreferences.aliasError')}</p>}
-                        </SettingsSection>
-
-                        <SettingsSection title={t('commandPreferences.shortcutTitle')} description={t('commandPreferences.shortcutHint')}>
-                            <CommandAliasFields shortcuts value={draft.commandShortcuts} onChange={commandShortcuts => { update({ commandShortcuts }); setShortcutError(false); }} />
-                            <Button type="button" className="lumcad-settings-button" onClick={() => update({ commandShortcuts: DEFAULT_DRAWING_SHORTCUTS.map(row => ({ ...row })) })}>{t('commandPreferences.resetShortcuts')}</Button>
-                            {shortcutError && <p role="alert" className="lumcad-settings-error is-visible">{t('commandPreferences.shortcutError')}</p>}
-                        </SettingsSection>
-
-                        <SettingsSection title={t('settings.newDrawingsTitle')} description={t('settings.newDrawingsDescription')}>
-                            <SettingsField label={t('template.defaultPath')} hint={t('template.defaultPathHint')}>
-                                <Input type="text" value={draft.drawingDefaults.templatePath}
-                                    onChange={event => updateDrawingDefaults({ templatePath: event.target.value })} />
-                            </SettingsField>
-                            <SettingsField label={t('settings.defaultGridSpacing')}>
-                                <div className="lumcad-settings-input-unit">
-                                    <Input
-                                        type="number"
-                                        min="0.0001"
-                                        max="1000"
-                                        step="any"
-                                        value={draft.drawingDefaults.gridSpacing}
-                                        onChange={event => updateDrawingDefaults({ gridSpacing: Number(event.target.value) })}
+                                <SettingsSection title={t('settings.drawingOperationsTitle')} description={t('settings.drawingOperationsDescription')}>
+                                    <SettingsField label={t('settings.angleUnit')} hint={t('settings.angleUnitHint')}>
+                                        <Select
+                                            value={draft.drawingDefaults.angleUnit}
+                                            onChange={event => updateDrawingDefaults({ angleUnit: event.target.value })}
+                                        >
+                                            <option value="degrees">{t('settings.angleDegrees')}</option>
+                                            <option value="radians">{t('settings.angleRadians')}</option>
+                                            <option value="gradians">{t('settings.angleGradians')}</option>
+                                        </Select>
+                                    </SettingsField>
+                                    <SettingsToggle
+                                        checked={draft.drawingDefaults.clockwiseAngles}
+                                        onChange={clockwiseAngles => updateDrawingDefaults({ clockwiseAngles })}
+                                        label={t('settings.clockwiseAngles')}
+                                        hint={t('settings.clockwiseAnglesHint')}
                                     />
-                                    <span>m</span>
-                                </div>
-                            </SettingsField>
-                            <SettingsToggle
-                                checked={draft.drawingDefaults.tracking}
-                                onChange={tracking => updateDrawingDefaults({ tracking })}
-                                label={t('settings.defaultTracking')}
-                                hint={t('settings.defaultTrackingHint')}
-                            />
-                        </SettingsSection>
+                                    <SettingsToggle
+                                        checked={draft.drawingDefaults.yAxisUp}
+                                        onChange={yAxisUp => updateDrawingDefaults({ yAxisUp })}
+                                        label={t('settings.yAxisUp')}
+                                        hint={t('settings.yAxisUpHint')}
+                                    />
+                                    <SettingsToggle
+                                        checked={draft.drawingDefaults.mirrorText}
+                                        onChange={mirrorText => updateDrawingDefaults({ mirrorText })}
+                                        label={t('settings.mirrorText')}
+                                        hint={t('settings.mirrorTextHint')}
+                                    />
+                                </SettingsSection>
+                            </>}
 
-                        <SettingsSection title={t('settings.drawingOperationsTitle')} description={t('settings.drawingOperationsDescription')}>
-                            <SettingsField label={t('settings.angleUnit')} hint={t('settings.angleUnitHint')}>
-                                <Select
-                                    value={draft.drawingDefaults.angleUnit}
-                                    onChange={event => updateDrawingDefaults({ angleUnit: event.target.value })}
-                                >
-                                    <option value="degrees">{t('settings.angleDegrees')}</option>
-                                    <option value="radians">{t('settings.angleRadians')}</option>
-                                    <option value="gradians">{t('settings.angleGradians')}</option>
-                                </Select>
-                            </SettingsField>
-                            <SettingsToggle
-                                checked={draft.drawingDefaults.clockwiseAngles}
-                                onChange={clockwiseAngles => updateDrawingDefaults({ clockwiseAngles })}
-                                label={t('settings.clockwiseAngles')}
-                                hint={t('settings.clockwiseAnglesHint')}
-                            />
-                            <SettingsToggle
-                                checked={draft.drawingDefaults.mirrorText}
-                                onChange={mirrorText => updateDrawingDefaults({ mirrorText })}
-                                label={t('settings.mirrorText')}
-                                hint={t('settings.mirrorTextHint')}
-                            />
-                        </SettingsSection>
+                            {activeSection === 'files' && (
+                                <SettingsSection title={t('settings.interchangeTitle')} description={t('settings.interchangeDescription')}>
+                                    <SettingsField label={t('settings.libredwgDirectory')} hint={t('settings.libredwgDirectoryHint')} wide>
+                                        <PathInput
+                                            value={libredwgDirectory}
+                                            placeholder={t('settings.libredwgDirectoryAutomatic')}
+                                            onChange={value => updateCadInterchange({ libredwgDirectory: value })}
+                                            onBrowse={desktop ? () => openNativeDialog({ multiple: false, directory: true }) : null}
+                                            t={t}
+                                        />
+                                    </SettingsField>
+                                    <ConverterStatus location={converterLocation} directory={libredwgDirectory} t={t} />
+                                </SettingsSection>
+                            )}
 
-                        <SettingsSection title={t('settings.mcpTitle')} description={t('settings.mcpDescription')}>
-                            <SettingsToggle
-                                checked={draft.mcp.enabled}
-                                onChange={enabled => updateMcp({ enabled })}
-                                label={t('settings.mcpEnabled')}
-                                hint={t('settings.mcpEnabledHint')}
-                            />
-                            <SettingsField label={t('settings.mcpPreferredPort')} hint={t('settings.mcpPreferredPortHint')}>
-                                <Input
-                                    type="number"
-                                    min="1024"
-                                    max="65535"
-                                    step="1"
-                                    value={draft.mcp.preferredPort}
-                                    disabled={!draft.mcp.enabled}
-                                    onChange={event => updateMcp({ preferredPort: Number(event.target.value) })}
-                                />
-                            </SettingsField>
-                            <McpStatus status={mcpStatus} copied={copied} onCopy={copyEndpoint} t={t} />
-                        </SettingsSection>
+                            {activeSection === 'keyboard' && (
+                                <SettingsSection title={t('commandPreferences.shortcutTitle')} description={t('commandPreferences.shortcutHint')}>
+                                    <p className="lumcad-settings-note">{t('settings.fixedShortcuts')}</p>
+                                    <CommandAliasFields shortcuts value={draft.commandShortcuts} onChange={commandShortcuts => { update({ commandShortcuts }); setShortcutError(false); }} />
+                                    <Button type="button" className="lumcad-settings-button" onClick={() => update({ commandShortcuts: DEFAULT_DRAWING_SHORTCUTS.map(row => ({ ...row })) })}>{t('commandPreferences.resetShortcuts')}</Button>
+                                    {shortcutError && <p role="alert" className="lumcad-settings-error is-visible">{t('commandPreferences.shortcutError')}</p>}
+                                </SettingsSection>
+                            )}
 
-                        <SettingsSection title={t('settings.interchangeTitle')} description={t('settings.interchangeDescription')}>
-                            <SettingsField label={t('settings.libredwgDirectory')} hint={t('settings.libredwgDirectoryHint')}>
-                                <Input type="text" value={libredwgDirectory} placeholder={t('settings.libredwgDirectoryAutomatic')}
-                                    onChange={event => updateCadInterchange({ libredwgDirectory: event.target.value })} />
-                            </SettingsField>
-                            <ConverterStatus location={converterLocation} directory={libredwgDirectory} t={t} />
-                        </SettingsSection>
+                            {activeSection === 'advanced' && <>
+                                <SettingsSection title={t('settings.mcpTitle')} description={t('settings.mcpDescription')}>
+                                    <SettingsToggle
+                                        checked={draft.mcp.enabled}
+                                        onChange={enabled => updateMcp({ enabled })}
+                                        label={t('settings.mcpEnabled')}
+                                        hint={t('settings.mcpEnabledHint')}
+                                    />
+                                    <SettingsField label={t('settings.mcpPreferredPort')} hint={t('settings.mcpPreferredPortHint')}>
+                                        <Input
+                                            type="number"
+                                            min="1024"
+                                            max="65535"
+                                            step="1"
+                                            value={draft.mcp.preferredPort}
+                                            disabled={!draft.mcp.enabled}
+                                            onChange={event => updateMcp({ preferredPort: Number(event.target.value) })}
+                                        />
+                                    </SettingsField>
+                                    <McpStatus status={mcpStatus} copied={copied} onCopy={copyEndpoint} t={t} />
+                                </SettingsSection>
+
+                                <SettingsSection title={t('commandPreferences.aliasTitle')} description={t('commandPreferences.aliasHint')}>
+                                    <CommandAliasFields value={draft.commandAliases} onChange={commandAliases => { update({ commandAliases }); setAliasError(false); }} />
+                                    {aliasError && <p role="alert" className="lumcad-settings-error is-visible">{t('commandPreferences.aliasError')}</p>}
+                                </SettingsSection>
+                            </>}
+                        </div>
                     </div>
 
                     <footer className="lumcad-settings-footer">
@@ -257,9 +307,9 @@ function SettingsSection({ title, description, children }) {
     );
 }
 
-function SettingsField({ label, hint = null, children }) {
+function SettingsField({ label, hint = null, wide = false, children }) {
     return (
-        <label className="lumcad-settings-field">
+        <label className={`lumcad-settings-field${wide ? ' is-wide' : ''}`}>
             <span><strong>{label}</strong>{hint && <small>{hint}</small>}</span>
             <span className="lumcad-settings-control">{children}</span>
         </label>
@@ -302,6 +352,29 @@ function McpStatus({ status, copied, onCopy, t }) {
     );
 }
 
+/** Path field with a native Browse… button on the desktop (hidden in the browser). */
+function PathInput({ value, placeholder, onChange, onBrowse, t }) {
+    const browse = async event => {
+        event.preventDefault();
+        try {
+            const selected = await onBrowse();
+            if (typeof selected === 'string' && selected) onChange(selected);
+        } catch {
+            // A closed or refused dialog leaves the field unchanged.
+        }
+    };
+    return (
+        <span className="lumcad-settings-path">
+            <Input type="text" value={value} placeholder={placeholder} spellCheck="false" onChange={event => onChange(event.target.value)} />
+            {onBrowse && (
+                <Button type="button" className="lumcad-settings-button" onClick={browse}>
+                    <Icon name="open" size="sm" />{t('settings.browse')}
+                </Button>
+            )}
+        </span>
+    );
+}
+
 /** LibreDWG lookup result for the folder being edited, with install guidance when it is missing. */
 function ConverterStatus({ location, directory, t }) {
     const explicit = Boolean(directory.trim());
@@ -317,7 +390,14 @@ function ConverterStatus({ location, directory, t }) {
                 <strong>{t(`settings.libredwgStatus.${state}`)}</strong>
             </div>
             {state === 'found' && <div className="lumcad-service-endpoint"><code>{location}</code></div>}
-            {(state === 'missing' || state === 'missingFolder') && <p>{t('settings.libredwgInstall')}</p>}
+            {(state === 'missing' || state === 'missingFolder') && <p>{t(`settings.libredwgInstall.${detectInstallPlatform()}`)}</p>}
         </div>
     );
+}
+
+function detectInstallPlatform() {
+    const platform = typeof navigator === 'undefined' ? '' : `${navigator.platform || ''} ${navigator.userAgent || ''}`;
+    if (/Win/i.test(platform)) return 'windows';
+    if (/Mac/i.test(platform)) return 'mac';
+    return 'linux';
 }

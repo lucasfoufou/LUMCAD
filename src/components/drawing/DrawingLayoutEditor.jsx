@@ -25,7 +25,9 @@ export default function DrawingLayoutEditor({
     onDeleteViewport,
     onExportPageSetups,
     onImportPageSetups,
+    onInsertTitleBlock,
     onMaximizeViewport,
+    onOpenSheetSetup,
     onMinimizeViewport,
     onOperationPoint,
     onScaleViewport,
@@ -37,6 +39,7 @@ export default function DrawingLayoutEditor({
     pageSetups = [],
     selectedViewportId,
     viewportMaximized = false,
+    yAxisUp = false,
 }) {
     const [selectedPaperEntityId, setSelectedPaperEntityId] = useState(null);
     const selectedViewport = layout.viewports.find(viewport => viewport.id === selectedViewportId) || null;
@@ -112,6 +115,7 @@ export default function DrawingLayoutEditor({
             </main>
             <DrawingLayoutSidebar
                 content={content}
+                yAxisUp={yAxisUp}
                 currentModelViewport={currentModelViewport}
                 layout={layout}
                 layoutCount={layoutCount}
@@ -121,6 +125,8 @@ export default function DrawingLayoutEditor({
                 onDeletePageSetup={onDeletePageSetup}
                 onExportPageSetups={onExportPageSetups}
                 onImportPageSetups={onImportPageSetups}
+                onInsertTitleBlock={onInsertTitleBlock}
+                onOpenSheetSetup={onOpenSheetSetup}
                 onSelectedPaperEntityChange={selectPaperEntity}
                 onSelectViewport={selectViewport}
                 onToolChange={onToolChange}

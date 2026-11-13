@@ -189,7 +189,7 @@ test('new dimension grips edit placement without breaking source associations', 
     const angular = {
         type: 'angularDimension', sourceIds: ['first', 'second'], radius: 2,
     };
-    assert.deepEqual(getEntityGrips(angular, sources).map(grip => grip.id), ['dimension-position']);
+    assert.deepEqual(getEntityGrips(angular, sources).map(grip => grip.id), ['dimension-position', 'dimension-text']);
     const resizedAngle = editEntityGrip(angular, 'dimension-position', { x: 3, y: 4 }, sources);
     assert.equal(resizedAngle.radius, 5);
     assert.deepEqual(resizedAngle.sourceIds, angular.sourceIds);

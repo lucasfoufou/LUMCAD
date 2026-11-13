@@ -165,6 +165,17 @@ export function parseDrawingPointInput(value, {
     };
 }
 
+/**
+ * With a decimal-comma locale, "0,0" or "@12,5" is read as one number. When it
+ * looks like an "x,y" pair, returns the same input with ";" as the X/Y
+ * separator so the user can be told how to type the point; otherwise null.
+ */
+export function drawingCommaPairSuggestion(value, { decimalComma = false } = {}) {
+    if (!decimalComma) return null;
+    const match = /^\s*([@#]?)\s*([+-]?\d+(?:\.\d+)?)\s*,\s*([+-]?\d+(?:\.\d+)?)\s*$/.exec(String(value ?? ''));
+    return match ? `${match[1]}${match[2]};${match[3]}` : null;
+}
+
 export function hasDrawingPointSyntax(value, { decimalComma = false } = {}) {
     const source = String(value ?? '').trim();
     if (!source) return false;
@@ -279,6 +290,31 @@ export function drawingDynamicInputAnchor(point, viewBox, viewportSize, {
     const renderedOffsetY = (viewportHeight - renderedHeight) / 2;
     const x = renderedOffsetX + (point.x - Number(viewBox.x || 0)) * scale + offset;
     const y = renderedOffsetY + (point.y - Number(viewBox.y || 0)) * scale + offset;
+    return {
+        x: clamp(x, margin, Math.max(margin, viewportWidth - width - margin)),
+        y: clamp(y, margin, Math.max(margin, viewportHeight - height - margin)),
+    };
+}
+
+/**
+ * Places the dynamic input box beside the real pointer (canvas pixels), never
+ * under it: below-right by default, flipped to the left or above near the
+ * canvas edges so the pointer always stays outside the box.
+ */
+export function drawingDynamicInputPointerAnchor(pointer, viewportSize, {
+    offset = 22,
+    margin = 8,
+    width = 200,
+    height = 34,
+} = {}) {
+    if (!isFinitePoint(pointer)) return null;
+    const viewportWidth = Number(viewportSize?.width);
+    const viewportHeight = Number(viewportSize?.height);
+    if (![viewportWidth, viewportHeight].every(value => Number.isFinite(value) && value > 0)) return null;
+    const fitsRight = pointer.x + offset + width <= viewportWidth - margin;
+    const fitsBelow = pointer.y + offset + height <= viewportHeight - margin;
+    const x = fitsRight ? pointer.x + offset : pointer.x - offset - width;
+    const y = fitsBelow ? pointer.y + offset : pointer.y - offset - height;
     return {
         x: clamp(x, margin, Math.max(margin, viewportWidth - width - margin)),
         y: clamp(y, margin, Math.max(margin, viewportHeight - height - margin)),

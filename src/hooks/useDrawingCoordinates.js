@@ -1,7 +1,9 @@
 import { tokenizeDrawingAttributeInput } from '~utils/drawingBlockAttributes';
-import { DRAWING_UNITS, normalizeDrawingUnits, normalizeDrawingUcs, normalizeDrawingNamedUcs, normalizeDrawingLimits } from '~utils/drawingCoordinates';
+import { DRAWING_UNITS, drawingLimitsFromUser, drawingUcsFromUser, drawingUcsToUser, normalizeDrawingUnits, normalizeDrawingUcs, normalizeDrawingNamedUcs, normalizeDrawingLimits } from '~utils/drawingCoordinates';
 
-export default function useDrawingCoordinates({ history, setMessage, enabled, t }) {
+// UCS origins, rotations and limits are typed and listed in the user frame
+// (Y up when the preference is on); the document keeps the stored frame.
+export default function useDrawingCoordinates({ history, setMessage, enabled, t, inputYAxisUp = () => false }) {
     const run = (command, input) => {
         if (!['drawingUnits', 'ucs', 'ucsIcon', 'drawingLimits'].includes(command)) return false;
         if (!enabled) { setMessage(t('namedView.modelRequired')); return true; }
@@ -42,7 +44,7 @@ export default function useDrawingCoordinates({ history, setMessage, enabled, t 
             if (tokens.length === 1 && ['ON', 'OFF'].includes(tokens[0].toUpperCase()) && content.settings.limits) settings({ limits: { ...content.settings.limits, enabled: tokens[0].toUpperCase() === 'ON' } });
             else if (tokens.length === 4 && tokens.every(value => Number.isFinite(Number(value)))) {
                 const [minX, minY, maxX, maxY] = tokens.map(Number);
-                const limits = normalizeDrawingLimits({ minX, minY, maxX, maxY, enabled: true });
+                const limits = normalizeDrawingLimits(drawingLimitsFromUser({ minX, minY, maxX, maxY, enabled: true }, inputYAxisUp()));
                 if (limits) settings({ limits }); else invalid();
             } else invalid();
         } else {
@@ -51,8 +53,11 @@ export default function useDrawingCoordinates({ history, setMessage, enabled, t 
             const named = normalizeDrawingNamedUcs(content.namedUcs);
             const existing = named.find(item => item.name.toLowerCase() === args[0]?.trim().toLowerCase());
             if (action.toUpperCase() === 'WORLD' && !args.length) settings({ ucs: normalizeDrawingUcs() });
-            else if (action.toUpperCase() === 'LIST' && !args.length) setMessage(t('coordinates.ucs', { x: ucs.x, y: ucs.y, rotation: ucs.rotation, names: named.map(item => item.name).join(', ') }));
-            else if (action.toUpperCase() === 'SET' && args.length === 3 && args.every(value => Number.isFinite(Number(value)) && Math.abs(Number(value)) <= 1e9)) settings({ ucs: normalizeDrawingUcs({ x: Number(args[0]), y: Number(args[1]), rotation: Number(args[2]) }) });
+            else if (action.toUpperCase() === 'LIST' && !args.length) {
+                const shown = drawingUcsToUser(ucs, inputYAxisUp());
+                setMessage(t('coordinates.ucs', { x: shown.x, y: shown.y, rotation: shown.rotation, names: named.map(item => item.name).join(', ') }));
+            }
+            else if (action.toUpperCase() === 'SET' && args.length === 3 && args.every(value => Number.isFinite(Number(value)) && Math.abs(Number(value)) <= 1e9)) settings({ ucs: drawingUcsFromUser({ x: Number(args[0]), y: Number(args[1]), rotation: Number(args[2]) }, inputYAxisUp()) });
             else if (action.toUpperCase() === 'SAVE' && args.length === 1 && args[0].trim() && args[0].length <= 128 && (existing || named.length < 128)) {
                 const item = { name: args[0].trim(), ...ucs };
                 commit({ namedUcs: existing ? named.map(frame => frame === existing ? item : frame) : [...named, item] });

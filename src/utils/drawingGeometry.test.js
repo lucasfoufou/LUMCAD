@@ -86,7 +86,13 @@ test('CAD aliases and numeric inputs are recognized', () => {
     assert.equal(parseDrawingCommand('PUBLISH').command, 'publish');
     assert.equal(parseDrawingCommand('AUTOPUBLISH').command, 'autoPublish');
     assert.equal(parseDrawingCommand('EXPORTDWFX').command, 'dwfx');
-    assert.equal(parseDrawingCommand('SAVE').command, 'unknown');
+    // SAVE, QSAVE and Ctrl+S save to the current file (SAVEAS without one).
+    ['SAVE', 'QSAVE', 'ENREGISTRER'].forEach(alias => assert.equal(parseDrawingCommand(alias).command, 'quickSave'));
+    ['IMPORT', 'IMP', 'IMPORTER'].forEach(alias => assert.equal(parseDrawingCommand(alias).command, 'import'));
+    ['EXPORT', 'EXP', 'EXPORTER'].forEach(alias => assert.equal(parseDrawingCommand(alias).command, 'export'));
+    ['HELP', '?', 'AIDE'].forEach(alias => assert.equal(parseDrawingCommand(alias).command, 'help'));
+    ['OPTIONS', 'OP', 'PARAMETRES', 'PARAMÈTRES', 'REGLAGES', 'PREFERENCES'].forEach(alias => assert.equal(parseDrawingCommand(alias).command, 'options'));
+    assert.equal(parseDrawingCommand('EXPORTPDF').command, 'pdf');
     ['TR', 'TRIM', 'CUT', 'COUPER', 'AJUSTER'].forEach(alias => assert.equal(parseDrawingCommand(alias).command, 'trim'));
     assert.equal(isNumericDrawingInput('12,5'), true);
     assert.equal(isNumericDrawingInput('5 3'), true);
@@ -94,15 +100,29 @@ test('CAD aliases and numeric inputs are recognized', () => {
     assert.equal(isNumericDrawingInput('5 m'), true);
     assert.equal(getDrawingCommandInput('CAL span = 2,5 + 1,25'), 'span = 2,5 + 1,25');
     assert.equal(getDrawingCommandInput('CAL'), '');
-    assert.deepEqual(getDrawingCommandSuggestions('sav').map(item => item.name), ['SAVEAS', 'SAVETEMPLATE']);
+    assert.deepEqual(getDrawingCommandSuggestions('sav').map(item => item.name), ['SAVEAS', 'SAVETEMPLATE', 'QSAVE']);
     assert.equal(parseDrawingCommand('DWT').command, 'saveTemplate');
     assert.equal(parseDrawingCommand('QNEW').command, 'quickNew');
     assert.deepEqual(getDrawingCommandSuggestions('c').slice(0, 2).map(item => [item.name, item.alias]), [
         ['CIRCLE', 'C'],
         ['CENTERDISASSOCIATE', 'CENTERDISASSOCIATE'],
     ]);
-    assert.equal(resolveDrawingAutocompleteSubmission('sca', getDrawingCommandSuggestions('sca')), 'SCALE');
+    // A command prefix is never run on Enter: only an explicit choice completes it.
+    assert.equal(resolveDrawingAutocompleteSubmission('sca', getDrawingCommandSuggestions('sca')), 'sca');
+    assert.equal(resolveDrawingAutocompleteSubmission('sca', getDrawingCommandSuggestions('sca'), 0), 'SCALE');
     assert.equal(resolveDrawingAutocompleteSubmission('SC', getDrawingCommandSuggestions('SC')), 'SC');
+    for (const typed of ['E', 'ALL', 'SAVE', 'OP']) {
+        assert.equal(resolveDrawingAutocompleteSubmission(typed, getDrawingCommandSuggestions(typed)), typed);
+    }
+    // Numbers, coordinates and expressions are never completed, even at an option prompt.
+    const circleOptions = [{ name: '2POINT', completion: '2POINT', tokens: ['2POINT', '2P'] }];
+    for (const typed of ['2', '2,5', '0;0', '@3<45', '-1']) {
+        assert.equal(resolveDrawingAutocompleteSubmission(typed, circleOptions, -1, { options: true }), typed);
+    }
+    // At an option prompt an unambiguous keyword abbreviation is accepted.
+    const radius = [{ name: 'RADIUS', completion: 'RADIUS', tokens: ['RADIUS', 'R'] }];
+    assert.equal(resolveDrawingAutocompleteSubmission('rad', radius, -1, { options: true }), 'RADIUS');
+    assert.equal(resolveDrawingAutocompleteSubmission('rad', [...radius, { name: 'RADIAL', completion: 'RADIAL', tokens: ['RADIAL'] }], -1, { options: true }), 'rad');
     assert.ok(getDrawingCommandSuggestions('r').length <= 5);
 });
 
@@ -736,7 +756,9 @@ test('entity grips edit line ends, rectangle corners, and circle centers or radi
 test('dimension grip changes its distance while keeping the measured source associative', () => {
     const source = { id: 'source', type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 };
     const dimension = { id: 'dimension', type: 'linearDimension', sourceId: 'source', offset: 1 };
-    assert.deepEqual(getEntityGrips(dimension, source), [{ id: 'dimension-position', x: 5, y: 1 }]);
+    // The dimension-line grip sits on the line; the label has its own grip on the text.
+    assert.deepEqual(getEntityGrips(dimension, source).find(grip => grip.id === 'dimension-position'), { id: 'dimension-position', x: 5, y: 1 });
+    assert.deepEqual(getEntityGrips(dimension, source).map(grip => grip.id), ['dimension-position', 'dimension-text']);
     const moved = editEntityGrip(dimension, 'dimension-position', { x: 5, y: 3 }, source);
     assert.equal(moved.offset, 3);
     assert.equal(getDimensionGeometry(moved, source).value, 10);

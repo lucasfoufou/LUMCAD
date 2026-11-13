@@ -63,7 +63,7 @@
 .drawing-publish-body {
   min-height: 0;
   display: grid;
-  grid-template-columns: 210px minmax(320px, 1fr) minmax(300px, 360px);
+  grid-template-columns: 230px minmax(320px, 1fr) minmax(300px, 360px);
 }
 
 .drawing-publish-sheets,
@@ -102,19 +102,31 @@
   }
 
   button {
+    display: grid;
+    justify-items: start;
     min-width: 0;
-    padding: 9px 8px;
+    height: auto;
+    padding: 8px;
     border: 0;
     background: transparent;
     color: inherit;
     text-align: left;
 
-    span,
+    // Two lines for the name, then the paper and scale summary.
+    span {
+      display: -webkit-box;
+      overflow: hidden;
+      overflow-wrap: anywhere;
+      white-space: normal;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+
     small {
       display: block;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      white-space: normal;
     }
 
     small {
@@ -272,5 +284,42 @@
 @media (max-width: 1100px) {
   .drawing-publish-body {
     grid-template-columns: 170px minmax(300px, 1fr) 300px;
+  }
+}
+
+.drawing-publish-summary {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+
+  strong { overflow-wrap: anywhere; }
+  span { color: var(--muted); font-size: var(--text-sm); }
+  button { justify-self: start; }
+}
+
+.drawing-publish-help.is-warning { color: var(--warning); }
+
+.drawing-publish-advanced {
+  > summary {
+    cursor: pointer;
+    color: var(--muted);
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+
+  &[open] > summary { margin-bottom: 6px; }
+}
+
+.drawing-sheet-setup {
+  .drawing-publish-field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  h2 {
+    margin: 0 0 6px;
+    font-size: var(--text-lg);
   }
 }

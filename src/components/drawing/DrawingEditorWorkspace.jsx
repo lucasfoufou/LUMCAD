@@ -22,8 +22,15 @@ import useDrawingTables from '~hooks/useDrawingTables';
 import useDrawingRevision from '~hooks/useDrawingRevision';
 import useDrawingSketch from '~hooks/useDrawingSketch';
 import useDrawingLinework from '~hooks/useDrawingLinework';
+import { resolveToolbarActiveOperation } from '~utils/drawingToolbarLayout';
 import useDrawingPointPlacement from '~hooks/useDrawingPointPlacement';
+import useDrawingZoomCommand from '~hooks/useDrawingZoomCommand';
+import useDrawingCommandRepeat from '~hooks/useDrawingCommandRepeat';
+import DrawingContextMenu from '~components/drawing/DrawingContextMenu';
+import { resolveDrawingRepeatSubmission } from '~utils/drawingCommandRepeat';
+import { drawingToolPromptMessage } from '~utils/drawingToolPrompts';
 import useDrawingAnnotations from '~hooks/useDrawingAnnotations';
+import DrawingPlanScaleControl from '~components/drawing/DrawingPlanScaleControl';
 import useDrawingReferences from '~hooks/useDrawingReferences';
 import useDrawingDwf from '~hooks/useDrawingDwf';
 import useDrawingPdf from '~hooks/useDrawingPdf';
@@ -33,7 +40,8 @@ import { exportDrawingLayout } from '~utils/drawingLayoutExport';
 import { createLcadEnvelope } from '~utils/lcadDocument';
 import { updateDrawingLeader } from '~utils/drawingLeaders';
 import useDrawingCoordinates from '~hooks/useDrawingCoordinates';
-import { resolveDrawingUcsInput } from '~utils/drawingCoordinates';
+import { drawingEntryDirectionToWorld, drawingEntryPointToWorld, drawingEntryVectorToWorld, drawingUserRotationToWorld, drawingUserSettings, drawingWorldRotationToUser,
+    drawingWorldVectorForDisplay, resolveDrawingUcsInput } from '~utils/drawingCoordinates';
 import useDrawingPlotStyles from '~hooks/useDrawingPlotStyles';
 import { isDrawingLayerVisible } from '~utils/drawingLayers';
 import useDrawingLayers from '~hooks/useDrawingLayers';
@@ -42,7 +50,7 @@ import useDrawingSelectionQueries from '~hooks/useDrawingSelectionQueries';
 import useDrawingInquiry from '~hooks/useDrawingInquiry';
 import useDrawingObjectVisibility from '~hooks/useDrawingObjectVisibility';
 import { runNamedDrawingViewCommand, importNamedDrawingViews } from '~utils/drawingNamedViews';
-import { canSelectEntity } from '~utils/drawingDocument';
+import { canSelectEntity, drawingSelectableEntityIds } from '~utils/drawingDocument';
 import { matchDrawingProperties, makeDrawingLayerCurrent, copyDrawingSelectionToLayer } from '~utils/drawingPropertyCommands';
 import { runDrawingGroupCommand } from '~utils/drawingGroups';
 import { beginCenterLine, pickCenterLineSource } from '~utils/drawingCenterLineCommands';
@@ -51,12 +59,14 @@ import { spaceDrawingDimensions, beginDimensionSpacing, spaceDimensionsAtPoint }
 import { disassociateDrawingDimensions, reassociateDrawingDimensions, beginDimensionReassociation, pickDimensionReassociationSource } from '~utils/drawingDimensionAssociations';
 import { maintainDrawingDimensions, beginDimensionTextPlacement, placeDimensionTextAtPoint, beginDimensionBreak, advanceDimensionBreak } from '~utils/drawingDimensionMaintenance';
 import { runDimensionStyleCommand } from '~utils/drawingDimensionStyleCommands';
+import { dimensionToolPromptKey, withDefaultCommandPlacements } from '~utils/drawingDimensionPlacement';
 import { exportDrawingAttributes } from '~utils/drawingAttributeExport';
 import useDrawingTableFiles from '~hooks/useDrawingTableFiles';
 import useDrawingWmf from '~hooks/useDrawingWmf';
 import useDrawingDgn from '~hooks/useDrawingDgn';
 import useDrawingCad from '~hooks/useDrawingCad';
 import useOnDemandPublishPages from '~hooks/useOnDemandPublishPages';
+import useDrawingSheetSetup from '~hooks/useDrawingSheetSetup';
 import useDrawingDataExtraction from '~hooks/useDrawingDataExtraction';
 import { manageDrawingAttributes, parseDrawingAttributeManagerInput } from '~utils/drawingAttributeManager';
 import { defineDrawingAttribute, editDrawingAttribute, syncDrawingAttributes } from '~utils/drawingAttributeOperations';
@@ -79,6 +89,9 @@ import DrawingEditorBody from '~components/drawing/DrawingEditorBody';
 import DrawingSnapControls from '~components/drawing/DrawingSnapControls';
 import DrawingStatusBar from '~components/drawing/DrawingStatusBar';
 import DrawingEditorHeader from '~components/drawing/DrawingEditorHeader';
+import DrawingCommandPalette from '~components/drawing/DrawingCommandPalette';
+import UnsavedChangesDialog from '~components/drawing/UnsavedChangesDialog';
+import DrawingEmptyState from '~components/drawing/DrawingEmptyState';
 import DrawingLayoutEditor from '~components/drawing/DrawingLayoutEditor';
 import DrawingPrintPage from '~components/drawing/DrawingPrintPage';
 import DrawingPublishDialog from '~components/drawing/DrawingPublishDialog';
@@ -96,6 +109,9 @@ import useDrawingHistory from '~hooks/useDrawingHistory';
 import useAppUpdater from '~hooks/useAppUpdater';
 import useLcadAutosave from '~hooks/useLcadAutosave';
 import useLcadFileCommands from '~hooks/useLcadFileCommands';
+import useDrawingFileTransfer from '~hooks/useDrawingFileTransfer';
+import useLatestRef from '~hooks/useLatestRef';
+import { withPreselectedDrawingFile } from '~utils/drawingFileSelection';
 import useDrawingRecovery from '~hooks/useDrawingRecovery';
 import useLocalDrawingImageImport from '~hooks/useLocalDrawingImageImport';
 import useMcpFiles from '~hooks/useMcpFiles';
@@ -105,7 +121,7 @@ import { useI18n } from '~i18n/I18nProvider';
 import { localizeError } from '~i18n/translator';
 import { formatAppUpdateError } from '~utils/appUpdater';
 import { useAppSettings } from '~settings/AppSettingsProvider';
-import { getDrawingCommandDefinition, getDrawingCommandInput, isNumericDrawingInput, parseDrawingCommand, parseDrawingNumbers } from '~utils/drawingCommands';
+import { getDrawingCommandDefinition, getDrawingCommandInput, getDrawingCommandSuggestions, isNumericDrawingInput, parseDrawingCommand, parseDrawingNumbers } from '~utils/drawingCommands';
 import {
     canEditEntity,
     addEntity,
@@ -153,6 +169,7 @@ import {
     updateDrawingLayout,
     updateDrawingViewport,
 } from '~utils/drawingLayouts';
+import { applyDrawingViewportScaleCommand, formatDrawingScaleLabel } from '~utils/drawingSheetSetup';
 import {
     createAngularDimensionResult,
     createArcLengthDimensionResult,
@@ -172,6 +189,7 @@ import { normalizePolarAngles } from '~utils/drawingDraftingSettings';
 import {
     evaluateDrawingCalculation,
     evaluateDrawingExpression,
+    drawingCommaPairSuggestion,
     hasDrawingPointSyntax,
     isDrawingExpressionInput,
     resolveDrawingPointInput,
@@ -194,15 +212,24 @@ export default function DrawingEditorWorkspace({
     initialRecoveryGraph = null,
     initialTemplateSourcePath = null,
     initialMessage = '',
+    initialImport = null,
     sandbox = false,
     onReplaceSession,
     onOpenSettings,
 }) {
     const { formatNumber, locale, t } = useI18n();
     const { settings, updateSettings } = useAppSettings();
+    // Typed and displayed coordinates follow the "Y axis up" preference; MCP
+    // actions always keep the stored (screen-down) frame, see MCP.md.
+    const mcpActionRef = useRef(false);
+    const yAxisUp = settings.drawingDefaults.yAxisUp;
+    const inputYAxisUp = () => yAxisUp && !mcpActionRef.current;
+    const userSettings = () => drawingUserSettings(history.content.settings, inputYAxisUp());
     const canvasRef = useRef(null);
     const layoutCanvasRef = useRef(null);
     const commandBarRef = useRef(null);
+    const fileMenuRef = useRef(null);
+    const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
     const [commandOptionsTarget, setCommandOptionsTarget] = useState(null);
     const imageInputRef = useRef(null);
     const blockSelectionRef = useRef([]);
@@ -215,7 +242,7 @@ export default function DrawingEditorWorkspace({
         offset: 1,
         move: 1,
         copy: 1,
-        rotate: settings.drawingDefaults.clockwiseAngles ? -90 : 90,
+        rotate: drawingUserRotationToWorld(settings.drawingDefaults.clockwiseAngles ? -90 : 90, { yAxisUp: settings.drawingDefaults.yAxisUp }),
         scale: 1,
         arrayColumns: 2,
         arrayRows: 2,
@@ -301,6 +328,7 @@ export default function DrawingEditorWorkspace({
     }, [blockEditor.session, t, updater.installAvailableUpdate, updater.version]);
     const {
         autoPublish,
+        chooseUnsaved,
         closePublishDialog,
         createNewDrawing,
         createQuickDrawing,
@@ -313,7 +341,9 @@ export default function DrawingEditorWorkspace({
         printJob,
         publishRenderedLayouts,
         publishRequest,
+        saveDrawing,
         saveDrawingAs,
+        unsavedPrompt,
     } = useLcadFileCommands({
         autosave,
         document,
@@ -330,6 +360,12 @@ export default function DrawingEditorWorkspace({
     const activeLayout = useMemo(() => (
         layouts.find(layout => layout.id === activeLayoutId) || layouts[0] || null
     ), [activeLayoutId, layouts]);
+    const sheetSetup = useDrawingSheetSetup({ history, layouts, drawingName: name, designer: settings.drawingDefaults.designer, locale, setMessage, t });
+    const [sheetSetupRequested, setSheetSetupRequested] = useState(false);
+    const openSheetSetup = layoutId => {
+        setSheetSetupRequested(true);
+        exportPdf([layoutId]).then(opened => { if (!opened) setSheetSetupRequested(false); }).catch(() => setSheetSetupRequested(false));
+    };
     useEffect(() => {
         const viewportIds = new Set(activeLayout?.viewports.map(viewport => viewport.id) || []);
         if (selectedViewportId && !viewportIds.has(selectedViewportId)) setSelectedViewportId(null);
@@ -343,12 +379,12 @@ export default function DrawingEditorWorkspace({
             return activeLayout?.id ? [activeLayout.id] : [];
         });
     }, [activeLayout?.id, layouts]);
-    const inquiry = useDrawingInquiry({ content: history.content, selectedIds, operation: interactiveOperation,
+    const inquiry = useDrawingInquiry({ content: history.content, getUserSettings: () => userSettings(), selectedIds, operation: interactiveOperation,
         setOperation: setInteractiveOperation, setActiveTool, setMessage, setSidebarPanel, enabled: workspaceMode === 'model', t, initialResult: initialRecoveryReport });
     const recovery = useDrawingRecovery({ filePath, document, commitDocument: modelHistory.commitDocument, blockEditing: Boolean(blockEditor.session), present: inquiry.present,
         openRecoveredDrawing, setMessage, t, initialReport: initialRecoveryReport, initialGraph: initialRecoveryGraph });
     recoverySaveRef.current = recovery.recordSavedCopy;
-    const coordinates = useDrawingCoordinates({ history, setMessage, enabled: workspaceMode === 'model' && !blockEditor.session, t });
+    const coordinates = useDrawingCoordinates({ history, setMessage, enabled: workspaceMode === 'model' && !blockEditor.session, t, inputYAxisUp: () => inputYAxisUp() });
     const plotStyles = useDrawingPlotStyles({ history, selectedIds, setMessage, setSidebarPanel, enabled: !blockEditor.session, t });
     const layerManager = useDrawingLayers({ history: modelHistory, selectedIds, setMessage, setSidebarPanel, enabled: !blockEditor.session, t });
     const sheetSet = useDrawingSheetSet({ sessionRef: sheetSetSessionRef, document, filePath, present: inquiry.present, setMessage, t });
@@ -373,6 +409,8 @@ export default function DrawingEditorWorkspace({
         setOperation: setInteractiveOperation, setActiveTool, present: inquiry.present, focusObjects: (ids, bounds) => canvasRef.current?.fitObjects(ids, bounds), setMessage, enabled: workspaceMode === 'model', blockEditing: Boolean(blockEditor.session), t });
     const pointPlacement = useDrawingPointPlacement({ history, selectedIds, setSelectedIds, operation: interactiveOperation,
         setOperation: setInteractiveOperation, setActiveTool, setMessage, enabled: workspaceMode === 'model', t });
+    const zoomCommand = useDrawingZoomCommand({ canvasRef, operation: interactiveOperation, setOperation: setInteractiveOperation,
+        setMessage, submitPoint: value => submitPrecisionPoint(value, { allowDirectDistance: false }), enabled: workspaceMode === 'model', locale, t });
     const dataExtraction = useDrawingDataExtraction({ documentId: document.id, history, selectedIds, setSelectedIds,
         enabled: workspaceMode === 'model' && !blockEditor.session, setMessage, t,
         cancel: () => { canvasRef.current?.cancel?.(); setInteractiveOperation(null); setActiveTool('select'); } });
@@ -613,10 +651,11 @@ export default function DrawingEditorWorkspace({
     });
     const { activateArraySelection, beginArray, handleArrayPoint, submitArrayValue } = useDrawingArrayCommand({
         canvasRef, commandBarRef, history, lastOperationValuesRef, selectedEntities,
-        setActiveTool, setInteractiveOperation, setMessage, setSelectedIds,
+        setActiveTool, setInteractiveOperation, setMessage, setSelectedIds, getUserSettings: () => userSettings(),
     });
     const blockCommands = createDrawingBlockWorkflow({
         history, selectedIds, canvasRef, commandBarRef, setInteractiveOperation, setActiveTool, setSelectedIds, setMessage, t,
+        getUserSettings: () => userSettings(),
     });
     const imageSource = useDrawingImageSource({
         history, assets, documentId: initialDocument.id, viewport, setAssets, setSelectedIds, setActiveTool, setMessage,
@@ -773,20 +812,32 @@ export default function DrawingEditorWorkspace({
 
     useEffect(() => {
         if (!hasAppliedRotationRef.current) {
-            lastOperationValuesRef.current.rotate = settings.drawingDefaults.clockwiseAngles ? -90 : 90;
+            lastOperationValuesRef.current.rotate = drawingUserRotationToWorld(settings.drawingDefaults.clockwiseAngles ? -90 : 90, { yAxisUp });
         }
-    }, [settings.drawingDefaults.clockwiseAngles]);
+    }, [settings.drawingDefaults.clockwiseAngles, yAxisUp]);
 
     useEffect(() => {
         if (previousLocaleRef.current === locale) return;
         previousLocaleRef.current = locale;
         if (interactiveOperation) setMessage(t('messages.continueActiveCommand'));
-        else if (activeTool !== 'select') setMessage(t('messages.toolActive', { tool: t(`commands.${activeTool}`) }));
+        else if (activeTool !== 'select') setMessage(drawingToolPromptMessage(activeTool, t));
         else setMessage('');
     }, [locale]);
 
-    const deleteSelection = () => {
-        if (!selectedIds.length) return;
+    // Undo/Redo always confirm what happened; the history keeps no per-step labels yet.
+    const undoWithMessage = () => {
+        if (!history.canUndo) { setMessage(t('messages.nothingToUndo')); return; }
+        history.undo();
+        setMessage(t('messages.undone'));
+    };
+    const redoWithMessage = () => {
+        if (!history.canRedo) { setMessage(t('messages.nothingToRedo')); return; }
+        history.redo();
+        setMessage(t('messages.redone'));
+    };
+
+    const deleteSelection = ({ quiet = false } = {}) => {
+        if (!selectedIds.length) { if (!quiet) setMessage(t('messages.deleteSelectionRequired')); return; }
         history.commit(deleteSelectedEntities(history.content, selectedIds));
         setSelectedIds([]);
         setMessage(t('messages.selectionDeleted'));
@@ -918,6 +969,11 @@ export default function DrawingEditorWorkspace({
             setMessage(operationBasePrompt('scale', t));
             return true;
         }
+        if (interactiveOperation.type === 'dimensionSelection') {
+            setInteractiveOperation(null);
+            submitCommand(interactiveOperation.rawValue).catch(() => {});
+            return true;
+        }
         if (interactiveOperation.type === 'array') return activateArraySelection(interactiveOperation, selectedEntities);
         if (interactiveOperation.type === 'align') return activateAlignSelection(interactiveOperation, selectedEntities);
         if (['join', 'explode', 'xplode'].includes(interactiveOperation.type)) {
@@ -994,7 +1050,7 @@ export default function DrawingEditorWorkspace({
         finishInteractiveOperation(result.selectedIds, t(operationUsesCopy(operation)
             ? 'messages.rotationCopyApplied'
             : 'messages.rotationApplied', {
-            angle: formatOperationNumber(displayRotationAngle(angle, operation), locale),
+            angle: formatOperationNumber(displayRotationAngle(drawingWorldRotationToUser(angle, userSettings()), operation), locale),
             unit: angleUnitSymbol(operation.angleUnit),
         }));
         return true;
@@ -1032,7 +1088,7 @@ export default function DrawingEditorWorkspace({
     };
 
     const handleInteractiveOperation = ({ point, targetId, fence, arrayHandle, sketch, shift = false }) => {
-        if (arcText.point({ point, targetId }) || tolerances.point({ point }) || fields.point({ point }) || tables.point({ point }) || revision.point({ point, targetId }) || sketchTool.point({ point, sketch }) || linework.point({ point, targetId }) || pointPlacement.point({ point, targetId }) || inquiry.point({ point, targetId }) || selectionQueries.point(point) || leaders.point(point)) return;
+        if (arcText.point({ point, targetId }) || tolerances.point({ point }) || fields.point({ point }) || tables.point({ point }) || revision.point({ point, targetId }) || sketchTool.point({ point, sketch }) || linework.point({ point, targetId }) || pointPlacement.point({ point, targetId }) || zoomCommand.point({ point }) || inquiry.point({ point, targetId }) || selectionQueries.point(point) || leaders.point(point)) return;
         if (interactiveOperation?.type === 'matchProperties') {
             if (interactiveOperation.sourceId) {
                 applyPropertyCommand(interactiveOperation.command, interactiveOperation.sourceId, [targetId]);
@@ -1230,7 +1286,7 @@ export default function DrawingEditorWorkspace({
                 };
                 setMessage(t(promptKeys[interactiveOperation.type], {
                     angle: formatOperationNumber(displayRotationAngle(
-                        lastOperationValuesRef.current.rotate,
+                        drawingWorldRotationToUser(lastOperationValuesRef.current.rotate, userSettings()),
                         interactiveOperation,
                     ), locale),
                     unit: angleUnitSymbol(interactiveOperation.angleUnit),
@@ -1253,7 +1309,7 @@ export default function DrawingEditorWorkspace({
             if (interactiveOperation.type === 'move') {
                 const delta = operationDelta(interactiveOperation.basePoint, point);
                 history.commit(updateSelectedEntities(history.content, interactiveOperation.entityIds, entity => translateEntity(entity, delta.x, delta.y)));
-                finishInteractiveOperation(interactiveOperation.entityIds, t('messages.moveApplied', { delta: formatOperationDelta(delta, locale) }));
+                finishInteractiveOperation(interactiveOperation.entityIds, t('messages.moveApplied', { delta: formatOperationDelta(drawingWorldVectorForDisplay(delta, userSettings()), locale) }));
             } else if (interactiveOperation.type === 'copy') {
                 const delta = operationDelta(interactiveOperation.basePoint, point);
                 const operationIds = new Set(interactiveOperation.entityIds);
@@ -1340,7 +1396,7 @@ export default function DrawingEditorWorkspace({
     const submitPrecisionPoint = (rawValue, { allowDirectDistance = true } = {}) => {
         const activeCanvas = workspaceMode === 'layout' ? layoutCanvasRef : canvasRef;
         const context = activeCanvas.current?.getPrecisionInputContext?.() || {};
-        const result = (workspaceMode === 'layout' ? resolveDrawingPointInput : (value, options) => resolveDrawingUcsInput(value, options, history.content.settings))(rawValue, {
+        const result = (workspaceMode === 'layout' ? resolveDrawingPointInput : (value, options) => resolveDrawingUcsInput(value, options, userSettings()))(rawValue, {
             ...context,
             allowDirectDistance,
             decimalComma: locale === 'fr',
@@ -1349,17 +1405,21 @@ export default function DrawingEditorWorkspace({
             variables: inputVariablesRef.current,
         });
         if (!result.matched) return false;
+        // In French "0,0" is one number: explain the "x;y" separator instead of a generic error.
+        const commaPair = drawingCommaPairSuggestion(rawValue, { decimalComma: locale === 'fr' });
         if (!result.valid) {
-            setMessage(t(`precisionInput.error.${result.error}`));
+            setMessage(commaPair ? t('precisionInput.commaPairHint', { value: commaPair })
+                : t(`precisionInput.error.${result.error}`));
             return true;
         }
         const accepted = activeCanvas.current?.submitPoint(result.point, { precision: true });
         if (!accepted) setMessage(t('messages.pointRequired'));
+        else if (commaPair && result.kind === 'directDistance') setMessage(t('precisionInput.commaPairDistance', { value: commaPair }));
         return true;
     };
 
     const submitOperationValue = rawValue => {
-        if (revision.input(rawValue) || sketchTool.input(rawValue) || linework.input(rawValue) || pointPlacement.input(rawValue) || inquiry.input(rawValue) || leaders.input(rawValue)) return true;
+        if (revision.input(rawValue) || sketchTool.input(rawValue) || linework.input(rawValue) || pointPlacement.input(rawValue) || zoomCommand.input(rawValue) || inquiry.input(rawValue) || leaders.input(rawValue)) return true;
         if (['arcText', 'linework', 'sketch', 'revision', 'table', 'field', 'tolerance'].includes(interactiveOperation?.type)) {
             if (!submitPrecisionPoint(rawValue, { allowDirectDistance: false })) setMessage(t('linework.centerPrompt'));
             return true;
@@ -1532,7 +1592,7 @@ export default function DrawingEditorWorkspace({
         }
         if (interactiveOperation.stage === 'select') return confirmOperationSelection();
         if (interactiveOperation.stage === 'reference') {
-            if (values.length >= 2) handleReferencePoint(interactiveOperation, { x: values[0], y: values[1] });
+            if (values.length >= 2) handleReferencePoint(interactiveOperation, drawingEntryPointToWorld({ x: values[0], y: values[1] }, userSettings()));
             else setMessage(referenceTransformPrompt(interactiveOperation, t));
             return true;
         }
@@ -1548,10 +1608,15 @@ export default function DrawingEditorWorkspace({
             return true;
         }
         if (interactiveOperation.stage === 'destination') {
+            // COPY repeats until an empty Enter (or right click) ends it, as in AutoCAD.
+            if (interactiveOperation.type === 'copy' && interactiveOperation.placedCount > 0 && !String(rawValue).trim()) {
+                finishInteractiveOperation(selectedIds, t('messages.copyFinished', { count: interactiveOperation.placedCount }));
+                return true;
+            }
             const basePoint = interactiveOperation.basePoint;
             const currentPoint = canvasRef.current?.getOperationPoint();
             let delta = null;
-            if (values.length >= 2) delta = { x: values[0], y: values[1] };
+            if (values.length >= 2) delta = drawingEntryVectorToWorld({ x: values[0], y: values[1] }, userSettings());
             else {
                 const distance = values[0] ?? lastOperationValuesRef.current[interactiveOperation.type];
                 delta = directionalDelta(basePoint, currentPoint, distance);
@@ -1563,13 +1628,13 @@ export default function DrawingEditorWorkspace({
         }
         if (interactiveOperation.stage === 'angle') {
             const enteredAngle = values[0] ?? interactiveOperation.requestedValue
-                ?? displayRotationAngle(lastOperationValuesRef.current.rotate, interactiveOperation);
+                ?? displayRotationAngle(drawingWorldRotationToUser(lastOperationValuesRef.current.rotate, userSettings()), interactiveOperation);
             const configured = createAngleConfig(enteredAngle, {
                 unit: interactiveOperation.angleUnit,
                 direction: interactiveOperation.angleDirection,
             });
             if (!configured) return true;
-            applyRotateOperation(interactiveOperation, configured.radians * 180 / Math.PI, interactiveOperation.basePoint);
+            applyRotateOperation(interactiveOperation, drawingUserRotationToWorld(configured.radians * 180 / Math.PI, userSettings()), interactiveOperation.basePoint);
             return true;
         }
         if (interactiveOperation.stage === 'scale-xy') {
@@ -1649,7 +1714,7 @@ export default function DrawingEditorWorkspace({
                             ortho: false,
                             polarTracking: true,
                             polarIncrement: increment,
-                            polarAngles: normalizePolarAngles(additionalAngles),
+                            polarAngles: normalizePolarAngles(additionalAngles.map(angle => drawingUserRotationToWorld(angle, userSettings()))),
                         },
                     }));
                     setMessage(t('messages.polarConfigured', { increment }));
@@ -1712,9 +1777,7 @@ export default function DrawingEditorWorkspace({
         canvasRef.current?.cancel();
         canvasRef.current?.setTextCreationMode(textMode);
         setActiveTool('text');
-        setMessage(t('messages.toolActive', {
-            tool: t(textMode === 'multiline' ? 'commands.multilineText' : 'commands.text'),
-        }));
+        setMessage(t(textMode === 'multiline' ? 'messages.multilineTextPrompt' : 'messages.textPrompt'));
     };
 
     const activateDimensionTool = mode => {
@@ -1722,7 +1785,16 @@ export default function DrawingEditorWorkspace({
         canvasRef.current?.cancel();
         setDimensionMode(mode);
         setActiveTool('dimension');
-        setMessage(t('messages.dimensionPrompt'));
+        setMessage(t(dimensionToolPromptKey(mode)));
+    };
+
+    // Series dimensions need picked objects: without a selection, ask for one and rerun on Enter.
+    const beginDimensionSelection = (rawValue, promptKey) => {
+        openModelWorkspace();
+        canvasRef.current?.cancel();
+        setActiveTool('select');
+        setInteractiveOperation({ type: 'dimensionSelection', stage: 'select', rawValue });
+        setMessage(t(promptKey));
     };
 
     const commitDimensionCommand = (result, fallbackMode = null) => {
@@ -1757,13 +1829,19 @@ export default function DrawingEditorWorkspace({
         return Math.abs(source.y2 - source.y1) > Math.abs(source.x2 - source.x1) ? 'vertical' : 'horizontal';
     };
 
-    const submitCommand = async rawValue => {
+    const submitCommand = async (rawValue, { allowRepeat = true } = {}) => {
+        // Empty Enter, a Space tap or the canvas menu on an idle canvas repeat the last
+        // command; MCP actions opt out so an agent's Enter stays deterministic.
+        rawValue = resolveDrawingRepeatSubmission(rawValue, {
+            idle: allowRepeat && workspaceMode === 'model' && !interactiveOperation && activeTool === 'select' && !calculatorMode,
+            lastCommand: commandRepeat.lastCommand,
+        });
         rawValue = expandDrawingAlias(rawValue, settings.commandAliases);
         if (isHeadlessRuntime()) {
             const command = parseDrawingCommand(rawValue)?.command;
             // IMAGEATTACH reads an explicit path without a dialog; only its picker form is refused.
             const pickerOnly = command === 'imageAttach' && !getDrawingCommandInput(rawValue).trim();
-            if (pickerOnly || ['new', 'quickNew', 'open', 'saveAs', 'plot', 'pdf', 'pdfAll', 'pdfSelected', 'publish', 'dwfx', 'aliasEdit'].includes(command)) {
+            if (pickerOnly || ['new', 'quickNew', 'open', 'saveAs', 'quickSave', 'import', 'export', 'options', 'help', 'plot', 'pdf', 'pdfAll', 'pdfSelected', 'publish', 'dwfx', 'aliasEdit'].includes(command)) {
                 throw new Error(t('headless.dialogUnavailable'));
             }
         }
@@ -1851,6 +1929,14 @@ export default function DrawingEditorWorkspace({
         }
         if (workspaceMode === 'model' && activeTool !== 'select'
             && (!immediateCommand || immediateCommand.command === 'unknown')) {
+            const commaPair = drawingCommaPairSuggestion(rawValue, { decimalComma: locale === 'fr' });
+            if (commaPair && !submitPrecisionPoint(rawValue)) {
+                // "12,0" must not silently become RECTANGLE dimensions 12 x 0.
+                setCommandValue('');
+                setMessage(t('precisionInput.commaPairHint', { value: commaPair }));
+                return;
+            }
+            if (commaPair) { setCommandValue(''); return; }
             if (canvasRef.current?.submitCreationInput(rawValue)) {
                 setCommandValue('');
                 return;
@@ -1860,6 +1946,13 @@ export default function DrawingEditorWorkspace({
                 return;
             }
             setCommandValue('');
+            if (!String(rawValue).trim()) {
+                // Empty Enter (or right click) with nothing being drawn ends the tool, as in AutoCAD.
+                canvasRef.current?.cancel();
+                setActiveTool('select');
+                setMessage(t('messages.toolEnded', { tool: t(`commands.${activeTool}`) }));
+                return;
+            }
             setMessage(t('messages.continueActiveCommand'));
             return;
         }
@@ -1876,6 +1969,7 @@ export default function DrawingEditorWorkspace({
         }
         setCommandValue('');
         if (!parsed) return;
+        if (parsed.command !== 'unknown') commandRepeat.remember(parsed.command);
         if (blockEditor.session && ['paperSpace', 'layout', 'pageSetup', 'pageSetupImport', 'pageSetupExport',
             'viewport', 'viewportClip', 'viewportLayer', 'viewportMax', 'viewportMin', 'alignSpace', 'exportLayout', 'changeSpace'].includes(parsed.command)) {
             setMessage(t('block.error.closeFirst')); return;
@@ -1926,6 +2020,12 @@ export default function DrawingEditorWorkspace({
         if (parsed.command === 'pageSetup') {
             if (activeLayout) openLayoutWorkspace(activeLayout.id);
             else addLayout();
+            return;
+        }
+        if (parsed.command === 'viewportScale') {
+            const result = applyDrawingViewportScaleCommand(activeLayout, selectedViewportId, getDrawingCommandInput(rawValue));
+            if (result.layout) commitActiveLayout(result.layout);
+            setMessage(t(result.messageKey, { scale: result.scale ? formatDrawingScaleLabel(result.scale, locale) : '' }));
             return;
         }
         if (parsed.command === 'pageSetupImport') {
@@ -2053,28 +2153,28 @@ export default function DrawingEditorWorkspace({
         }
         if (parsed.command === 'linearDimension') {
             const measurementMode = inferredLinearMeasurementMode();
-            commitDimensionCommand(createQuickDimensionResult(
+            commitDimensionCommand(withDefaultCommandPlacements(createQuickDimensionResult(
                 history.content,
                 selectedIdsOfTypes(['line', 'rectangle', 'polygon', 'ellipse', 'linearDimension']),
                 { measurementMode },
-            ), { mode: measurementMode });
+            )), { mode: measurementMode });
             return;
         }
         if (parsed.command === 'alignedDimension') {
-            commitDimensionCommand(createQuickDimensionResult(
+            commitDimensionCommand(withDefaultCommandPlacements(createQuickDimensionResult(
                 history.content,
                 selectedIdsOfTypes(['line', 'rectangle', 'polygon', 'ellipse', 'linearDimension']),
                 { measurementMode: 'aligned' },
-            ), { mode: 'aligned' });
+            )), { mode: 'aligned' });
             return;
         }
         if (parsed.command === 'rotatedDimension') {
-            const dimensionAngle = (parsed.args[0] || 0) * Math.PI / 180;
-            commitDimensionCommand(createQuickDimensionResult(
+            const dimensionAngle = drawingEntryDirectionToWorld(parsed.args[0] || 0, userSettings()) * Math.PI / 180;
+            commitDimensionCommand(withDefaultCommandPlacements(createQuickDimensionResult(
                 history.content,
                 selectedIdsOfTypes(['line', 'rectangle', 'polygon', 'ellipse', 'linearDimension']),
                 { measurementMode: 'rotated', dimensionAngle },
-            ), { mode: 'rotated', dimensionAngle });
+            )), { mode: 'rotated', dimensionAngle });
             return;
         }
         if (parsed.command === 'angularDimension') {
@@ -2086,7 +2186,7 @@ export default function DrawingEditorWorkspace({
         }
         if (parsed.command === 'arcDimension') {
             commitDimensionCommand(
-                createArcLengthDimensionResult(history.content, selectedIds),
+                withDefaultCommandPlacements(createArcLengthDimensionResult(history.content, selectedIds)),
                 { mode: 'arcLength' },
             );
             return;
@@ -2117,6 +2217,7 @@ export default function DrawingEditorWorkspace({
             return;
         }
         if (parsed.command === 'quickDimension') {
+            if (!selectedIds.length) { beginDimensionSelection(rawValue, 'messages.quickDimensionSelectPrompt'); return; }
             commitDimensionCommand(createQuickDimensionResult(
                 history.content,
                 selectedIds,
@@ -2125,6 +2226,7 @@ export default function DrawingEditorWorkspace({
             return;
         }
         if (parsed.command === 'baselineDimension') {
+            if (!selectedIds.length) { beginDimensionSelection(rawValue, 'messages.dimensionSeriesSelectPrompt'); return; }
             const { baselineEnd } = parseQdimCommandOptions(
                 getDrawingCommandInput(rawValue),
                 { qdimMode: 'baseline' },
@@ -2133,6 +2235,7 @@ export default function DrawingEditorWorkspace({
             return;
         }
         if (parsed.command === 'continueDimension') {
+            if (!selectedIds.length) { beginDimensionSelection(rawValue, 'messages.dimensionSeriesSelectPrompt'); return; }
             commitDimensionCommand(createContinuedDimensionResult(history.content, selectedIds));
             return;
         }
@@ -2149,7 +2252,7 @@ export default function DrawingEditorWorkspace({
                 canvasRef.current?.submitCreationInputForTool(parsed.command, rawValue);
             }
             setActiveTool(parsed.command);
-            setMessage(t('messages.toolActive', { tool: t(`commands.${parsed.command}`) }));
+            setMessage(drawingToolPromptMessage(parsed.command, t));
             return;
         }
         if (parsed.command === 'region' && selectedEntities.length && getDrawingCommandInput(rawValue).trim().toUpperCase() !== 'PICK') {
@@ -2712,9 +2815,19 @@ export default function DrawingEditorWorkspace({
         else if (parsed.command === 'explode') beginCompoundOperation('explode');
         else if (parsed.command === 'xplode') beginCompoundOperation('xplode');
         else if (parsed.command === 'delete') workspaceMode === 'layout' ? deleteSelectedViewport() : deleteSelection();
-        else if (parsed.command === 'undo') history.undo();
-        else if (parsed.command === 'redo') history.redo();
+        else if (parsed.command === 'undo') undoWithMessage();
+        else if (parsed.command === 'redo') redoWithMessage();
         else if (parsed.command === 'saveAs') await saveDrawingAs();
+        else if (parsed.command === 'quickSave') await saveDrawing();
+        else if (parsed.command === 'import') await fileTransfer.importFile(getDrawingCommandInput(rawValue));
+        else if (parsed.command === 'export') await fileTransfer.exportFile(getDrawingCommandInput(rawValue));
+        else if (parsed.command === 'options') {
+            onOpenSettings(/^FILES?$/i.test(getDrawingCommandInput(rawValue)) ? 'files' : undefined);
+            setMessage(t('messages.settingsOpened'));
+        } else if (parsed.command === 'help') {
+            setCommandPaletteOpen(true);
+            setMessage(t('commandPalette.opened'));
+        }
         else if (parsed.command === 'new') await createNewDrawing(getDrawingCommandInput(rawValue));
         else if (parsed.command === 'quickNew') await createQuickDrawing(getDrawingCommandInput(rawValue));
         else if (parsed.command === 'saveTemplate') await saveDrawingTemplate(getDrawingCommandInput(rawValue));
@@ -2730,9 +2843,38 @@ export default function DrawingEditorWorkspace({
         else if (parsed.command === 'dwfx') await exportPdf(layouts.map(layout => layout.id), { format: 'dwfx' });
         else if (parsed.command === 'autoPublish') await autoPublish(layouts.map(layout => layout.id));
         else if (parsed.command === 'fit') canvasRef.current?.fit();
-        else if (parsed.command === 'zoom' && parsed.args[0]) canvasRef.current?.zoom(1 / parsed.args[0]);
-        else setMessage(t('messages.unknownCommand', { command: parsed.alias }));
+        else if (zoomCommand.run(parsed.command, getDrawingCommandInput(rawValue))) return;
+        else {
+            // A typed prefix is no longer run on Enter: point at the likely command instead.
+            const [suggestion] = getDrawingCommandSuggestions(parsed.alias, 1);
+            setMessage(suggestion
+                ? t('messages.unknownCommandSuggestion', { command: parsed.alias, suggestion: suggestion.name })
+                : t('messages.unknownCommand', { command: parsed.alias }));
+        }
     };
+
+    const submitCommandRef = useLatestRef(submitCommand);
+    const fileTransfer = useDrawingFileTransfer({
+        runCommand: value => submitCommandRef.current(value),
+        importImageFile: event => handleImageFile(event),
+        onChooseExport: () => fileMenuRef.current?.openExport(),
+        setMessage,
+        t,
+    });
+    const closeCommandPalette = useCallback(() => setCommandPaletteOpen(false), []);
+    const runPaletteCommand = useCallback(name => {
+        setCommandPaletteOpen(false);
+        submitCommandRef.current(name).catch(() => {});
+    }, [submitCommandRef]);
+    // OPEN of a DWG/DXF starts a new drawing, then imports the chosen file once.
+    const initialImportRef = useRef(initialImport);
+    useEffect(() => {
+        const pending = initialImportRef.current;
+        if (!pending) return;
+        initialImportRef.current = null;
+        withPreselectedDrawingFile(pending.selection, () => submitCommandRef.current(pending.command))
+            .then(() => canvasRef.current?.fit()).catch(() => {});
+    }, [submitCommandRef]);
 
     const toggleAllSnaps = () => {
         const snaps = history.content.settings.snaps;
@@ -2765,15 +2907,27 @@ export default function DrawingEditorWorkspace({
 
     useDrawingEditorShortcuts({ commandBarRef, actions: {
         command: submitCommand,
-        undo: history.undo,
-        redo: history.redo,
+        undo: undoWithMessage,
+        redo: redoWithMessage,
         copy: copyClip,
         cut: cutClip,
         paste: beginPasteClip,
         saveAs: saveDrawingAs,
+        save: saveDrawing,
+        openSettings: () => onOpenSettings(),
+        help: () => setCommandPaletteOpen(true),
+        import: () => fileTransfer.importFile(),
+        export: () => fileMenuRef.current?.openExport(),
+        plot: () => exportPdf(activeLayout ? [activeLayout.id] : layouts.map(layout => layout.id)),
         newDocument: createNewDrawing,
         open: openDrawing,
-        delete: () => workspaceMode === 'layout' ? deleteSelectedViewport() : deleteSelection(),
+        delete: () => workspaceMode === 'layout' ? deleteSelectedViewport() : deleteSelection({ quiet: true }),
+        selectAll: () => {
+            if (workspaceMode !== 'model' || (interactiveOperation && interactiveOperation.stage !== 'select')) return;
+            const ids = drawingSelectableEntityIds(history.content);
+            setSelectedIds(ids);
+            setMessage(t('messages.selectedAll', { count: ids.length }));
+        },
         toggleSnaps: toggleAllSnaps,
         searchCommand: () => commandBarRef.current?.focus(),
         toggleOrtho: () => setOrthoMode(!history.content.settings.ortho),
@@ -2782,10 +2936,12 @@ export default function DrawingEditorWorkspace({
         enter: () => submitCommand(''),
         cancel: cancelCommand,
     } });
+    const commandRepeat = useDrawingCommandRepeat({ activeTool, operationType: interactiveOperation?.type || null,
+        selectionCount: workspaceMode === 'model' ? selectedIds.length : 0, submitCommand, t });
 
     const toolbarActions = {
-        undo: history.undo,
-        redo: history.redo,
+        undo: undoWithMessage,
+        redo: redoWithMessage,
         copy: () => copyClip().catch(() => {}),
         cut: () => cutClip().catch(() => {}),
         paste: () => beginPasteClip().catch(() => {}),
@@ -2816,8 +2972,75 @@ export default function DrawingEditorWorkspace({
         zoomOut: () => canvasRef.current?.zoom(1.25),
         fit: () => canvasRef.current?.fit(),
         importImage: () => imageInputRef.current?.click(),
+        command: name => submitCommand(name).catch(() => {}),
     };
 
+    const executeMcpAction = async action => {
+        if (action.type === 'selection') {
+            const knownIds = new Set(history.content.entities.map(entity => entity.id));
+            const viewportIds = new Set(activeLayout?.viewports.map(viewport => viewport.id) || []);
+            const paperIds = new Set(activeLayout?.paperEntities?.map(entity => entity.id) || []);
+            const ids = [...new Set(action.ids || [])];
+            const unknownIds = ids.filter(id => !knownIds.has(id) && !viewportIds.has(id) && !paperIds.has(id));
+            if (unknownIds.length) throw new Error(`Unknown LUMCAD entity IDs: ${unknownIds.join(', ')}`);
+            const paperSelection = ids.filter(id => paperIds.has(id));
+            if (paperSelection.length) {
+                if (paperSelection.length !== 1 || ids.length !== 1 || workspaceMode !== 'layout') throw new Error('Select one paper annotation in the active layout.');
+                if (!layoutCanvasRef.current?.selectPaperEntity(paperSelection[0])) throw new Error('Paper annotation cannot be selected.');
+                setSelectedViewportId(null); setSelectedIds([]); return;
+            }
+            if (workspaceMode === 'layout') layoutCanvasRef.current?.selectPaperEntity(null);
+            const selectedViewportIds = ids.filter(id => viewportIds.has(id));
+            const selectedEntityIds = ids.filter(id => knownIds.has(id));
+            if (selectedViewportIds.length && selectedEntityIds.length) {
+                throw new Error('A LUMCAD selection cannot mix model entities and layout viewports.');
+            }
+            if (selectedViewportIds.length > 1) {
+                throw new Error('Only one layout viewport can be selected at a time.');
+            }
+            if (selectedViewportIds.length && blockEditor.session) throw new Error('Close the block editor before selecting a layout viewport.');
+            if (selectedViewportIds.length) {
+                setWorkspaceMode('layout');
+                setSelectedViewportId(selectedViewportIds[0]);
+                setSelectedIds([]);
+                return;
+            }
+            if (workspaceMode === 'layout') setSelectedViewportId(null);
+            setSelectedIds(ids.filter(id => {
+                const entity = history.content.entities.find(item => item.id === id);
+                return entity && canSelectEntity(history.content, entity);
+            }));
+            return;
+        }
+        if (action.type === 'command') {
+            const definition = getDrawingCommandDefinition(action.command);
+            if (!definition) throw new Error(`Unknown LUMCAD command: ${String(action.command || '')}`);
+            await submitCommand([definition.name, action.input].filter(value => value !== null && value !== undefined && value !== '').join(' '));
+            return;
+        }
+        if (action.type === 'point') {
+            const activeCanvas = workspaceMode === 'layout' ? layoutCanvasRef : canvasRef;
+            const accepted = activeCanvas.current?.submitPoint(
+                { x: action.x, y: action.y },
+                { targetId: action.targetId, shift: action.shift, snap: action.snap },
+            );
+            if (!accepted) throw new Error('The active LUMCAD command cannot accept this point.');
+            return;
+        }
+        if (action.type === 'input') {
+            await submitCommand(action.value, { allowRepeat: false });
+            return;
+        }
+        if (action.type === 'enter') {
+            await submitCommand('', { allowRepeat: false });
+            return;
+        }
+        if (action.type === 'escape') {
+            cancelCommand();
+            return;
+        }
+        throw new Error(`Unsupported LUMCAD MCP action: ${String(action.type || '')}`);
+    };
     const mcpFiles = useMcpFiles({ document, blockEditing: Boolean(blockEditor.session), onReplaceSession,
         setFilePath: handlePathChange, withPublishPages: publishPages.withPublishPages, protectedPaths: recoverySourcePaths });
     useLumcadMcpBridge({
@@ -2860,70 +3083,8 @@ export default function DrawingEditorWorkspace({
             },
         }),
         executeAction: async action => {
-            if (action.type === 'selection') {
-                const knownIds = new Set(history.content.entities.map(entity => entity.id));
-                const viewportIds = new Set(activeLayout?.viewports.map(viewport => viewport.id) || []);
-                const paperIds = new Set(activeLayout?.paperEntities?.map(entity => entity.id) || []);
-                const ids = [...new Set(action.ids || [])];
-                const unknownIds = ids.filter(id => !knownIds.has(id) && !viewportIds.has(id) && !paperIds.has(id));
-                if (unknownIds.length) throw new Error(`Unknown LUMCAD entity IDs: ${unknownIds.join(', ')}`);
-                const paperSelection = ids.filter(id => paperIds.has(id));
-                if (paperSelection.length) {
-                    if (paperSelection.length !== 1 || ids.length !== 1 || workspaceMode !== 'layout') throw new Error('Select one paper annotation in the active layout.');
-                    if (!layoutCanvasRef.current?.selectPaperEntity(paperSelection[0])) throw new Error('Paper annotation cannot be selected.');
-                    setSelectedViewportId(null); setSelectedIds([]); return;
-                }
-                if (workspaceMode === 'layout') layoutCanvasRef.current?.selectPaperEntity(null);
-                const selectedViewportIds = ids.filter(id => viewportIds.has(id));
-                const selectedEntityIds = ids.filter(id => knownIds.has(id));
-                if (selectedViewportIds.length && selectedEntityIds.length) {
-                    throw new Error('A LUMCAD selection cannot mix model entities and layout viewports.');
-                }
-                if (selectedViewportIds.length > 1) {
-                    throw new Error('Only one layout viewport can be selected at a time.');
-                }
-                if (selectedViewportIds.length && blockEditor.session) throw new Error('Close the block editor before selecting a layout viewport.');
-                if (selectedViewportIds.length) {
-                    setWorkspaceMode('layout');
-                    setSelectedViewportId(selectedViewportIds[0]);
-                    setSelectedIds([]);
-                    return;
-                }
-                if (workspaceMode === 'layout') setSelectedViewportId(null);
-                setSelectedIds(ids.filter(id => {
-                    const entity = history.content.entities.find(item => item.id === id);
-                    return entity && canSelectEntity(history.content, entity);
-                }));
-                return;
-            }
-            if (action.type === 'command') {
-                const definition = getDrawingCommandDefinition(action.command);
-                if (!definition) throw new Error(`Unknown LUMCAD command: ${String(action.command || '')}`);
-                await submitCommand([definition.name, action.input].filter(value => value !== null && value !== undefined && value !== '').join(' '));
-                return;
-            }
-            if (action.type === 'point') {
-                const activeCanvas = workspaceMode === 'layout' ? layoutCanvasRef : canvasRef;
-                const accepted = activeCanvas.current?.submitPoint(
-                    { x: action.x, y: action.y },
-                    { targetId: action.targetId, shift: action.shift, snap: action.snap },
-                );
-                if (!accepted) throw new Error('The active LUMCAD command cannot accept this point.');
-                return;
-            }
-            if (action.type === 'input') {
-                await submitCommand(action.value);
-                return;
-            }
-            if (action.type === 'enter') {
-                await submitCommand('');
-                return;
-            }
-            if (action.type === 'escape') {
-                cancelCommand();
-                return;
-            }
-            throw new Error(`Unsupported LUMCAD MCP action: ${String(action.type || '')}`);
+            mcpActionRef.current = true;
+            try { await executeMcpAction(action); } finally { mcpActionRef.current = false; }
         },
         replaceDocument: async replacement => {
             if (blockEditor.session) throw new Error('Close the block editor with BCLOSE before replacing the document.');
@@ -2964,11 +3125,17 @@ export default function DrawingEditorWorkspace({
                     saveStatus={autosave.status}
                     isRecovery={autosave.isRecovery || (recovered && !filePath)}
                     lastSavedAt={autosave.lastSavedAt}
+                    recovered={recovered}
+                    fileMenuRef={fileMenuRef}
                     onNew={() => createNewDrawing().catch(() => {})}
                     onOpen={() => openDrawing().catch(() => {})}
+                    onImport={() => fileTransfer.importFile().catch(() => {})}
+                    onExport={format => fileTransfer.exportFile(format).catch(() => {})}
                     onPlot={() => exportPdf(activeLayout ? [activeLayout.id] : layouts.map(layout => layout.id)).catch(() => {})}
+                    onSave={() => saveDrawing().catch(() => {})}
                     onSaveAs={() => saveDrawingAs().catch(() => {})}
                     onOpenSettings={onOpenSettings}
+                    onHelp={() => setCommandPaletteOpen(true)}
                     commandLine={(
                         <DrawingCommandBar
                             ref={commandBarRef}
@@ -2979,10 +3146,11 @@ export default function DrawingEditorWorkspace({
                             operation={interactiveOperation}
                             activeTool={workspaceMode === 'model' ? activeTool : 'select'}
                             optionsRef={setCommandOptionsTarget}
+                            onOpenSettings={onOpenSettings}
                         />
                     )}
                     editActions={{
-                        undo: history.undo, redo: history.redo, canUndo: history.canUndo, canRedo: history.canRedo,
+                        undo: undoWithMessage, redo: redoWithMessage, canUndo: history.canUndo, canRedo: history.canRedo,
                         copy: toolbarActions.copy, cut: toolbarActions.cut, paste: toolbarActions.paste,
                         canCopy: workspaceMode === 'model' && selectedIds.length > 0,
                     }}
@@ -2999,24 +3167,28 @@ export default function DrawingEditorWorkspace({
                 </section>}
                 {workspaceMode === 'model' ? (
                     <DrawingEditorBody
-                        toolbar={{ activeTool, activeOperation: interactiveOperation?.arrayKind === 'path' ? 'arrayPath' : interactiveOperation?.arrayKind === 'polar' ? 'arrayPolar' : interactiveOperation?.type || null, actions: toolbarActions,
+                        toolbar={{ activeTool, activeOperation: resolveToolbarActiveOperation(interactiveOperation), actions: toolbarActions,
                             selectionCount: selectedIds.length }}
                         onToolChange={tool => {
                             if (tool === 'hatch') { submitCommand('HATCH').catch(() => {}); return; }
                             canvasRef.current?.cancel();
                             setCreationPanelEntityId(null);
                             if (tool === 'dimension') setDimensionMode('auto');
+                            if (tool === 'text') canvasRef.current?.setTextCreationMode('singleLine');
                             setActiveTool(tool);
                             setInteractiveOperation(null);
                             setMessage(tool === 'dimension'
                                 ? t('messages.dimensionPrompt')
-                                : t('messages.toolActive', { tool: t(`commands.${tool}`) }));
+                                : tool === 'text' ? t('messages.textPrompt')
+                                : drawingToolPromptMessage(tool, t));
                         }}
                         canvasRef={canvasRef}
-                        canvas={{ content: history.content, assets, activeTool, dimensionMode, selectedIds, interactiveOperation, backgroundContext: referenceContext,
+                        canvas={{ content: history.content, assets, yAxisUp, getInputYAxisUp: inputYAxisUp, activeTool, dimensionMode, selectedIds, interactiveOperation, backgroundContext: referenceContext,
                             onSelectionChange: setSelectedIds, onCommit: history.commit, onViewportChange: setViewport,
                             onEndCoalescing: history.endCoalescing, onCancelCommand: cancelCommand,
                             onStatus: setMessage, onInteractiveOperation: handleInteractiveOperation,
+                            onContextAction: commandRepeat.requestContextMenu, onKeyboardEnter: () => submitCommand('').catch(() => {}),
+                            onGestureStart: () => setMessage(''),
                             dynamicInput: { value: commandValue, onChange: setCommandValue, focus: value => commandBarRef.current?.focus(value),
                                 onSubmit: value => submitCommand(value).catch(() => {}) },
                             onEntityCreated: entity => {
@@ -3039,12 +3211,12 @@ export default function DrawingEditorWorkspace({
                                 ), { coalesceKey: `creation-panel-${creationPanelEntity.id}` })
                                 : null }}
                         optionsTarget={workspaceMode === 'model' ? commandOptionsTarget : null}
-                        sidebar={{ content: history.content, selectedIds, parametersEnabled: !blockEditor.session?.referenceSource, onSelectConstraintObjects: setSelectedIds, onSmartBlockCommand: smartBlocks.run, smartBlockDetection: smartBlocks.detection, dynamicBlockEditing: Boolean(blockEditor.session && !blockEditor.session.referenceSource), onCommit: history.commit, onAnnotationCommand: annotations.run,
+                        sidebar={{ content: history.content, yAxisUp, selectedIds, parametersEnabled: !blockEditor.session?.referenceSource, onSelectConstraintObjects: setSelectedIds, onSmartBlockCommand: smartBlocks.run, smartBlockDetection: smartBlocks.detection, dynamicBlockEditing: Boolean(blockEditor.session && !blockEditor.session.referenceSource), onCommit: history.commit, onAnnotationCommand: annotations.run,
                             inquiryResult: inquiry.result, comparisonPreview: comparison.preview, onCopyInquiry: inquiry.copy, onInspectTransmittal: () => sheetSet.run('sheetSet', 'INVENTORY'), onSelectDuplicateGroup: selectionQueries.selectDuplicateGroup, onSelectCountOccurrence: selectionQueries.selectCountOccurrence,
                             onOpenRecovery: recovery.open, canOpenRecovery: recovery.canOpen,
                             onSelectRecovery: recovery.select, onShowRecoveryManager: recovery.showManager, hasRecoveryGraph: recovery.hasGraph,
                             onShowRecoveryHistory: recovery.showHistory, onRetryRecovery: recovery.retry, onForgetRecovery: recovery.forget, onRelinkRecovery: recovery.relink, canRelinkRecovery: recovery.canRelink,
-                            layerFilter: layerManager.filter, onLayerFilter: layerManager.setFilter, onPlotStyleCommand: plotStyles.run,
+                            layerFilter: layerManager.filter, onLayerFilter: layerManager.setFilter, onMergeLayer: (source, target) => layerManager.run('layerMerge', `${source.id} ${target.id}`), onPlotStyleCommand: plotStyles.run,
                             panel: sidebarPanel, onPanelChange: setSidebarPanel,
                             libraryBrowser: blockLibrary.browser, onBrowseLibrary: blockLibrary.browse,
                             blockSearch, onBlockSearch: setBlockSearch, onBlockDefine: blockCommands.define, onBlockInsert: blockCommands.insert, onBlockEdit: beginBlockEdit, onBlockImport: () => blockLibrary.run('import'),
@@ -3052,6 +3224,7 @@ export default function DrawingEditorWorkspace({
                     />
                 ) : activeLayout && (
                     <DrawingLayoutEditor
+                        yAxisUp={yAxisUp}
                         activeTool={layoutTool}
                         assets={assets}
                         canvasRef={layoutCanvasRef}
@@ -3066,6 +3239,8 @@ export default function DrawingEditorWorkspace({
                         onDeleteViewport={deleteSelectedViewport}
                         onExportPageSetups={() => exportPageSetups().catch(() => {})}
                         onImportPageSetups={() => importPageSetups().catch(() => {})}
+                        onInsertTitleBlock={() => sheetSetup.insertTitleBlock(activeLayout.id)}
+                        onOpenSheetSetup={() => openSheetSetup(activeLayout.id)}
                         onMaximizeViewport={viewportId => {
                             setSelectedViewportId(viewportId);
                             setMaximizedViewportId(viewportId);
@@ -3116,9 +3291,11 @@ export default function DrawingEditorWorkspace({
                             selectedLayoutIds={selectedLayoutIds}
                         />
                     )}
-                    aids={workspaceMode === 'model' && (
+                    aids={workspaceMode === 'model' && (<>
+                        <DrawingPlanScaleControl content={history.content} onCommand={annotations.run} />
                         <DrawingSnapControls
                             content={history.content}
+                            yAxisUp={yAxisUp}
                             onChange={history.commit}
                             scaleRatio={getScreenScaleRatio(viewport.worldUnitsPerPixel)}
                             onScaleChange={ratio => canvasRef.current?.setScaleRatio(ratio)}
@@ -3126,32 +3303,49 @@ export default function DrawingEditorWorkspace({
                             onDraftingSettingsOpenChange={setDraftingSettingsOpen}
                             onTemporaryTrackingPoint={() => canvasRef.current?.beginTemporaryTrackingPoint()}
                         />
-                    )}
+                    </>)}
                     onZoomIn={workspaceMode === 'model' ? toolbarActions.zoomIn : undefined}
                     onZoomOut={workspaceMode === 'model' ? toolbarActions.zoomOut : undefined}
                     onFit={workspaceMode === 'model' ? toolbarActions.fit : undefined}
                 />
                 <Input ref={imageInputRef} type="file" accept="image/*" hidden onChange={handleImageFile} disabled={isUploading} />
                 {isUploading && <div className="drawing-upload-indicator">{t('messages.importingImage')}</div>}
+                {workspaceMode === 'model' && !blockEditor.session && !history.content.entities.length && activeTool === 'select' && !interactiveOperation && (
+                    <DrawingEmptyState
+                        onOpen={() => openDrawing().catch(() => {})}
+                        onImport={() => fileTransfer.importFile().catch(() => {})}
+                        onHelp={() => setCommandPaletteOpen(true)}
+                    />
+                )}
             </div>
             {publishPages.active && <DrawingPublishRenderer ref={publishPages.rendererRef} drawing={document} layouts={layouts} />}
             <DrawingModelExportRenderer request={wmf.renderRequest} />
             <DrawingModelExportRenderer request={imageExport.request} />
             {sheetSet.publication.request && <DrawingPublishRenderer
                 entries={sheetSet.publication.request.entries} onReady={sheetSet.publication.onReady} />}
+            <UnsavedChangesDialog request={unsavedPrompt} onChoose={chooseUnsaved} />
+            <DrawingCommandPalette
+                open={commandPaletteOpen}
+                onClose={closeCommandPalette}
+                onRun={runPaletteCommand}
+            />
             {publishRequest && (
                 <DrawingPublishDialog
                     drawing={document}
                     initialFormat={publishRequest.format}
                     initialLayoutIds={publishRequest.layoutIds}
+                    initialStep={sheetSetupRequested ? 'setup' : 'auto'}
                     onApplySettings={applyPublishSettings}
-                    onClose={closePublishDialog}
+                    onApplySheetSetup={sheetSetup.applySheetSetup}
+                    onPreviewSheetSetup={sheetSetup.previewSheetSetup}
+                    onClose={() => { setSheetSetupRequested(false); closePublishDialog(); }}
                     onPublish={publishRenderedLayouts}
                     onSystemPrint={printPublishedLayouts}
                     open
                     pageSetups={pageSetups}
                 />
             )}
+            <DrawingContextMenu {...commandRepeat.menu} />
             {printJob && (
                 <div className="lumcad-print-root">
                     <DrawingPrintPage

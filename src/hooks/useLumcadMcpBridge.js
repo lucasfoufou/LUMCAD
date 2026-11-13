@@ -15,7 +15,8 @@ export default function useLumcadMcpBridge(handlers) {
 
     useEffect(() => {
         if (import.meta.env.VITE_LUMCAD_E2E !== '1') return undefined;
-        const api = { getState: () => handlersRef.current.getState() };
+        // executeAction lets end-to-end tests drive the same path as an MCP action (stored frame).
+        const api = { getState: () => handlersRef.current.getState(), executeAction: action => handlersRef.current.executeAction(action) };
         window.__LUMCAD_E2E_STATE__ = api;
         return () => { if (window.__LUMCAD_E2E_STATE__ === api) delete window.__LUMCAD_E2E_STATE__; };
     }, [handlersRef]);

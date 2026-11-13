@@ -69,9 +69,7 @@ export default function DrawingInteractionOverlay({
             ))}
             {hoverSnap && (
                 <g className={`drawing-snap-marker is-${hoverSnap.type}`} pointerEvents="none">
-                    <circle cx={hoverSnap.x} cy={hoverSnap.y} r={markerSize * 0.35} fill="white" stroke="#f7941d" strokeWidth="2" vectorEffect="non-scaling-stroke" />
-                    <line x1={hoverSnap.x - markerSize / 2} y1={hoverSnap.y} x2={hoverSnap.x + markerSize / 2} y2={hoverSnap.y} stroke="#f7941d" strokeWidth="1" vectorEffect="non-scaling-stroke" />
-                    <line x1={hoverSnap.x} y1={hoverSnap.y - markerSize / 2} x2={hoverSnap.x} y2={hoverSnap.y + markerSize / 2} stroke="#f7941d" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+                    <SnapMarkerGlyph type={hoverSnap.type} x={hoverSnap.x} y={hoverSnap.y} size={markerSize} />
                     <text
                         x={hoverSnap.x + markerSize * 0.65}
                         y={hoverSnap.y - markerSize * 0.55}
@@ -294,6 +292,34 @@ function trackingGuideEndpoints(guide, viewBox) {
     };
 }
 
+const SNAP_MARKER_COLOR = '#f7941d';
+
+// AutoCAD-like marker shapes, so the snap kind reads before its label:
+// endpoint square, midpoint triangle, centre circle, intersection cross,
+// nearest hourglass, node circled cross, grid small plus; tracking keeps the target.
+function SnapMarkerGlyph({ type, x, y, size }) {
+    const r = size * 0.38;
+    const stroke = { fill: 'none', stroke: SNAP_MARKER_COLOR, strokeWidth: 2, vectorEffect: 'non-scaling-stroke' };
+    if (type === 'endpoint') return <rect x={x - r} y={y - r} width={r * 2} height={r * 2} {...stroke} />;
+    if (type === 'midpoint') return <polygon points={`${x},${y - r * 1.15} ${x + r},${y + r * 0.7} ${x - r},${y + r * 0.7}`} {...stroke} />;
+    if (type === 'center') return <circle cx={x} cy={y} r={r} {...stroke} />;
+    if (type === 'intersection') {
+        return <path d={`M${x - r} ${y - r}L${x + r} ${y + r}M${x - r} ${y + r}L${x + r} ${y - r}`} {...stroke} />;
+    }
+    if (type === 'nearest') return <path d={`M${x - r} ${y - r}L${x + r} ${y - r}L${x - r} ${y + r}L${x + r} ${y + r}Z`} {...stroke} />;
+    if (type === 'node') {
+        return <path d={`M${x - r} ${y}a${r} ${r} 0 1 0 ${r * 2} 0a${r} ${r} 0 1 0 ${-r * 2} 0M${x - r * 0.7} ${y - r * 0.7}L${x + r * 0.7} ${y + r * 0.7}M${x - r * 0.7} ${y + r * 0.7}L${x + r * 0.7} ${y - r * 0.7}`} {...stroke} />;
+    }
+    if (type === 'grid') return <path d={`M${x - r * 0.6} ${y}H${x + r * 0.6}M${x} ${y - r * 0.6}V${y + r * 0.6}`} {...stroke} />;
+    return (
+        <>
+            <circle cx={x} cy={y} r={size * 0.35} fill="white" stroke={SNAP_MARKER_COLOR} strokeWidth="2" vectorEffect="non-scaling-stroke" />
+            <line x1={x - size / 2} y1={y} x2={x + size / 2} y2={y} stroke={SNAP_MARKER_COLOR} strokeWidth="1" vectorEffect="non-scaling-stroke" />
+            <line x1={x} y1={y - size / 2} x2={x} y2={y + size / 2} stroke={SNAP_MARKER_COLOR} strokeWidth="1" vectorEffect="non-scaling-stroke" />
+        </>
+    );
+}
+
 function snapLabel(type, t) {
     const key = ({
         grid: 'snap.grid',
@@ -309,6 +335,7 @@ function snapLabel(type, t) {
         parallelTracking: 'snap.parallelTracking',
         perpendicularTracking: 'snap.perpendicularTracking',
         tangentTracking: 'snap.tangentTracking',
+        node: 'snap.node',
     })[type];
     return key ? t(key) : '';
 }

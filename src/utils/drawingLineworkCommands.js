@@ -143,3 +143,17 @@ export function runDrawingMultilineStyle(content, input) {
     }
     return setDrawingMultilineStyle(content, style);
 }
+
+const LINEWORK_FRENCH_KEYWORDS = new Map([
+    ['LARGEUR', 'WIDTH'], ['EPAISSEUR', 'WIDTH'], ['ÉPAISSEUR', 'WIDTH'],
+    ['FIN', 'END'], ['TERMINER', 'END'], ['CLORE', 'CLOSE'], ['FERMER', 'CLOSE'],
+    ['ANNULER', 'UNDO'], ['U', 'UNDO'], ['LIGNE', 'LINE'],
+]);
+
+/** PLINE vertex-stage input with French keywords mapped to the English ones (both accepted). */
+export function normalizeDrawingLineworkKeyword(value) {
+    const text = String(value ?? '').trim();
+    const [first = '', ...rest] = text.split(/\s+/);
+    const keyword = LINEWORK_FRENCH_KEYWORDS.get(first.toUpperCase());
+    return keyword ? [keyword, ...rest].join(' ') : text;
+}

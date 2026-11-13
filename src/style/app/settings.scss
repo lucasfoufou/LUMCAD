@@ -247,3 +247,67 @@
     input { width: 8rem; min-width: 0; }
     select { flex: 1; min-width: 10rem; max-width: 100%; }
 }
+
+// --- Sections navigation ---------------------------------------------------------
+
+.lumcad-settings-layout {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  // A fixed height keeps the dialog still while switching sections.
+  height: min(600px, calc(100vh - 4rem - 142px));
+  min-height: 0;
+  overflow: hidden;
+}
+
+.lumcad-settings-nav {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  padding: 12px 8px;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+
+  button {
+    justify-content: flex-start;
+    min-height: 34px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--muted);
+    text-align: left;
+    white-space: normal;
+
+    &:hover:not(:disabled) { background: var(--field); color: var(--ink); }
+    &.is-active, &.is-active:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  }
+}
+
+.lumcad-settings-layout .lumcad-settings-content { min-height: 0; }
+.lumcad-settings-layout .lumcad-settings-section { grid-template-columns: 1fr; gap: 0.9rem; }
+
+.lumcad-settings-field.is-wide {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+
+  .lumcad-settings-control { flex: none; }
+  small { max-width: none; }
+}
+
+.lumcad-settings-path {
+  display: flex;
+  gap: 0.45rem;
+  min-width: 0;
+
+  input { flex: 1; min-width: 0; }
+  .lumcad-settings-button { display: inline-flex; flex: none; gap: 6px; min-width: 0; }
+}
+
+.lumcad-settings-note { margin: 0; color: var(--muted); font-size: 0.75rem; line-height: 1.4; }
+
+@media (max-width: 680px) {
+  .lumcad-settings-layout { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .lumcad-settings-nav { grid-auto-flow: column; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+}

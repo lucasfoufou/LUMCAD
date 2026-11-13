@@ -61,7 +61,11 @@ pub fn install(_app: &AppHandle, _language: &str) -> Result<(), String> {
 const DRAWING_ACTIONS: &[(&str, &str, &str)] = &[
     ("newDocument", "New drawing", "Nouveau dessin"),
     ("open", "Open drawing…", "Ouvrir un dessin…"),
+    ("save", "Save drawing", "Enregistrer le dessin"),
     ("saveAs", "Save drawing as…", "Enregistrer le dessin sous…"),
+    ("import", "Import…", "Importer…"),
+    ("export", "Export…", "Exporter…"),
+    ("plot", "Print / PDF…", "Imprimer / PDF…"),
     (
         "undo",
         "Undo drawing edit",

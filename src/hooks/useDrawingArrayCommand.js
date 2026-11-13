@@ -4,6 +4,7 @@ import { useI18n } from '~i18n/I18nProvider';
 import { beginRectangularArrayEdit, beginRectangularArrayOperation, commitRectangularArrayOperation, editArrayOperation } from '~utils/drawingCompoundOperations';
 import { parseDrawingNumbers } from '~utils/drawingCommands';
 import { parseDrawingOperationOption } from '~utils/drawingOperationOptions';
+import { drawingEntryPointToWorld, drawingUserRotationToWorld, drawingWorldRotationToUser } from '~utils/drawingCoordinates';
 
 const ARRAY_OPTION_HANDLES = { base: 'base', xSpacing: 'x-spacing', ySpacing: 'y-spacing', columns: 'columns', rows: 'rows' };
 const ARRAY_OPTION_STAGES = Object.fromEntries(Object.keys(ARRAY_OPTION_HANDLES).map(option => [`array-option-${option}`, option]));
@@ -18,8 +19,13 @@ export default function useDrawingArrayCommand({
     setInteractiveOperation,
     setMessage,
     setSelectedIds,
+    getUserSettings = () => ({}),
 }) {
-    const { t } = useI18n();
+    const { t: translate } = useI18n();
+    // Typed CENTER/BASE points and the polar fill ANGLE are read in the user frame.
+    const t = (key, values) => translate(key, key === 'array.polarEditPrompt'
+        ? { ...values, angle: Math.abs(values.angle) === 360 ? 360 : drawingWorldRotationToUser(values.angle, getUserSettings()) } : values);
+    const typedPoint = values => drawingEntryPointToWorld({ x: values[0], y: values[1] }, getUserSettings());
     const activateArraySelection = (operation, entities, reportInvalid = true) => {
         const ids = entities.map(entity => entity.id);
         let nextOperation;
@@ -65,7 +71,7 @@ export default function useDrawingArrayCommand({
 
     const activateArrayOption = (operation, parsedOption) => {
         const option = parsedOption.option;
-        const point = arrayOptionPoint(operation, option, parsedOption.args);
+        const point = arrayOptionPoint(operation, option, parsedOption.args, typedPoint);
         if (point) return finishArrayOption(operation, option, point);
         setInteractiveOperation({ ...operation, stage: `array-option-${option}` });
         setMessage(arrayOptionPrompt(option, t));
@@ -75,11 +81,11 @@ export default function useDrawingArrayCommand({
 
     const submitPolarOption = (operation, option, values) => {
         if (option === 'center' && values.length >= 2) {
-            return handleArrayPoint({ ...operation, stage: 'array-option-center' }, { x: values[0], y: values[1] });
+            return handleArrayPoint({ ...operation, stage: 'array-option-center' }, typedPoint(values));
         }
         const next = { ...operation, stage: 'array-edit' };
         if (option === 'count') next.count = values[0];
-        if (option === 'angle') next.angle = values[0];
+        if (option === 'angle') next.angle = drawingUserRotationToWorld(values[0], getUserSettings());
         if (option === 'rotateItems') next.rotateItems = values.length ? values[0] !== 0 : !operation.rotateItems;
         const validToggle = option !== 'rotateItems' || !values.length || [0, 1].includes(values[0]);
         if (validToggle && option !== 'center' && (values.length || option === 'rotateItems') && normalizePolarArray({ ...next, kind: 'polar' })) {
@@ -100,7 +106,7 @@ export default function useDrawingArrayCommand({
             return true;
         }
         if (option === 'base' && values.length >= 2) {
-            return handleArrayPoint({ ...operation, stage: 'array-option-base' }, { x: values[0], y: values[1] });
+            return handleArrayPoint({ ...operation, stage: 'array-option-base' }, typedPoint(values));
         }
         const next = { ...operation, stage: 'array-edit', kind: 'path' };
         if (option === 'count') { next.count = values[0]; next.mode = 'divide'; }
@@ -195,7 +201,7 @@ export default function useDrawingArrayCommand({
         const stagedOption = ARRAY_OPTION_STAGES[operation.stage];
         if (stagedOption) {
             const values = parseDrawingNumbers(rawValue);
-            const point = arrayOptionPoint(operation, stagedOption, values);
+            const point = arrayOptionPoint(operation, stagedOption, values, typedPoint);
             if (point) return finishArrayOption(operation, stagedOption, point);
             setMessage(arrayOptionPrompt(stagedOption, t));
             return true;
@@ -206,8 +212,8 @@ export default function useDrawingArrayCommand({
     return { activateArraySelection, beginArray, handleArrayPoint, submitArrayValue };
 }
 
-function arrayOptionPoint(operation, option, values) {
-    if (option === 'base' && values.length >= 2) return { x: values[0], y: values[1] };
+function arrayOptionPoint(operation, option, values, typedPoint) {
+    if (option === 'base' && values.length >= 2) return typedPoint(values);
     if (['xSpacing', 'ySpacing', 'columns', 'rows'].includes(option) && values.length) {
         const horizontal = ['xSpacing', 'columns'].includes(option);
         const target = horizontal ? operation.horizontalPoint : operation.verticalPoint;

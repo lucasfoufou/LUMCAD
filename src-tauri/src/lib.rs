@@ -69,6 +69,7 @@ pub fn run() {
             mcp::complete_mcp_request,
             mcp::get_mcp_status,
             settings::get_app_settings,
+            settings::app_settings_stored,
             settings::update_app_settings,
             printing::prepare_print_page,
             printing::publish_plot_file,

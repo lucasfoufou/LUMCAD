@@ -141,7 +141,12 @@ test('BREAK removes the interval between two points of a line', async ({ page })
     await clickWorld(page, { x: 2, y: 0 });
     await command(page, '4,0');
     const lines = (await entities(page)).filter(entity => entity.type === 'line' && entity.y1 === 0 && entity.y2 === 0 && entity.x2 <= 10);
-    expect(lines.map(line => [line.x1, line.x2]).sort((a, b) => a[0] - b[0])).toEqual([[0, 2], [4, 10]]);
+    // New drawings no longer snap to the grid: the clicked point is exact to the pixel.
+    const intervals = lines.map(line => [line.x1, line.x2]).sort((a, b) => a[0] - b[0]);
+    expect(intervals).toHaveLength(2);
+    expect(intervals[0][0]).toBe(0);
+    expect(intervals[0][1]).toBeCloseTo(2, 3);
+    expect(intervals[1]).toEqual([4, 10]);
     await expectUndoRedo(page, before, await entities(page));
 });
 
@@ -194,7 +199,8 @@ test('XPLODE splits a joined path back into lines with part properties', async (
     await command(page, 'JOIN');
     const joined = await entities(page);
     await pickEntities(page, [{ x: 52, y: 0 }]);
-    const added = await runSteps(page, ['XPLODE', 'PARTS', '']);
+    // PARTS completes XPLODE; an extra empty Enter would now repeat the command, as in AutoCAD.
+    const added = await runSteps(page, ['XPLODE', 'PARTS']);
     expect(added.map(entity => [entity.type, entity.x1, entity.x2])).toEqual([['line', 50, 55], ['line', 55, 60]]);
     await expectUndoRedo(page, joined, await entities(page));
 });
