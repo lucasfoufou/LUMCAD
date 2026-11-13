@@ -364,7 +364,8 @@ const DrawingLayoutCanvas = forwardRef(function DrawingLayoutCanvas({
         if (!target.id) {
             onSelectedViewportChange(null);
             onSelectedPaperEntityChange?.(null);
-            setEditingPaperEntityId(null);
+            // Keep the open text editor mounted: losing focus commits what was typed.
+            if (editingPaperEntityId) document.activeElement?.blur?.();
             setGesture(null);
             return;
         }

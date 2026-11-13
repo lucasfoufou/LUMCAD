@@ -44,6 +44,8 @@ export default function DrawingPaperAnnotationPanel({
         if (!canEditEntity(content, { layerId: content.activeLayerId })) return;
         const annotation = createDrawingPaperAnnotation(layout, type, {
             layerId: content.activeLayerId,
+            // A new paper text starts visible; its content is edited in the fields below.
+            ...(type === 'text' ? { text: t('document.defaultText') } : {}),
         });
         onChange(addDrawingPaperAnnotation(layout, annotation));
         setSelectedId(annotation.id);
