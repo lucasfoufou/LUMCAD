@@ -24,6 +24,7 @@ import useDrawingSketch from '~hooks/useDrawingSketch';
 import useDrawingLinework from '~hooks/useDrawingLinework';
 import useDrawingPointPlacement from '~hooks/useDrawingPointPlacement';
 import useDrawingAnnotations from '~hooks/useDrawingAnnotations';
+import DrawingPlanScaleControl from '~components/drawing/DrawingPlanScaleControl';
 import useDrawingReferences from '~hooks/useDrawingReferences';
 import useDrawingDwf from '~hooks/useDrawingDwf';
 import useDrawingPdf from '~hooks/useDrawingPdf';
@@ -3117,7 +3118,8 @@ export default function DrawingEditorWorkspace({
                             selectedLayoutIds={selectedLayoutIds}
                         />
                     )}
-                    aids={workspaceMode === 'model' && (
+                    aids={workspaceMode === 'model' && (<>
+                        <DrawingPlanScaleControl content={history.content} onCommand={annotations.run} />
                         <DrawingSnapControls
                             content={history.content}
                             onChange={history.commit}
@@ -3127,7 +3129,7 @@ export default function DrawingEditorWorkspace({
                             onDraftingSettingsOpenChange={setDraftingSettingsOpen}
                             onTemporaryTrackingPoint={() => canvasRef.current?.beginTemporaryTrackingPoint()}
                         />
-                    )}
+                    </>)}
                     onZoomIn={workspaceMode === 'model' ? toolbarActions.zoomIn : undefined}
                     onZoomOut={workspaceMode === 'model' ? toolbarActions.zoomOut : undefined}
                     onFit={workspaceMode === 'model' ? toolbarActions.fit : undefined}
