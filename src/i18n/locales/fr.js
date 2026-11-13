@@ -1334,6 +1334,8 @@ const fr = {
     'toolbar.fit': 'Afficher tout',
     'toolbar.importImage': 'Importer une image',
     'toolbar.moreTools': 'Autres outils de la famille {{tool}}',
+    'toolbar.scrollUp': 'Afficher les outils au-dessus',
+    'toolbar.scrollDown': 'Afficher les outils en dessous',
 
     'creation.controls': 'Options de création — {{tool}}',
     'creation.editSelected': 'Modifier la sélection — {{tool}}',

@@ -89,7 +89,7 @@
 
 .drawing-editor-body {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr) 300px;
+  grid-template-columns: auto minmax(0, 1fr) 300px;
   min-height: 0;
   overflow: hidden;
 }
@@ -108,7 +108,12 @@
   border-right: 1px solid var(--line);
   background: var(--panel);
 
+  width: 46px;
+
   &::-webkit-scrollbar { display: none; }
+
+  // Below a certain height the rail uses two columns so every tool stays visible.
+  &.is-two-columns { width: 80px; }
 }
 
 .drawing-toolbar-group {
@@ -118,6 +123,32 @@
   gap: 2px;
 
   & + & { padding-top: 4px; border-top: 1px solid var(--line); }
+
+  .is-two-columns & {
+    display: grid;
+    grid-template-columns: repeat(2, 34px);
+    padding-inline: 4px;
+  }
+}
+
+// Tools hidden by scrolling are signalled at the edge of the rail: a fade and
+// a chevron that scrolls to them.
+.drawing-toolbar-scroll {
+  position: sticky;
+  z-index: 2;
+  flex: none;
+  align-self: stretch;
+  height: 34px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--accent-ink);
+
+  .ui-icon { width: 18px; height: 18px; padding: 1px; border-radius: 50%; background: var(--accent); }
+  &.is-up { top: -6px; margin-block: -6px -28px; align-items: flex-start; padding-top: 4px; background: linear-gradient(var(--panel) 40%, transparent); }
+  &.is-down { bottom: -6px; margin-block: -28px -6px; align-items: flex-end; padding-bottom: 4px; background: linear-gradient(transparent, var(--panel) 60%); }
+  &:hover:not(:disabled) .ui-icon { background: var(--accent-hover); }
 }
 
 .drawing-tool-slot { position: relative; display: flex; }
@@ -680,13 +711,13 @@
 // --- Narrow windows --------------------------------------------------------------
 
 @media (max-width: 1100px) {
-  .drawing-editor-body { grid-template-columns: 46px minmax(0, 1fr) 260px; }
+  .drawing-editor-body { grid-template-columns: auto minmax(0, 1fr) 260px; }
   .drawing-manager-window { right: 272px; }
   .drawing-command-message { max-width: 40%; }
 }
 
 @media (max-width: 820px) {
-  .drawing-editor-body { grid-template-columns: 46px minmax(0, 1fr); }
+  .drawing-editor-body { grid-template-columns: auto minmax(0, 1fr); }
   .drawing-sidebar { display: none; }
   .lumcad-header-group[role="group"] { display: none; }
   .drawing-status-aids .drawing-status-view { display: none; }

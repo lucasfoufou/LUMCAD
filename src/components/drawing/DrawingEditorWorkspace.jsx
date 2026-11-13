@@ -22,6 +22,7 @@ import useDrawingTables from '~hooks/useDrawingTables';
 import useDrawingRevision from '~hooks/useDrawingRevision';
 import useDrawingSketch from '~hooks/useDrawingSketch';
 import useDrawingLinework from '~hooks/useDrawingLinework';
+import { resolveToolbarActiveOperation } from '~utils/drawingToolbarLayout';
 import useDrawingPointPlacement from '~hooks/useDrawingPointPlacement';
 import useDrawingAnnotations from '~hooks/useDrawingAnnotations';
 import useDrawingReferences from '~hooks/useDrawingReferences';
@@ -2816,6 +2817,7 @@ export default function DrawingEditorWorkspace({
         zoomOut: () => canvasRef.current?.zoom(1.25),
         fit: () => canvasRef.current?.fit(),
         importImage: () => imageInputRef.current?.click(),
+        command: name => submitCommand(name).catch(() => {}),
     };
 
     const mcpFiles = useMcpFiles({ document, blockEditing: Boolean(blockEditor.session), onReplaceSession,
@@ -2999,7 +3001,7 @@ export default function DrawingEditorWorkspace({
                 </section>}
                 {workspaceMode === 'model' ? (
                     <DrawingEditorBody
-                        toolbar={{ activeTool, activeOperation: interactiveOperation?.arrayKind === 'path' ? 'arrayPath' : interactiveOperation?.arrayKind === 'polar' ? 'arrayPolar' : interactiveOperation?.type || null, actions: toolbarActions,
+                        toolbar={{ activeTool, activeOperation: resolveToolbarActiveOperation(interactiveOperation), actions: toolbarActions,
                             selectionCount: selectedIds.length }}
                         onToolChange={tool => {
                             if (tool === 'hatch') { submitCommand('HATCH').catch(() => {}); return; }

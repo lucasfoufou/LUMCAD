@@ -1334,6 +1334,8 @@ const en = {
     'toolbar.fit': 'Zoom to extents',
     'toolbar.importImage': 'Import an image',
     'toolbar.moreTools': 'More tools like {{tool}}',
+    'toolbar.scrollUp': 'Show the tools above',
+    'toolbar.scrollDown': 'Show the tools below',
 
     'creation.controls': '{{tool}} creation options',
     'creation.editSelected': 'Edit selected — {{tool}}',
