@@ -170,7 +170,7 @@ requires remapping; dependencies follow that mapping. Annotation representations
 are snapshotted at the chosen viewport scale and become non-annotative. Definitions
 shared by other objects are retained. Both spaces change in one history step.
 
-Viewport `viewRotation` is stored in degrees. A polygonal `clipBoundary` uses normalized viewport coordinates from `0` through `1`. `locked` prevents accidental model-view changes. `visualSettings`, `annotationSettings`, and `layerOverrides` control only that viewport and leave model-space entities unchanged. Layer overrides may contain a colour, linetype, and/or lineweight.
+Viewport `viewRotation` is stored in degrees. A polygonal `clipBoundary` uses normalized viewport coordinates from `0` through `1`. `locked` prevents accidental model-view changes. `visualSettings`, `annotationSettings`, and `layerOverrides` control only that viewport and leave model-space entities unchanged. `annotationSettings.dimensionTextSizeMm` is still normalized and preserved for compatibility but no longer affects rendering: dimensions without a stored `textSize` use the current dimension style in the model and in every viewport. Layer overrides may contain a colour, linetype, and/or lineweight.
 
 The viewport display scale is derived rather than stored: its exact `1/X` denominator is `modelViewBox.width × 1000 / viewport.width`, converting model metres to paper millimetres.
 
@@ -551,7 +551,7 @@ Denominators are finite numbers from 0.001 to 1,000,000. Each object has 1–64
 unique representations; the ratio to `baseScale` is bounded to 1e-6–1e6.
 Offsets are finite world-metre coordinates bounded to ±1e9. Optional
 `content.annotationScales` is a unique sorted catalog of at most 128 denominators;
-`settings.annotationScale` chooses the model context (default 100), and
+`settings.annotationScale` chooses the model context (default 100) and is the plan scale shown in the model status bar: dimension-style sizes are edited as paper millimetres multiplied by it, and the default dimension-line offset is 6 mm at that scale. Changing it multiplies the stored metre values of `dimensionStyles` so their paper size is unchanged, adds the new denominator to annotative objects, and optionally resizes existing non-annotative dimensions and texts; no field is added.
 `settings.annotationShowAll` exposes otherwise unlisted model representations.
 
 Canonical geometry is stored at the base denominator. Contextual geometry is derived

@@ -114,6 +114,7 @@ import { createStretchPreviewEntities } from '~utils/drawingStretchOperations';
 import { drawingViewBoxScreenTransform, drawingVisibleViewBox, scaleDrawingViewBox, zoomDrawingViewBox } from '~utils/drawingViewport';
 import { drawingTextFontSizeToPixels, resolveDrawingTextStyle, normalizeDrawingTextEntity } from '~utils/drawingText';
 import useStableArray from '~hooks/useStableArray';
+import { defaultDimensionTextSize } from '~utils/drawingDimensionStyles';
 import { dimensionNeedsPlacement, dimensionWithTypedOffset, parseDimensionToolInput, placeDimensionAtPoint, resolveDimensionPickTarget, styledDimensionDraft, withDefaultDimensionPlacement } from '~utils/drawingDimensionPlacement';
 
 const VIEW_RENDER_SETTLE_MS = 120;
@@ -1670,6 +1671,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const sceneHighlightedIds = useStableArray(highlightedIds);
     const sceneHitOnlyIds = useStableArray(cornerHiddenIds);
     const sceneHiddenIds = useStableArray([...previewHiddenIds, ...(editingText ? [editingText.id] : [])]);
+    const unstyledDimensionTextSize = useMemo(() => defaultDimensionTextSize(content), [content.dimensionStyles, content.activeDimensionStyleId]);
     const sceneContent = useMemo(() => (clipboardPreview
         ? { ...previewContent, layers: clipboardPreview.content.layers, blocks: clipboardPreview.content.blocks }
         : previewContent), [clipboardPreview, previewContent]);
@@ -1753,7 +1755,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                     highlightedIds={sceneHighlightedIds}
                     interactive
                     hitShapes={false}
-                    dimensionTextSize={Math.max(0.18, renderedViewBox.width / 85)}
+                    dimensionTextSize={unstyledDimensionTextSize}
                     showGrips={activeTool === 'select' && !interactiveOperation}
                     gripSize={gripSize}
                     hiddenIds={sceneHiddenIds}
@@ -1771,7 +1773,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 aria-hidden="true"
             >
                 <DrawingDraftLayer content={sceneContent} assets={clipboardPreview?.assets || assets} draftEntities={sceneDraftEntities}
-                    dimensionTextSize={Math.max(0.18, viewBox.width / 85)} viewBox={viewBox} />
+                    dimensionTextSize={unstyledDimensionTextSize} viewBox={viewBox} />
                 <DrawingHighlightLayer content={sceneContent} entityId={hoverHighlightId} viewBox={viewBox} />
                 <DrawingInteractionOverlay
                     selectionWindow={selectionWindow}

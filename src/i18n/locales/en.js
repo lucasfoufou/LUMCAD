@@ -1774,7 +1774,6 @@ const en = {
     'layout.viewportShowLineweights': 'Show lineweights',
     'layout.viewportShowText': 'Show text',
     'layout.viewportShowDimensions': 'Show dimensions',
-    'layout.viewportDimensionTextSize': 'Dimension text on paper (mm)',
     'layout.viewportColorOverride': 'Colour override',
     'layout.viewportLineTypeOverride': 'Linetype override',
     'layout.viewportLineWeightOverride': 'Lineweight override',

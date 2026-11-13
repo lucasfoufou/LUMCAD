@@ -1774,7 +1774,6 @@ const fr = {
     'layout.viewportShowLineweights': 'Afficher les épaisseurs de ligne',
     'layout.viewportShowText': 'Afficher les textes',
     'layout.viewportShowDimensions': 'Afficher les cotations',
-    'layout.viewportDimensionTextSize': 'Texte de cote sur le papier (mm)',
     'layout.viewportColorOverride': 'Remplacement de couleur',
     'layout.viewportLineTypeOverride': 'Remplacement de type de ligne',
     'layout.viewportLineWeightOverride': 'Remplacement d’épaisseur',
