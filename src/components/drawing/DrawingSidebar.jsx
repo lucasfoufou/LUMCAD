@@ -17,6 +17,7 @@ import DrawingBlockParameterFields from '~components/drawing/DrawingBlockParamet
 import DrawingBlocksPanel from '~components/drawing/DrawingBlocksPanel';
 import DrawingManagerWindow from '~components/drawing/DrawingManagerWindow';
 import DrawingLayersPanel from '~components/drawing/DrawingLayersPanel';
+import { drawingUserSettings } from '~utils/drawingCoordinates';
 import React, { useEffect, useRef, useState } from 'react';
 
 import Icon from '~components/ui/Icon';
@@ -51,7 +52,7 @@ const MANAGER_PANELS = Object.freeze({
     inquiry: 'inquiry.title',
 });
 
-export default function DrawingSidebar({ content, selectedIds, editEntityId = null, onCommit, panel, onPanelChange, blockSearch, onBlockSearch, onBlockDefine, onBlockInsert, onBlockEdit, onBlockImport, onBlockExport, onManageAttribute, onDefineAttribute, onDimensionStyleCommand, inquiryResult, comparisonPreview, onCopyInquiry, onInspectTransmittal, onSelectDuplicateGroup, onSelectCountOccurrence, onOpenRecovery, canOpenRecovery = false, onSelectRecovery, onShowRecoveryManager, hasRecoveryGraph = false, onShowRecoveryHistory, onRetryRecovery, onForgetRecovery, onRelinkRecovery, canRelinkRecovery, layerFilter, onLayerFilter, onMergeLayer, onPlotStyleCommand, onCreationControlsMount, onAnnotationCommand, commandActive = false, dynamicBlockEditing = false, onSmartBlockCommand, smartBlockDetection, libraryBrowser, onBrowseLibrary, onSelectConstraintObjects, parametersEnabled = false }) {
+export default function DrawingSidebar({ content, selectedIds, editEntityId = null, onCommit, panel, onPanelChange, blockSearch, onBlockSearch, onBlockDefine, onBlockInsert, onBlockEdit, onBlockImport, onBlockExport, onManageAttribute, onDefineAttribute, onDimensionStyleCommand, inquiryResult, comparisonPreview, onCopyInquiry, onInspectTransmittal, onSelectDuplicateGroup, onSelectCountOccurrence, onOpenRecovery, canOpenRecovery = false, onSelectRecovery, onShowRecoveryManager, hasRecoveryGraph = false, onShowRecoveryHistory, onRetryRecovery, onForgetRecovery, onRelinkRecovery, canRelinkRecovery, layerFilter, onLayerFilter, onMergeLayer, onPlotStyleCommand, onCreationControlsMount, onAnnotationCommand, commandActive = false, dynamicBlockEditing = false, onSmartBlockCommand, smartBlockDetection, libraryBrowser, onBrowseLibrary, onSelectConstraintObjects, parametersEnabled = false, yAxisUp = false }) {
     const { t, locale } = useI18n();
     const [internalPanel, setInternalPanel] = useState('selection');
     const requested = panel || internalPanel;
@@ -82,7 +83,7 @@ export default function DrawingSidebar({ content, selectedIds, editEntityId = nu
         plotStyles: () => <DrawingPlotStylesPanel content={content} onCommand={onPlotStyleCommand} t={t} />,
         parameters: () => <DrawingParametersPanel content={content} selectedIds={selectedIds} enabled={parametersEnabled} onCommit={onCommit} onSelect={onSelectConstraintObjects} t={t} locale={locale} />,
         constraints: () => <DrawingConstraintsPanel content={content} selectedIds={selectedIds} onCommit={onCommit} onSelect={onSelectConstraintObjects} t={t} />,
-        inquiry: () => <DrawingInquiryPanel comparisonPreview={comparisonPreview} settings={content.settings} layers={content.layers} blocks={content.blocks} result={inquiryResult} onCopy={onCopyInquiry} onInspectTransmittal={onInspectTransmittal} onSelectDuplicateGroup={onSelectDuplicateGroup} onSelectCountOccurrence={onSelectCountOccurrence} onOpenRecovery={onOpenRecovery} canOpenRecovery={canOpenRecovery} onSelectRecovery={onSelectRecovery} onShowRecoveryManager={onShowRecoveryManager} hasRecoveryGraph={hasRecoveryGraph} onShowRecoveryHistory={onShowRecoveryHistory} onRetryRecovery={onRetryRecovery} onForgetRecovery={onForgetRecovery} onRelinkRecovery={onRelinkRecovery} canRelinkRecovery={canRelinkRecovery} t={t} />,
+        inquiry: () => <DrawingInquiryPanel comparisonPreview={comparisonPreview} settings={drawingUserSettings(content.settings, yAxisUp)} layers={content.layers} blocks={content.blocks} result={inquiryResult} onCopy={onCopyInquiry} onInspectTransmittal={onInspectTransmittal} onSelectDuplicateGroup={onSelectDuplicateGroup} onSelectCountOccurrence={onSelectCountOccurrence} onOpenRecovery={onOpenRecovery} canOpenRecovery={canOpenRecovery} onSelectRecovery={onSelectRecovery} onShowRecoveryManager={onShowRecoveryManager} hasRecoveryGraph={hasRecoveryGraph} onShowRecoveryHistory={onShowRecoveryHistory} onRetryRecovery={onRetryRecovery} onForgetRecovery={onForgetRecovery} onRelinkRecovery={onRelinkRecovery} canRelinkRecovery={canRelinkRecovery} t={t} />,
     };
     const tabs = [
         ...(dynamicBlockEditing ? [['blockVariants', t('commands.blockTable')]] : []),

@@ -13,6 +13,7 @@ import {
     positiveAngleDelta,
     tangentRadiusAtPoint,
 } from './drawingCurves.js';
+import { drawingEntryDirectionToWorld } from './drawingCoordinates.js';
 import { pointDistance } from './drawingPrimitives.js';
 import { DEFAULT_DRAWING_TEXT_STYLE_ID } from './drawingText.js';
 import { isEditableSpline } from './drawingSplineEditing.js';
@@ -233,6 +234,19 @@ export function parseDrawingCreationInput(tool, value) {
         consumed = true;
     }
     return consumed ? { kind: 'options', options } : null;
+}
+
+/**
+ * Creation options typed in the user frame, stored in the stored frame: with Y
+ * up a typed CW/CCW arc or ellipse direction is mirrored and a typed
+ * rectangle ROTATION is a user direction. Unchanged otherwise (and for MCP).
+ */
+export function storedDrawingCreationConfig(next, parsed, settings) {
+    if (settings?.yAxisUp !== true || parsed?.kind !== 'options' || !next?.options) return next;
+    const options = { ...next.options };
+    if (typeof parsed.options.counterClockwise === 'boolean') options.counterClockwise = !parsed.options.counterClockwise;
+    if (Number.isFinite(parsed.options.rotation)) options.rotation = drawingEntryDirectionToWorld(parsed.options.rotation, settings);
+    return { ...next, options };
 }
 
 export function applyDrawingCreationMode(tool, current, value) {

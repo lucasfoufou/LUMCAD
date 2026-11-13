@@ -210,6 +210,12 @@ export default function AppSettingsDialog({ open, onClose, section = 'general' }
                                         hint={t('settings.clockwiseAnglesHint')}
                                     />
                                     <SettingsToggle
+                                        checked={draft.drawingDefaults.yAxisUp}
+                                        onChange={yAxisUp => updateDrawingDefaults({ yAxisUp })}
+                                        label={t('settings.yAxisUp')}
+                                        hint={t('settings.yAxisUpHint')}
+                                    />
+                                    <SettingsToggle
                                         checked={draft.drawingDefaults.mirrorText}
                                         onChange={mirrorText => updateDrawingDefaults({ mirrorText })}
                                         label={t('settings.mirrorText')}

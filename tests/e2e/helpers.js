@@ -21,7 +21,19 @@ export async function state(page) {
     return page.evaluate(() => window.__LUMCAD_E2E_STATE__?.getState());
 }
 
-export async function start(page) {
+/**
+ * The existing suite types and asserts stored (screen-down) coordinates, so it
+ * runs with the "Y axis up" application preference turned off. This is the only
+ * place that does it; tests/e2e/y-axis.spec.js covers the default (Y up) with
+ * `start(page, { yAxisUp: true })`. The merge keeps any settings (language)
+ * written by an earlier init script of the test.
+ */
+export async function start(page, { yAxisUp = false } = {}) {
+    await page.addInitScript(enabled => {
+        let stored = {};
+        try { stored = JSON.parse(localStorage.getItem('lumcad.settings.v1') || '{}') || {}; } catch { stored = {}; }
+        localStorage.setItem('lumcad.settings.v1', JSON.stringify({ ...stored, drawingDefaults: { ...stored.drawingDefaults, yAxisUp: enabled } }));
+    }, yAxisUp);
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     page.on('dialog', dialog => dialog.dismiss());

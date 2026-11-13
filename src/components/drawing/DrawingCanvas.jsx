@@ -5,7 +5,7 @@ import { beginDrawingSketch, appendDrawingSketch, drawingSketchEntities } from '
 import { previewDrawingLinework } from '~utils/drawingLinework';
 import { createPortal } from 'react-dom';
 import DrawingCoordinateOverlay from '~components/drawing/DrawingCoordinateOverlay';
-import { drawingPointWithinLimits, formatDrawingPolarMeasure } from '~utils/drawingCoordinates';
+import { drawingPointWithinLimits, drawingUserSettings, formatDrawingPolarMeasure } from '~utils/drawingCoordinates';
 import { isDrawingLayerVisible } from '~utils/drawingLayers';
 import { editDrawingLeaderGrip } from '~utils/drawingLeaders';
 import { namedDrawingViewBox } from '~utils/drawingNamedViews';
@@ -83,6 +83,7 @@ import {
 } from '~utils/drawingDimensionCommands';
 import {
     applyDrawingCreationMode,
+    storedDrawingCreationConfig,
     buildArcCreationEntity,
     buildCircleCreationEntity,
     buildRectangleCreationEntity,
@@ -152,6 +153,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     onContextAction = null,
     onKeyboardEnter = null,
     onGestureStart = null,
+    yAxisUp = false,
+    getInputYAxisUp = () => false,
 }, forwardedRef) {
     const { t, locale } = useI18n();
     const svgRef = useRef(null);
@@ -540,7 +543,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         const current = tool === activeTool
             ? { mode: creationMode, options: creationOptions }
             : remembered;
-        const next = applyDrawingCreationMode(tool, current, rawValue);
+        const next = storedDrawingCreationConfig(applyDrawingCreationMode(tool, current, rawValue), parsed,
+            drawingUserSettings(content.settings, getInputYAxisUp()));
         rememberedCreationConfigsRef.current.set(tool, next);
         if (tool !== activeTool) {
             pendingCreationRef.current = {
@@ -1753,7 +1757,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         : gestureReferenceOrigin(gesture) || (gesture ? null : getOperationOrthogonalOrigin(interactiveOperation));
     const dynamicInputMeasure = content.settings?.dynamicInput && (dynamicInputVisible || gesture?.kind === 'grip')
         && measureOrigin && dynamicInputPoint
-        ? formatDrawingPolarMeasure(measureOrigin, dynamicInputPoint, content.settings, locale)
+        ? formatDrawingPolarMeasure(measureOrigin, dynamicInputPoint, drawingUserSettings(content.settings, yAxisUp), locale)
         : '';
     const dynamicInputPosition = dynamicInputVisible || dynamicInputMeasure
         ? drawingDynamicInputPointerAnchor(pointerPixelRef.current, canvasSize, {
@@ -1818,12 +1822,13 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 aria-label={t('canvas.area')}
             >
                 <DrawingGrid content={content} viewBox={renderedViewBox} worldUnitsPerPixel={renderedUnitsPerPixel} />
-                <DrawingCoordinateOverlay settings={content.settings} viewBox={renderedViewBox} worldUnitsPerPixel={renderedUnitsPerPixel} t={t} />
+                <DrawingCoordinateOverlay settings={content.settings} yAxisUp={yAxisUp} viewBox={renderedViewBox} worldUnitsPerPixel={renderedUnitsPerPixel} t={t} />
                 {backgroundContext && <g opacity="0.25" pointerEvents="none" aria-hidden="true" transform={affineMatrixToSvg(backgroundContext.transform)}>
                     <DrawingScene content={backgroundContext.content} assets={backgroundContext.assets}
                         viewBox={inverseAffineViewBox(renderedViewBox, backgroundContext.transform)} />
                 </g>}
                 <DrawingScene
+                    key={yAxisUp ? 'y-up' : 'y-down'}
                     content={sceneContent}
                     assets={clipboardPreview?.assets || assets}
                     selectedIds={selectedIds}
@@ -1919,6 +1924,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             {!editingText && creationControlsTarget && createPortal(
                 <DrawingCreationControls
                     content={content}
+                    yAxisUp={yAxisUp}
                     key={editEntity?.id || activeTool}
                     operation={interactiveOperation}
                     commandInput={dynamicInput}
