@@ -536,7 +536,46 @@
   details > :not(summary) { margin-top: 8px; }
 }
 
-.drawing-selection-panel > h3 { font-size: var(--text-lg); }
+.drawing-selection-header {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+
+  h3 { overflow-wrap: anywhere; font-size: var(--text-lg); }
+  p { overflow-wrap: anywhere; }
+}
+
+// Sections of the Properties tab: General, Geometry, then the collapsed link.
+.drawing-properties-section,
+.drawing-selection-panel .drawing-properties-mount:not(:empty),
+.drawing-properties-link {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.drawing-properties-section > h4 {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.drawing-properties-section .drawing-appearance-panel { padding-top: 0; border-top: 0; }
+.drawing-properties-link .drawing-hyperlink-fields { padding-top: 0; border-top: 0; }
+.drawing-properties-link .drawing-hyperlink-fields > legend { display: none; }
+
+.drawing-properties-mount p.drawing-creation-field.drawing-block-reference-name {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 8px;
+
+  span { color: var(--muted); }
+  strong { overflow-wrap: anywhere; }
+}
 
 // Hints among editing fields span the panel instead of the label column.
 .drawing-properties-mount p.drawing-creation-field { display: block; color: var(--muted); font-size: var(--text-sm); }

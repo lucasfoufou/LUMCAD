@@ -311,6 +311,9 @@
   color: var(--muted);
 
   span { min-width: 0.75rem; color: var(--accent); font-family: var(--font-num); }
+
+  // In the Properties tab, collapsed groups read like the section titles.
+  .drawing-sidebar-content & { justify-content: flex-start; gap: 6px; padding: 0; font-weight: 500; }
 }
 
 .drawing-creation-action,
@@ -351,7 +354,7 @@
 
 .drawing-properties-mount {
   .drawing-creation-controls { display: grid; gap: 8px; }
-  .drawing-creation-controls > header strong { padding: 0; background: none; box-shadow: none; color: var(--muted); }
+  .drawing-creation-controls > header strong { padding: 0; background: none; box-shadow: none; color: var(--muted); letter-spacing: 0.07em; font-family: var(--font-ui); white-space: normal; overflow-wrap: anywhere; }
   .drawing-creation-fields, .drawing-creation-details, .drawing-creation-details-fields { display: grid; }
   .drawing-creation-field { display: grid; grid-template-columns: 96px minmax(0, 1fr); }
   .drawing-creation-field input, .drawing-creation-field select, .drawing-creation-field textarea { width: 100%; }

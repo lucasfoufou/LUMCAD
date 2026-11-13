@@ -56,13 +56,13 @@ export function DrawingLayerAppearanceFields({ layer, onChange, t }) {
     );
 }
 
-export function DrawingEntityAppearanceFields({ content, disabled, entities, onUpdate, t }) {
+export function DrawingEntityAppearanceFields({ content, disabled, entities, onUpdate, t, showHeading = true }) {
     const colorEntities = entities.filter(entity => entity.type !== 'image');
     const strokeEntities = entities.filter(supportsStrokeAppearance);
     const transparencyEntities = entities;
     return (
         <section className="drawing-appearance-panel">
-            <h4>{t('sidebar.appearance')}</h4>
+            {showHeading && <h4>{t('sidebar.appearance')}</h4>}
             {colorEntities.length > 0 && (
                 <ByLayerColorField
                     content={content}

@@ -13,6 +13,20 @@ export function parseDecimalDraft(value) {
     return { kind: 'invalid', value: undefined };
 }
 
-export function formatDecimalValue(value) {
-    return Number.isFinite(value) ? String(value) : '';
+// Fields show at most this many decimals: 0.1 mm for distances in metres.
+export const DEFAULT_DECIMAL_FIELD_PRECISION = 4;
+
+/**
+ * Editable representation of a number in the interface language: a comma
+ * separates decimals in French, a point in English, without digit grouping
+ * so the text can be parsed back. Values are rounded to `precision` decimals.
+ */
+export function formatDecimalValue(value, { locale = 'en', precision = DEFAULT_DECIMAL_FIELD_PRECISION } = {}) {
+    if (!Number.isFinite(value)) return '';
+    const digits = Number.isInteger(precision) && precision >= 0 && precision <= 12 ? precision : DEFAULT_DECIMAL_FIELD_PRECISION;
+    const rounded = Number(value.toFixed(digits));
+    const text = String(Object.is(rounded, -0) ? 0 : rounded);
+    // Very large or small magnitudes keep the exponent form, which parses back.
+    if (/e/i.test(text)) return text;
+    return locale === 'fr' ? text.replace('.', ',') : text;
 }

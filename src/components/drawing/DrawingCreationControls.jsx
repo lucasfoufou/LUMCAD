@@ -14,6 +14,7 @@ import { getDrawingOperationOptionSuggestions } from '~utils/drawingOperationOpt
 import { getDrawingCreationOptionSuggestions } from '~utils/drawingCreation';
 import { getDrawingCommandDefinition } from '~utils/drawingCommands';
 import { getEntityBounds } from '~utils/drawingGeometry';
+import { describeDrawingBlockTransform, describeDrawingLine, resizeDrawingLine, updateDrawingBlockTransform } from '~utils/drawingEntityProperties';
 import { translateEntity } from '~utils/drawingPrimitives';
 import { normalizeImageAdjustments } from '~utils/drawingImageAdjustments';
 import { normalizeImageClip, parseImageClipInput } from '~utils/drawingImageClip';
@@ -81,7 +82,7 @@ export default function DrawingCreationControls({
                 : t('creation.controls', { tool: toolLabel })}
         >
             <header>
-                <strong>{editMode ? t('creation.editSelected', { tool: toolLabel }) : toolLabel}</strong>
+                <strong>{editMode ? t('sidebar.geometry') : toolLabel}</strong>
                 {!editMode && !operation && (
                     <Button type="button" onClick={() => onChange(createDefaultDrawingCreationConfig(activeTool))}>
                         {t('creation.reset')}
@@ -151,13 +152,14 @@ function EntityEditFields({ content, entity, disabled, textStyles, t, onChange, 
     if (entity.revisionSymbol) return <RevisionFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (entity.linework) return <LineworkFields content={content} entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (entity.type === 'point') return <PointFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
-    if (['line', 'xline', 'ray'].includes(entity.type)) return <LineFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
+    if (['line', 'xline', 'ray'].includes(entity.type)) return <LineFields entity={entity} disabled={disabled} ucs={content?.settings?.ucs} t={t} onChange={onChange} />;
     if (isDrawingWipeout(entity)) return <div className="drawing-creation-fields"><SelectField label={t('wipeout.frame')} disabled={disabled}
         value={entity.wipeout.frame === false ? 'off' : 'on'} options={[['on', t('image.cropOn')], ['off', t('image.cropOff')]]}
         onChange={value => onChange({ wipeout: { frame: value === 'on' } })} /></div>;
     if (entity.leader && content) return <LeaderFields content={content} entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (isEditablePointPolyline(entity)) return <PointPolylineFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (isEditableCurvePolyline(entity) && !isEditableSpline(entity)) return <CurvePolylineFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
+    if (entity.type === 'blockReference') return <BlockReferenceFields content={content} entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (['blockReference', 'region'].includes(entity.type) || (entity.type === 'polyline' && !isEditableSpline(entity))) return <PositionFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (entity.type === 'image') return <ImageFields entity={entity} disabled={disabled} t={t} onChange={onChange} onImageSource={onImageSource} busy={imageSourceBusy} />;
     if (entity.type === 'hatch') return <HatchFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
@@ -189,8 +191,20 @@ function LeaderFields({ content, entity, disabled, t, onChange }) {
     </>;
 }
 
-function LineFields({ entity, disabled, t, onChange }) {
+function LineFields({ entity, disabled, ucs, t, onChange }) {
+    // Length and angle are only meaningful for a finite segment.
+    const measures = entity.type === 'line' ? describeDrawingLine(entity, ucs) : null;
+    const resize = change => {
+        const patch = resizeDrawingLine(entity, change, ucs);
+        if (patch) onChange(patch);
+    };
     return <div className="drawing-creation-fields">
+        {measures && <>
+            <NumberField label={t('creation.length')} value={measures.length} min={0.0001} disabled={disabled}
+                onChange={value => resize({ length: value })} />
+            <NumberField label={t('creation.angle')} value={measures.angle} step={1} disabled={disabled}
+                onChange={value => resize({ angle: value })} />
+        </>}
         {['x1', 'y1', 'x2', 'y2'].map(key => <NumberField key={key}
             label={t('creation.endpoint', { coordinate: key.toUpperCase() })} value={entity[key]} disabled={disabled}
             onChange={value => {
@@ -199,6 +213,31 @@ function LineFields({ entity, disabled, t, onChange }) {
                 if (Math.hypot(next.x2 - next.x1, next.y2 - next.y1) > 1e-9) onChange({ [key]: value });
             }} />)}
     </div>;
+}
+
+function BlockReferenceFields({ content, entity, disabled, t, onChange }) {
+    const ucs = content?.settings?.ucs;
+    const block = content?.blocks?.find(candidate => candidate.id === entity.blockId);
+    const transform = describeDrawingBlockTransform(entity.transform, ucs);
+    const update = change => {
+        const next = updateDrawingBlockTransform(entity.transform, change, ucs);
+        if (next) onChange({ transform: next });
+    };
+    return <>
+        <div className="drawing-creation-fields">
+            {block && <p className="drawing-creation-field is-wide drawing-block-reference-name">
+                <span>{t('creation.blockName')}</span><strong>{block.name}</strong>
+            </p>}
+            {transform && <>
+                <NumberField label={t('creation.rotation')} value={transform.rotation} step={1} disabled={disabled || !transform.editable}
+                    onChange={value => update({ rotation: value })} />
+                <NumberField label={t('creation.scale')} value={transform.scale} min={0.0001} disabled={disabled || !transform.editable}
+                    onChange={value => update({ scale: value })} />
+                {!transform.editable && <p className="drawing-creation-field is-wide">{t('creation.blockTransformReadOnly')}</p>}
+            </>}
+        </div>
+        <PositionFields entity={entity} disabled={disabled} t={t} onChange={onChange} />
+    </>;
 }
 
 function CurvePolylineFields({ entity, disabled, t, onChange }) {
@@ -684,11 +723,11 @@ function RectangleEditFields({ entity, disabled, t, onChange }) {
         : { cornerStyle: nextStyle, cornerValue: Number.isFinite(entity.cornerValue) && entity.cornerValue > 0 ? entity.cornerValue : 0.25 });
     return (
         <div className="drawing-creation-fields">
+            <NumberField label={t('creation.width')} value={entity.width} disabled={disabled} onChange={value => updateNumber('width', value)} />
+            <NumberField label={t('creation.height')} value={entity.height} disabled={disabled} onChange={value => updateNumber('height', value)} />
             <DetailsFields t={t}>
                 <NumberField label={t('creation.x')} value={entity.x} disabled={disabled} onChange={value => updateNumber('x', value)} />
                 <NumberField label={t('creation.y')} value={entity.y} disabled={disabled} onChange={value => updateNumber('y', value)} />
-                <NumberField label={t('creation.width')} value={entity.width} disabled={disabled} onChange={value => updateNumber('width', value)} />
-                <NumberField label={t('creation.height')} value={entity.height} disabled={disabled} onChange={value => updateNumber('height', value)} />
                 <NumberField label={t('creation.rotation')} value={entity.rotation} step={1} disabled={disabled} onChange={value => updateNumber('rotation', value)} />
             </DetailsFields>
             <SelectField label={t('creation.cornerStyle')} value={cornerStyle} disabled={disabled} onChange={updateCornerStyle} options={[
@@ -724,6 +763,8 @@ function CircleEditFields({ entity, disabled, t, onChange }) {
                 <NumberField label={t('creation.centerY')} value={entity.cy} disabled={disabled} onChange={value => updateFinite(onChange, 'cy', value)} />
             </DetailsFields>
             <NumberField label={t('creation.radius')} value={entity.r} min={0.0001} disabled={disabled} onChange={value => updatePositiveFinite(onChange, 'r', value)} />
+            <NumberField label={t('creation.diameter')} value={entity.r * 2} min={0.0002} disabled={disabled}
+                onChange={value => updatePositiveFinite(onChange, 'r', Number.isFinite(value) ? value / 2 : value)} />
         </div>
     );
 }

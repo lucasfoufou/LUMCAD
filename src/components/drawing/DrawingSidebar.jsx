@@ -1,5 +1,6 @@
 import { DRAWING_GRIP_OBJECT_LIMIT } from '~utils/drawingSelection';
-import { Button, Input, Select } from '~components/ui/Controls';
+import { Button, Disclosure, Input, Select } from '~components/ui/Controls';
+import { summarizeDrawingSelectionTypes } from '~utils/drawingEntityProperties';
 import DrawingHyperlinkFields from '~components/drawing/DrawingHyperlinkFields';
 import DrawingParametersPanel from '~components/drawing/DrawingParametersPanel';
 import DrawingConstraintsPanel from '~components/drawing/DrawingConstraintsPanel';
@@ -100,8 +101,8 @@ export default function DrawingSidebar({ content, selectedIds, editEntityId = nu
                 {dynamicBlockEditing && tab === 'blockVariants' && <DrawingBlockVariantEditor content={content} selectedIds={selectedIds} onCommit={onCommit} t={t} />}
                 {tab === 'selection' && (
                     <>
-                        <div className="drawing-properties-mount" ref={onCreationControlsMount} />
-                        <SelectionPanel content={content} selectedIds={selectedIds} onCommit={onCommit} t={t} />
+                        <SelectionPanel content={content} selectedIds={selectedIds} onCommit={onCommit} t={t}
+                            geometryMount={<div className="drawing-properties-mount" ref={onCreationControlsMount} />} />
                         <DrawingAnnotationFields content={content} selectedIds={selectedIds} onCommand={onAnnotationCommand} t={t} />
                     </>
                 )}
@@ -324,10 +325,13 @@ function LayerRow({ layer, content, count, onCommit, t }) {
     );
 }
 
-function SelectionPanel({ content, selectedIds, onCommit, t }) {
+// Order of the Properties tab: type and count, general properties, geometry
+// (fields portaled by the canvas into `geometryMount`), type-specific fields,
+// then the object link, collapsed.
+function SelectionPanel({ content, selectedIds, onCommit, geometryMount, t }) {
     const selectedIdSet = new Set(selectedIds);
     const selected = content.entities.filter(entity => selectedIdSet.has(entity.id));
-    if (selected.length === 0) return <p className="drawing-sidebar-empty">{t('sidebar.selectObjects')}</p>;
+    if (selected.length === 0) return <>{geometryMount}<p className="drawing-sidebar-empty">{t('sidebar.selectObjects')}</p></>;
     const single = selected.length === 1 ? selected[0] : null;
     const selectionLocked = selected.some(entity => !canEditEntity(content, entity));
     const selectedQdimSeriesIds = new Set(selected.flatMap(entity => (
@@ -356,32 +360,43 @@ function SelectionPanel({ content, selectedIds, onCommit, t }) {
             entities: content.entities.map(entity => ids.has(entity.id) ? { ...entity, locked } : entity),
         });
     };
+    const typeSummary = summarizeDrawingSelectionTypes(selected);
     return (
         <section className="drawing-selection-panel">
-            <h3>{t('sidebar.selectedCount', { count: selected.length })}</h3>
+            <header className="drawing-selection-header">
+                <h3>{single ? entityTypeLabel(single.type, t) : t('sidebar.selectedCount', { count: selected.length })}</h3>
+                <p className="drawing-selection-type">
+                    {single
+                        ? t('sidebar.selectedCount', { count: 1 })
+                        : typeSummary.map(({ type, count }) => t('sidebar.typeCount', { type: entityTypeLabel(type, t), count })).join(' · ')}
+                </p>
+            </header>
             {selected.length > DRAWING_GRIP_OBJECT_LIMIT && <p className="drawing-sidebar-empty" role="status">{t('sidebar.largeSelectionGrips', { limit: DRAWING_GRIP_OBJECT_LIMIT })}</p>}
-            {single && <p className="drawing-selection-type">{t('sidebar.type')} : <strong>{entityTypeLabel(single.type, t)}</strong></p>}
-            <label className="drawing-sidebar-check">
-                <Input type="checkbox" checked={selected.every(entity => entity.locked)} onChange={event => setLocked(event.target.checked)} />
-                {t('sidebar.lockSelection', { count: selected.length })}
-            </label>
-            <label className="drawing-sidebar-field">
-                <span>{t('sidebar.layer')}</span>
-                <Select disabled={selectionLocked} value={single?.layerId || ''} onChange={event => setSelected(entity => ({ ...entity, layerId: event.target.value }))}>
-                    {!single && <option value="">{t('sidebar.multipleLayers')}</option>}
-                    {content.layers.map(layer => <option key={layer.id} value={layer.id}>{layer.name}</option>)}
-                </Select>
-            </label>
+            <section className="drawing-properties-section">
+                <h4>{t('sidebar.general')}</h4>
+                <label className="drawing-sidebar-field">
+                    <span>{t('sidebar.layer')}</span>
+                    <Select disabled={selectionLocked} value={single?.layerId || ''} onChange={event => setSelected(entity => ({ ...entity, layerId: event.target.value }))}>
+                        {!single && <option value="">{t('sidebar.multipleLayers')}</option>}
+                        {content.layers.map(layer => <option key={layer.id} value={layer.id}>{layer.name}</option>)}
+                    </Select>
+                </label>
+                <DrawingEntityAppearanceFields
+                    content={content}
+                    disabled={selectionLocked}
+                    entities={selected}
+                    onUpdate={setSelected}
+                    showHeading={false}
+                    t={t}
+                />
+                <label className="drawing-sidebar-check">
+                    <Input type="checkbox" checked={selected.every(entity => entity.locked)} onChange={event => setLocked(event.target.checked)} />
+                    {t('sidebar.lockSelection', { count: selected.length })}
+                </label>
+            </section>
+            {geometryMount}
             {single?.type === 'blockReference' && <DrawingBlockAttributeFields content={content} reference={single} disabled={selectionLocked} onCommit={onCommit} t={t} />}
             {single?.type === 'blockReference' && <DrawingBlockParameterFields content={content} reference={single} disabled={selectionLocked} onCommit={onCommit} t={t} />}
-            {single && <DrawingHyperlinkFields content={content} entity={single} disabled={selectionLocked} onCommit={onCommit} />}
-            <DrawingEntityAppearanceFields
-                content={content}
-                disabled={selectionLocked}
-                entities={selected}
-                onUpdate={setSelected}
-                t={t}
-            />
             {single && isDrawingDimensionEntity(single) && !qdimSeriesAnchor && (
                 <DrawingDimensionFields
                     automaticBreakTruncated={Boolean(single.dimensionAutoBreak && presentDrawingDimension(getDimensionGeometry(single, createDimensionSourceMap(content.entities, content.blocks, content)), single)?.automaticBreakTruncated)}
@@ -416,6 +431,11 @@ function SelectionPanel({ content, selectedIds, onCommit, t }) {
                         {t('sidebar.includeReferenceInPdf')}
                     </label>
                 </>
+            )}
+            {single && (
+                <Disclosure className="drawing-creation-details drawing-properties-link" label={single.hyperlink ? t('hyperlink.titleSet') : t('hyperlink.title')}>
+                    <DrawingHyperlinkFields content={content} entity={single} disabled={selectionLocked} onCommit={onCommit} />
+                </Disclosure>
             )}
         </section>
     );
