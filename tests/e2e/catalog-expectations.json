@@ -2814,9 +2814,11 @@
     "stage": null,
     "workspace": "model",
     "layoutTool": null,
-    "message": "",
     "entities": 0,
-    "fileChooser": false
+    "fileChooser": false,
+    "messageKeys": [
+      "zoom.factorDone"
+    ]
   },
   "tableStyle": {
     "activeTool": "select",
@@ -2924,7 +2926,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "layerManager.invalid"
+      "layerManager.opened"
     ]
   },
   "referenceEdit": {
@@ -3084,9 +3086,11 @@
     "stage": null,
     "workspace": "model",
     "layoutTool": null,
-    "message": "",
     "entities": 0,
-    "fileChooser": false
+    "fileChooser": false,
+    "messageKeys": [
+      "messages.deleteSelectionRequired"
+    ]
   },
   "ray": {
     "activeTool": "ray",

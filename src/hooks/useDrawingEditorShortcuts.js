@@ -18,7 +18,9 @@ export default function useDrawingEditorShortcuts({ actions, commandBarRef }) {
             const modifier = event.ctrlKey || event.metaKey;
             if (modifier && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 's') { event.preventDefault(); return; }
             if (event.key === 'Escape') { actionsRef.current.cancel(); return; }
-            const binding = preferencesRef.current.find(row => row.shortcut === drawingShortcutFromEvent(event));
+            const shortcut = drawingShortcutFromEvent(event);
+            const binding = preferencesRef.current.find(row => row.shortcut === shortcut)
+                || legacySelectAllBinding(preferencesRef.current, shortcut);
             if (binding && (!targetIsInput || ['@saveAs', '@open', '@newDocument'].includes(binding.command))) {
                 event.preventDefault();
                 if (event.repeat) return;
@@ -51,6 +53,12 @@ export default function useDrawingEditorShortcuts({ actions, commandBarRef }) {
             window.removeEventListener('keydown', onKeyDown);
         };
     }, [actionsRef, commandBarRef, preferencesRef]);
+}
+
+// Shortcut lists saved before Ctrl/Cmd+A existed keep it unless the key is taken.
+function legacySelectAllBinding(preferences, shortcut) {
+    if (shortcut !== 'MOD+A' || preferences.some(row => row.command === '@selectAll' || row.shortcut === 'MOD+A')) return null;
+    return { shortcut, command: '@selectAll' };
 }
 
 function isTextInput(target) {

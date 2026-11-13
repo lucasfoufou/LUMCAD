@@ -23,6 +23,10 @@ import useDrawingRevision from '~hooks/useDrawingRevision';
 import useDrawingSketch from '~hooks/useDrawingSketch';
 import useDrawingLinework from '~hooks/useDrawingLinework';
 import useDrawingPointPlacement from '~hooks/useDrawingPointPlacement';
+import useDrawingZoomCommand from '~hooks/useDrawingZoomCommand';
+import useDrawingCommandRepeat from '~hooks/useDrawingCommandRepeat';
+import DrawingContextMenu from '~components/drawing/DrawingContextMenu';
+import { resolveDrawingRepeatSubmission } from '~utils/drawingCommandRepeat';
 import useDrawingAnnotations from '~hooks/useDrawingAnnotations';
 import useDrawingReferences from '~hooks/useDrawingReferences';
 import useDrawingDwf from '~hooks/useDrawingDwf';
@@ -42,7 +46,7 @@ import useDrawingSelectionQueries from '~hooks/useDrawingSelectionQueries';
 import useDrawingInquiry from '~hooks/useDrawingInquiry';
 import useDrawingObjectVisibility from '~hooks/useDrawingObjectVisibility';
 import { runNamedDrawingViewCommand, importNamedDrawingViews } from '~utils/drawingNamedViews';
-import { canSelectEntity } from '~utils/drawingDocument';
+import { canSelectEntity, drawingSelectableEntityIds } from '~utils/drawingDocument';
 import { matchDrawingProperties, makeDrawingLayerCurrent, copyDrawingSelectionToLayer } from '~utils/drawingPropertyCommands';
 import { runDrawingGroupCommand } from '~utils/drawingGroups';
 import { beginCenterLine, pickCenterLineSource } from '~utils/drawingCenterLineCommands';
@@ -105,7 +109,7 @@ import { useI18n } from '~i18n/I18nProvider';
 import { localizeError } from '~i18n/translator';
 import { formatAppUpdateError } from '~utils/appUpdater';
 import { useAppSettings } from '~settings/AppSettingsProvider';
-import { getDrawingCommandDefinition, getDrawingCommandInput, isNumericDrawingInput, parseDrawingCommand, parseDrawingNumbers } from '~utils/drawingCommands';
+import { getDrawingCommandDefinition, getDrawingCommandInput, getDrawingCommandSuggestions, isNumericDrawingInput, parseDrawingCommand, parseDrawingNumbers } from '~utils/drawingCommands';
 import {
     canEditEntity,
     addEntity,
@@ -373,6 +377,8 @@ export default function DrawingEditorWorkspace({
         setOperation: setInteractiveOperation, setActiveTool, present: inquiry.present, focusObjects: (ids, bounds) => canvasRef.current?.fitObjects(ids, bounds), setMessage, enabled: workspaceMode === 'model', blockEditing: Boolean(blockEditor.session), t });
     const pointPlacement = useDrawingPointPlacement({ history, selectedIds, setSelectedIds, operation: interactiveOperation,
         setOperation: setInteractiveOperation, setActiveTool, setMessage, enabled: workspaceMode === 'model', t });
+    const zoomCommand = useDrawingZoomCommand({ canvasRef, operation: interactiveOperation, setOperation: setInteractiveOperation,
+        setMessage, submitPoint: value => submitPrecisionPoint(value, { allowDirectDistance: false }), enabled: workspaceMode === 'model', locale, t });
     const dataExtraction = useDrawingDataExtraction({ documentId: document.id, history, selectedIds, setSelectedIds,
         enabled: workspaceMode === 'model' && !blockEditor.session, setMessage, t,
         cancel: () => { canvasRef.current?.cancel?.(); setInteractiveOperation(null); setActiveTool('select'); } });
@@ -785,8 +791,8 @@ export default function DrawingEditorWorkspace({
         else setMessage('');
     }, [locale]);
 
-    const deleteSelection = () => {
-        if (!selectedIds.length) return;
+    const deleteSelection = ({ quiet = false } = {}) => {
+        if (!selectedIds.length) { if (!quiet) setMessage(t('messages.deleteSelectionRequired')); return; }
         history.commit(deleteSelectedEntities(history.content, selectedIds));
         setSelectedIds([]);
         setMessage(t('messages.selectionDeleted'));
@@ -1032,7 +1038,7 @@ export default function DrawingEditorWorkspace({
     };
 
     const handleInteractiveOperation = ({ point, targetId, fence, arrayHandle, sketch, shift = false }) => {
-        if (arcText.point({ point, targetId }) || tolerances.point({ point }) || fields.point({ point }) || tables.point({ point }) || revision.point({ point, targetId }) || sketchTool.point({ point, sketch }) || linework.point({ point, targetId }) || pointPlacement.point({ point, targetId }) || inquiry.point({ point, targetId }) || selectionQueries.point(point) || leaders.point(point)) return;
+        if (arcText.point({ point, targetId }) || tolerances.point({ point }) || fields.point({ point }) || tables.point({ point }) || revision.point({ point, targetId }) || sketchTool.point({ point, sketch }) || linework.point({ point, targetId }) || pointPlacement.point({ point, targetId }) || zoomCommand.point({ point }) || inquiry.point({ point, targetId }) || selectionQueries.point(point) || leaders.point(point)) return;
         if (interactiveOperation?.type === 'matchProperties') {
             if (interactiveOperation.sourceId) {
                 applyPropertyCommand(interactiveOperation.command, interactiveOperation.sourceId, [targetId]);
@@ -1359,7 +1365,7 @@ export default function DrawingEditorWorkspace({
     };
 
     const submitOperationValue = rawValue => {
-        if (revision.input(rawValue) || sketchTool.input(rawValue) || linework.input(rawValue) || pointPlacement.input(rawValue) || inquiry.input(rawValue) || leaders.input(rawValue)) return true;
+        if (revision.input(rawValue) || sketchTool.input(rawValue) || linework.input(rawValue) || pointPlacement.input(rawValue) || zoomCommand.input(rawValue) || inquiry.input(rawValue) || leaders.input(rawValue)) return true;
         if (['arcText', 'linework', 'sketch', 'revision', 'table', 'field', 'tolerance'].includes(interactiveOperation?.type)) {
             if (!submitPrecisionPoint(rawValue, { allowDirectDistance: false })) setMessage(t('linework.centerPrompt'));
             return true;
@@ -1548,6 +1554,11 @@ export default function DrawingEditorWorkspace({
             return true;
         }
         if (interactiveOperation.stage === 'destination') {
+            // COPY repeats until an empty Enter (or right click) ends it, as in AutoCAD.
+            if (interactiveOperation.type === 'copy' && interactiveOperation.placedCount > 0 && !String(rawValue).trim()) {
+                finishInteractiveOperation(selectedIds, t('messages.copyFinished', { count: interactiveOperation.placedCount }));
+                return true;
+            }
             const basePoint = interactiveOperation.basePoint;
             const currentPoint = canvasRef.current?.getOperationPoint();
             let delta = null;
@@ -1758,6 +1769,11 @@ export default function DrawingEditorWorkspace({
     };
 
     const submitCommand = async rawValue => {
+        // Empty Enter, a Space tap or the canvas menu on an idle canvas repeat the last command.
+        rawValue = resolveDrawingRepeatSubmission(rawValue, {
+            idle: workspaceMode === 'model' && !interactiveOperation && activeTool === 'select' && !calculatorMode,
+            lastCommand: commandRepeat.lastCommand,
+        });
         rawValue = expandDrawingAlias(rawValue, settings.commandAliases);
         if (isHeadlessRuntime()) {
             const command = parseDrawingCommand(rawValue)?.command;
@@ -1860,6 +1876,13 @@ export default function DrawingEditorWorkspace({
                 return;
             }
             setCommandValue('');
+            if (!String(rawValue).trim()) {
+                // Empty Enter (or right click) with nothing being drawn ends the tool, as in AutoCAD.
+                canvasRef.current?.cancel();
+                setActiveTool('select');
+                setMessage(t('messages.toolEnded', { tool: t(`commands.${activeTool}`) }));
+                return;
+            }
             setMessage(t('messages.continueActiveCommand'));
             return;
         }
@@ -1876,6 +1899,7 @@ export default function DrawingEditorWorkspace({
         }
         setCommandValue('');
         if (!parsed) return;
+        if (parsed.command !== 'unknown') commandRepeat.remember(parsed.command);
         if (blockEditor.session && ['paperSpace', 'layout', 'pageSetup', 'pageSetupImport', 'pageSetupExport',
             'viewport', 'viewportClip', 'viewportLayer', 'viewportMax', 'viewportMin', 'alignSpace', 'exportLayout', 'changeSpace'].includes(parsed.command)) {
             setMessage(t('block.error.closeFirst')); return;
@@ -2730,8 +2754,14 @@ export default function DrawingEditorWorkspace({
         else if (parsed.command === 'dwfx') await exportPdf(layouts.map(layout => layout.id), { format: 'dwfx' });
         else if (parsed.command === 'autoPublish') await autoPublish(layouts.map(layout => layout.id));
         else if (parsed.command === 'fit') canvasRef.current?.fit();
-        else if (parsed.command === 'zoom' && parsed.args[0]) canvasRef.current?.zoom(1 / parsed.args[0]);
-        else setMessage(t('messages.unknownCommand', { command: parsed.alias }));
+        else if (zoomCommand.run(parsed.command, getDrawingCommandInput(rawValue))) return;
+        else {
+            // A typed prefix is no longer run on Enter: point at the likely command instead.
+            const [suggestion] = getDrawingCommandSuggestions(parsed.alias, 1);
+            setMessage(suggestion
+                ? t('messages.unknownCommandSuggestion', { command: parsed.alias, suggestion: suggestion.name })
+                : t('messages.unknownCommand', { command: parsed.alias }));
+        }
     };
 
     const toggleAllSnaps = () => {
@@ -2773,7 +2803,13 @@ export default function DrawingEditorWorkspace({
         saveAs: saveDrawingAs,
         newDocument: createNewDrawing,
         open: openDrawing,
-        delete: () => workspaceMode === 'layout' ? deleteSelectedViewport() : deleteSelection(),
+        delete: () => workspaceMode === 'layout' ? deleteSelectedViewport() : deleteSelection({ quiet: true }),
+        selectAll: () => {
+            if (workspaceMode !== 'model' || (interactiveOperation && interactiveOperation.stage !== 'select')) return;
+            const ids = drawingSelectableEntityIds(history.content);
+            setSelectedIds(ids);
+            setMessage(t('messages.selectedAll', { count: ids.length }));
+        },
         toggleSnaps: toggleAllSnaps,
         searchCommand: () => commandBarRef.current?.focus(),
         toggleOrtho: () => setOrthoMode(!history.content.settings.ortho),
@@ -2782,6 +2818,8 @@ export default function DrawingEditorWorkspace({
         enter: () => submitCommand(''),
         cancel: cancelCommand,
     } });
+    const commandRepeat = useDrawingCommandRepeat({ activeTool, operationType: interactiveOperation?.type || null,
+        selectionCount: workspaceMode === 'model' ? selectedIds.length : 0, submitCommand, t });
 
     const toolbarActions = {
         undo: history.undo,
@@ -3017,6 +3055,7 @@ export default function DrawingEditorWorkspace({
                             onSelectionChange: setSelectedIds, onCommit: history.commit, onViewportChange: setViewport,
                             onEndCoalescing: history.endCoalescing, onCancelCommand: cancelCommand,
                             onStatus: setMessage, onInteractiveOperation: handleInteractiveOperation,
+                            onContextAction: commandRepeat.requestContextMenu, onKeyboardEnter: () => submitCommand('').catch(() => {}),
                             dynamicInput: { value: commandValue, onChange: setCommandValue, focus: value => commandBarRef.current?.focus(value),
                                 onSubmit: value => submitCommand(value).catch(() => {}) },
                             onEntityCreated: entity => {
@@ -3152,6 +3191,7 @@ export default function DrawingEditorWorkspace({
                     pageSetups={pageSetups}
                 />
             )}
+            <DrawingContextMenu {...commandRepeat.menu} />
             {printJob && (
                 <div className="lumcad-print-root">
                     <DrawingPrintPage

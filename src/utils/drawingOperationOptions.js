@@ -80,6 +80,10 @@ const optionDefinitions = {
         option('edgeFinite', 'FINITEEDGE', 'F', 'operationOptions.extend.finiteEdge', ['NOEDGE', 'BORDFINI']),
         option('projectNone', 'PROJECTNONE', 'PN', 'operationOptions.extend.projectNone', ['NONE', 'AUCUN']),
     ],
+    zoom: [
+        option('extents', 'EXTENTS', 'E', 'operationOptions.zoom.extents', ['ETENDU', 'ÉTENDU', 'A', 'ALL', 'TOUT']),
+        option('window', 'WINDOW', 'W', 'operationOptions.zoom.window', ['F', 'FENETRE', 'FENÊTRE']),
+    ],
     align: [
         option('scaleMode', 'SCALE', 'S', 'operationOptions.align.scale', ['YES', 'OUI']),
         option('noScaleMode', 'NOSCALE', 'N', 'operationOptions.align.noScale', ['NO', 'NON']),
