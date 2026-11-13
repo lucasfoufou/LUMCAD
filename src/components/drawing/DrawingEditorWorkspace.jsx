@@ -40,7 +40,7 @@ import { exportDrawingLayout } from '~utils/drawingLayoutExport';
 import { createLcadEnvelope } from '~utils/lcadDocument';
 import { updateDrawingLeader } from '~utils/drawingLeaders';
 import useDrawingCoordinates from '~hooks/useDrawingCoordinates';
-import { drawingEntryPointToWorld, drawingEntryVectorToWorld, drawingUserRotationToWorld, drawingUserSettings, drawingWorldRotationToUser,
+import { drawingEntryDirectionToWorld, drawingEntryPointToWorld, drawingEntryVectorToWorld, drawingUserRotationToWorld, drawingUserSettings, drawingWorldRotationToUser,
     drawingWorldVectorForDisplay, resolveDrawingUcsInput } from '~utils/drawingCoordinates';
 import useDrawingPlotStyles from '~hooks/useDrawingPlotStyles';
 import { isDrawingLayerVisible } from '~utils/drawingLayers';
@@ -2169,7 +2169,7 @@ export default function DrawingEditorWorkspace({
             return;
         }
         if (parsed.command === 'rotatedDimension') {
-            const dimensionAngle = (parsed.args[0] || 0) * Math.PI / 180;
+            const dimensionAngle = drawingEntryDirectionToWorld(parsed.args[0] || 0, userSettings()) * Math.PI / 180;
             commitDimensionCommand(withDefaultCommandPlacements(createQuickDimensionResult(
                 history.content,
                 selectedIdsOfTypes(['line', 'rectangle', 'polygon', 'ellipse', 'linearDimension']),
@@ -3224,6 +3224,7 @@ export default function DrawingEditorWorkspace({
                     />
                 ) : activeLayout && (
                     <DrawingLayoutEditor
+                        yAxisUp={yAxisUp}
                         activeTool={layoutTool}
                         assets={assets}
                         canvasRef={layoutCanvasRef}

@@ -1,5 +1,9 @@
 import { Button, Input, Select } from '~components/ui/Controls';
-import React from 'react';
+import React, { createContext, useContext } from 'react';
+import { drawingEntryDirectionToWorld, drawingEntryPointToWorld, drawingWorldDirectionForDisplay, drawingWorldPointForDisplay } from '~utils/drawingCoordinates';
+
+// Drawing settings seen through the "Y axis up" preference (identity when Y is down).
+const UserSettingsContext = createContext(null);
 import DrawingCommittedNumberField from './DrawingCommittedNumberField';
 
 import {
@@ -21,6 +25,7 @@ export default function DrawingDimensionFields({
     disabled = false,
     onChange,
     t,
+    userSettings = null,
 }) {
     if (!dimension || typeof onChange !== 'function' || typeof t !== 'function') return null;
     const normalized = normalizeDrawingDimension(dimension);
@@ -38,6 +43,7 @@ export default function DrawingDimensionFields({
 
 
     return (
+        <UserSettingsContext.Provider value={userSettings}>
         <section className="drawing-dimension-fields">
             {automaticBreakTruncated && <p role="status" className="drawing-sidebar-empty">{t('dimension.autoBreakTooComplex')}</p>}
             {normalized.dimensionAutoBreak && (
@@ -338,6 +344,7 @@ export default function DrawingDimensionFields({
                 </>
             )}
         </section>
+        </UserSettingsContext.Provider>
     );
 }
 
@@ -471,13 +478,14 @@ function NumberField({ disabled, label, max, min, mixed = false, onChange, step,
 }
 
 function AngleField({ disabled, label, onChange, value }) {
+    const settings = useContext(UserSettingsContext);
     return (
         <NumberField
             disabled={disabled}
             label={label}
-            onChange={degrees => onChange(degrees * Math.PI / 180)}
+            onChange={degrees => onChange(drawingEntryDirectionToWorld(degrees, settings) * Math.PI / 180)}
             step="1"
-            value={Number(value || 0) * 180 / Math.PI}
+            value={drawingWorldDirectionForDisplay(Number(value || 0) * 180 / Math.PI, settings)}
         />
     );
 }
@@ -535,8 +543,10 @@ function CheckboxField({ checked, disabled, label, onChange }) {
     );
 }
 
-function PointField({ disabled, label, onChange, point, t }) {
-    const value = finitePoint(point);
+function PointField({ disabled, label, onChange: onWorldChange, point, t }) {
+    const settings = useContext(UserSettingsContext);
+    const value = drawingWorldPointForDisplay(finitePoint(point), settings);
+    const onChange = next => onWorldChange(drawingEntryPointToWorld(next, settings));
     return (
         <fieldset className="drawing-dimension-point-field" disabled={disabled}>
             <legend>{label}</legend>

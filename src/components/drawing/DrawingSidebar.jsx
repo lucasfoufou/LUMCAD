@@ -136,7 +136,7 @@ export default function DrawingSidebar({ content, selectedIds, editEntityId = nu
                 {dynamicBlockEditing && tab === 'blockVariants' && <DrawingBlockVariantEditor content={content} selectedIds={selectedIds} onCommit={onCommit} t={t} />}
                 {tab === 'selection' && (
                     <>
-                        <SelectionPanel content={content} selectedIds={selectedIds} onCommit={onCommit} t={t}
+                        <SelectionPanel yAxisUp={yAxisUp} content={content} selectedIds={selectedIds} onCommit={onCommit} t={t}
                             geometryMount={<div className="drawing-properties-mount" ref={onCreationControlsMount} />} />
                         <DrawingAnnotationFields content={content} selectedIds={selectedIds} onCommand={onAnnotationCommand} t={t} />
                     </>
@@ -288,7 +288,7 @@ function drawingTextStyleLabels(t) {
 // Order of the Properties tab: type and count, general properties, geometry
 // (fields portaled by the canvas into `geometryMount`), type-specific fields,
 // then the object link, collapsed.
-function SelectionPanel({ content, selectedIds, onCommit, geometryMount, t }) {
+function SelectionPanel({ content, selectedIds, onCommit, geometryMount, t, yAxisUp = false }) {
     const selectedIdSet = new Set(selectedIds);
     const selected = content.entities.filter(entity => selectedIdSet.has(entity.id));
     if (selected.length === 0) return <>{geometryMount}<p className="drawing-sidebar-empty">{t('sidebar.selectObjects')}</p></>;
@@ -367,6 +367,7 @@ function SelectionPanel({ content, selectedIds, onCommit, geometryMount, t }) {
                     disabled={selectionLocked}
                     onChange={(nextDimension, patch) => setSelected(() => retainDimensionStyleOverrides(nextDimension, patch))}
                     t={t}
+                    userSettings={drawingUserSettings(content.settings, yAxisUp)}
                 />
             )}
             {qdimSeries.length > 0 && (
