@@ -492,10 +492,24 @@ input[type="color"].drawing-layer-swatch {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
 
-  > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: start;
+
+  > header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 8px; }
   > header strong { min-width: 0; overflow-wrap: anywhere; font-family: var(--font-num); }
   > details > summary { font-size: var(--text-xs); }
+  > :not(.drawing-block-thumbnail, header) { grid-column: 1 / -1; }
+  > header:first-child { grid-column: 1 / -1; }
 }
+
+// Thumbnail of the block drawn on the light sheet colours.
+.drawing-block-thumbnail {
+  .drawing-content-preview { aspect-ratio: 1; border: 1px solid var(--line); pointer-events: none; }
+}
+
+.drawing-blocks-empty p { max-width: 30ch; font-size: var(--text-sm); }
+.drawing-block-create form > .drawing-sidebar-empty { font-size: var(--text-xs); }
+.drawing-disabled-hint { display: inline-flex; }
 
 .drawing-block-actions,
 .drawing-block-smart-controls { display: flex; flex-wrap: wrap; gap: 4px; }

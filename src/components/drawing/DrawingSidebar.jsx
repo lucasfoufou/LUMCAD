@@ -65,12 +65,14 @@ export default function DrawingSidebar({ content, selectedIds, editEntityId = nu
     useEffect(() => {
         if (!manager) setLastTab(requested);
     }, [requested, manager]);
+    // A selection opens Properties, except from the Library, where selecting
+    // objects is the first step of creating or replacing a block.
     useEffect(() => {
         const selectedIdSet = new Set(selectedIds);
-        if (content.entities.some(entity => selectedIdSet.has(entity.id))) showTab('selection');
+        if (tab !== 'blocks' && content.entities.some(entity => selectedIdSet.has(entity.id))) showTab('selection');
     }, [selectedIds.join('|')]);
     useEffect(() => {
-        if (editEntityId) showTab('selection');
+        if (editEntityId && tab !== 'blocks') showTab('selection');
     }, [editEntityId]);
     const managerContent = {
         textStyles: () => <TextStylesPanel content={content} onCommit={onCommit} t={t} />,
