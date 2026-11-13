@@ -746,23 +746,17 @@ function GripHandle({ entity, grip, size, t }) {
             <GripHandleLabel grip={grip} label={label} size={size} />
         </g>
     );
-    // Object grips are drawn a little larger than the base size (about 11 px);
-    // dimension grips keep theirs.
-    const gripSize = isDimensionGripOwner(entity) ? size : size * 1.25;
+    if (grip.id === 'dimension-text') return <circle {...shared} className="drawing-grip is-text" cx={grip.x} cy={grip.y} r={size * 0.6} />;
     return (
         <rect
             {...shared}
             className="drawing-grip"
-            x={grip.x - gripSize / 2}
-            y={grip.y - gripSize / 2}
-            width={gripSize}
-            height={gripSize}
+            x={grip.x - size / 2}
+            y={grip.y - size / 2}
+            width={size}
+            height={size}
         />
     );
-}
-
-function isDimensionGripOwner(entity) {
-    return /dimension$/i.test(String(entity?.type || ''));
 }
 
 function GripHandleLabel({ grip, label, size }) {
@@ -1311,7 +1305,7 @@ function DimensionText({ point, angle, color, textSize, anchor = 'middle', inspe
                 fontFamily="SourceSans3, Arial, sans-serif"
                 paintOrder="stroke"
                 stroke="white"
-                strokeWidth={textSize * 0.3}
+                strokeWidth={textSize * 0.12}
                 strokeLinejoin="round"
             >
                 {lines.map((line, index) => (

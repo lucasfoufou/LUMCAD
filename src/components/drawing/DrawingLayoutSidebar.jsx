@@ -540,17 +540,6 @@ function ViewportDisplayFields({ viewport, onChange, t }) {
                     annotationSettings: { ...annotation, showDimensions },
                 })}
             />
-            <NumberField
-                label={t('layout.viewportDimensionTextSize')}
-                value={annotation.dimensionTextSizeMm || 3}
-                min="0.5"
-                max="50"
-                step="0.5"
-                onChange={dimensionTextSizeMm => onChange({
-                    ...viewport,
-                    annotationSettings: { ...annotation, dimensionTextSizeMm },
-                })}
-            />
         </div>
     );
 }

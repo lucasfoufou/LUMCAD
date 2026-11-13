@@ -38,7 +38,7 @@ import {
 import { getHatchBoundaryEntities } from './drawingAdvancedEntities.js';
 import { curvePointAt, normalizeCurvePrimitive } from './drawingCurveKernel.js';
 import { editSplineDefinitionPoint, editSplinePathControl, isDuplicateSplineJointGrip } from './drawingSplineEditing.js';
-import { DRAWING_QDIM_GRIP_IDS, isDrawingDimensionEntity } from './drawingDimensions.js';
+import { DRAWING_QDIM_GRIP_IDS, getDrawingEntityDependencyIds, isDrawingDimensionEntity } from './drawingDimensions.js';
 
 const EPSILON = 1e-9;
 
@@ -83,6 +83,8 @@ export function entityHitsPoint(entity, point, tolerance, entityMap = new Map())
     if (!entity || !Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return false;
     const bounds = normalizeBounds(point.x - tolerance, point.y - tolerance, point.x + tolerance, point.y + tolerance);
     if (entityCrossesBounds(entity, bounds, entityMap)) return true;
+    // A dimension label is picked anywhere inside its frame, not only on its thin lines.
+    if (isDrawingDimensionEntity(entity)) return pointInsideConvexPolygon(point, cachedDimensionTextFrame(entity, entityMap));
     if (!['hatch', 'region'].includes(entity.type)) return false;
     return pointIsInsideHatch(point, hatchBoundarySegments(entity), entity.fillRule);
 }
@@ -204,6 +206,13 @@ export function getEntityGrips(entity, source = null) {
         const grips = geometry.label
             ? [{ id: 'dimension-position', ...geometry.label.point }]
             : geometry.text ? [{ id: 'dimension-position', ...geometry.text }] : [];
+        // The label has its own grip, on the text itself, so it can move freely (DIMTEDIT).
+        const textCenter = dimensionTextGripPoint(entity, geometry);
+        if (textCenter) grips.push({ id: 'dimension-text', ...textCenter });
+        if (entity.type === 'linearDimension' && !getDrawingEntityDependencyIds(entity).length
+            && isValidDrawingPoint(entity.p1) && isValidDrawingPoint(entity.p2)) {
+            grips.push({ id: 'dimension-origin-1', x: entity.p1.x, y: entity.p1.y }, { id: 'dimension-origin-2', x: entity.p2.x, y: entity.p2.y });
+        }
         if (geometry.kind === 'radial' && geometry.mode === 'joggedRadius') {
             grips.push(
                 { id: 'jog-center', ...geometry.jogCenter },
@@ -376,6 +385,15 @@ export function editEntityGrip(entity, gripId, point, source = null) {
         }
         return entity;
     }
+    if (gripId === 'dimension-text' && isDrawingDimensionEntity(entity)) {
+        const geometry = getDimensionGeometry(entity, source);
+        const center = geometry && dimensionTextGripPoint(entity, geometry);
+        if (!center) return entity;
+        const label = presentDrawingDimension(geometry, entity, entity.textSize).label.point;
+        return { ...entity, dimensionTextPosition: { x: point.x + label.x - center.x, y: point.y + label.y - center.y } };
+    }
+    if (gripId === 'dimension-origin-1' && entity.type === 'linearDimension') return { ...entity, p1: { x: point.x, y: point.y } };
+    if (gripId === 'dimension-origin-2' && entity.type === 'linearDimension') return { ...entity, p2: { x: point.x, y: point.y } };
     if (gripId === 'dimension-position' && entity.type === 'linearDimension') {
         const geometry = getDimensionGeometry(entity, source);
         if (!geometry) return entity;
@@ -575,6 +593,40 @@ function cachedDimensionSegments(entity, sources) {
     if (!segments) dimensionSegmentCache.set(sources, segments = new WeakMap());
     if (!segments.has(entity)) segments.set(entity, dimensionSegments(entity, sources));
     return segments.get(entity);
+}
+
+/** Centre of the drawn label frame, where the text grip sits. */
+function dimensionTextGripPoint(entity, geometry) {
+    const presented = presentDrawingDimension(geometry, entity, entity.textSize);
+    const frame = presented ? drawingDimensionTextPoints(presented, entity) : [];
+    if (frame.length !== 4) return null;
+    return { x: (frame[0].x + frame[2].x) / 2, y: (frame[0].y + frame[2].y) / 2 };
+}
+
+const dimensionTextFrameCache = new WeakMap();
+
+function cachedDimensionTextFrame(entity, sources) {
+    let frames = dimensionTextFrameCache.get(sources);
+    if (!frames) dimensionTextFrameCache.set(sources, frames = new WeakMap());
+    if (!frames.has(entity)) {
+        const geometry = presentDrawingDimension(getDimensionGeometry(entity, sources), entity, entity.textSize);
+        frames.set(entity, geometry ? drawingDimensionTextPoints(geometry, entity) : []);
+    }
+    return frames.get(entity);
+}
+
+function pointInsideConvexPolygon(point, polygon) {
+    if (!polygon || polygon.length < 3) return false;
+    let sign = 0;
+    for (let index = 0; index < polygon.length; index++) {
+        const first = polygon[index];
+        const second = polygon[(index + 1) % polygon.length];
+        const cross = (second.x - first.x) * (point.y - first.y) - (second.y - first.y) * (point.x - first.x);
+        if (Math.abs(cross) <= EPSILON) continue;
+        if (sign && Math.sign(cross) !== sign) return false;
+        sign = Math.sign(cross);
+    }
+    return sign !== 0;
 }
 
 /** Extent of everything a dimension can be hit or selected by: lines, arcs, markers and text frame. */

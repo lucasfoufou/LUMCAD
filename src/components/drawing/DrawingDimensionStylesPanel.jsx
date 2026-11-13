@@ -5,6 +5,9 @@ import { useState } from 'react';
 import { DIMENSION_ARROW_TYPES, deleteDimensionStyle, normalizeDimensionStyles } from '~utils/drawingDimensionStyles';
 import { isDrawingDimensionEntity } from '~utils/drawingDimensions';
 import { canEditEntity } from '~utils/drawingDocument';
+import { currentAnnotationScale } from '~utils/drawingAnnotations';
+import { modelToPaperMillimetres, paperMillimetresToModel } from '~utils/drawingDimensionPlacement';
+import DrawingCommittedNumberField from './DrawingCommittedNumberField';
 
 export default function DrawingDimensionStylesPanel({ content, selectedIds, onCommand, t }) {
     const styles = normalizeDimensionStyles(content.dimensionStyles);
@@ -29,6 +32,10 @@ export default function DrawingDimensionStylesPanel({ content, selectedIds, onCo
             }
         }
     };
+    // Style sizes are stored in drawing metres and edited as paper millimetres at the plan scale.
+    const paperSizeField = (field, key, minimum) => <DrawingCommittedNumberField key={key} label={t(`dimensionStyle.${key}`)}
+        min={modelToPaperMillimetres(content, minimum)} value={modelToPaperMillimetres(content, selected[key])}
+        onChange={millimetres => onCommand(`SET ${name} ${field} ${paperMillimetresToModel(content, millimetres)}`)} />;
     return <section className="drawing-dimension-styles-panel" aria-label={t('commands.dimensionStyle')}>
         <header className="drawing-sidebar-heading"><strong>{t('commands.dimensionStyle')}</strong></header>
         <label className="drawing-sidebar-field"><span>{t('dimensionStyle.choose')}</span>
@@ -44,23 +51,12 @@ export default function DrawingDimensionStylesPanel({ content, selectedIds, onCo
             <Button type="submit">{t('dimensionStyle.create')}</Button>
         </form>
         <Button type="button" disabled={selected.id === content.activeDimensionStyleId} onClick={() => onCommand(`CURRENT ${name}`)}>{t('dimensionStyle.makeCurrent')}</Button>
-        <Button type="button" disabled={!canApply} onClick={() => onCommand(`APPLY ${name}`)}>{t('dimensionStyle.apply')}</Button>
-        <fieldset className="drawing-block-attribute-fields" key={selected.id}>
-            <legend>{t('dimensionStyle.parameters')}</legend>
-            {[
-                ['TEXT', 'textSize', 0.01, 1e6], ['ARROWSIZE', 'arrowSize', 0, 1e6], ['GAP', 'extensionGap', 0, 1e6], ['OVERRUN', 'extensionOverrun', 0, 1e6],
-            ].map(([field, key, min, max]) => <label className="drawing-sidebar-field" key={key}>
-                <span>{t(`dimensionStyle.${key}`)}</span><Input key={selected[key]} type="number" step="any" min={min} max={max} defaultValue={selected[key]}
-                    onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }}
-                    onBlur={event => {
-                        if (Number(event.target.value) !== selected[key] && (!event.target.value || !onCommand(`SET ${name} ${field} ${event.target.value}`))) event.target.value = selected[key];
-                    }} />
-            </label>)}
-            <label className="drawing-sidebar-field"><span>{t('dimensionStyle.arrowType')}</span>
-                <Select value={selected.arrowType} onChange={event => onCommand(`SET ${name} ARROW ${event.target.value}`)}>
-                    {DIMENSION_ARROW_TYPES.map(type => <option key={type} value={type}>{t(`dimensionStyle.arrow.${type}`)}</option>)}
-                </Select>
-            </label>
+        <Button type="button" disabled={!canApply} title={canApply ? undefined : t('dimensionStyle.applyHint')} onClick={() => onCommand(`APPLY ${name}`)}>{t('dimensionStyle.apply')}</Button>
+        {!canApply && <p className="drawing-sidebar-empty">{t('dimensionStyle.applyHint')}</p>}
+        <p className="drawing-sidebar-empty">{t('dimensionStyle.paperNote', { scale: currentAnnotationScale(content) })}</p>
+        <fieldset className="drawing-block-attribute-fields" key={`${selected.id}:text`}>
+            <legend>{t('dimensionStyle.groupText')}</legend>
+            {paperSizeField('TEXT', 'textSize', 0.01)}
             <label className="drawing-sidebar-field"><span>{t('dimensionStyle.precision')}</span>
                 <Select value={selected.dimensionFormat.precision} onChange={event => onCommand(`SET ${name} PRECISION ${event.target.value}`)}>
                     {Array.from({ length: 9 }, (_, value) => <option key={value} value={value}>{value}</option>)}
@@ -71,6 +67,20 @@ export default function DrawingDimensionStylesPanel({ content, selectedIds, onCo
                     onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }}
                     onBlur={event => { if (event.target.value !== selected.dimensionFormat[key] && !onCommand(`SET ${name} ${key.toUpperCase()} ${JSON.stringify(event.target.value)}`)) event.target.value = selected.dimensionFormat[key]; }} />
             </label>)}
+        </fieldset>
+        <fieldset className="drawing-block-attribute-fields" key={`${selected.id}:lines`}>
+            <legend>{t('dimensionStyle.groupLines')}</legend>
+            {paperSizeField('ARROWSIZE', 'arrowSize', 0)}
+            <label className="drawing-sidebar-field"><span>{t('dimensionStyle.arrowType')}</span>
+                <Select value={selected.arrowType} onChange={event => onCommand(`SET ${name} ARROW ${event.target.value}`)}>
+                    {DIMENSION_ARROW_TYPES.map(type => <option key={type} value={type}>{t(`dimensionStyle.arrow.${type}`)}</option>)}
+                </Select>
+            </label>
+            {paperSizeField('GAP', 'extensionGap', 0)}
+            {paperSizeField('OVERRUN', 'extensionOverrun', 0)}
+        </fieldset>
+        <fieldset className="drawing-block-attribute-fields" key={`${selected.id}:units`}>
+            <legend>{t('dimensionStyle.groupUnits')}</legend>
             <p className="drawing-sidebar-empty">{t('dimensionStyle.toleranceUnits')}</p>
             <DrawingDimensionFormatFields format={selected.dimensionFormat} onChange={editFormat} t={t} />
         </fieldset>

@@ -141,10 +141,11 @@
   padding: 0.12rem 0.18rem;
   border: 1px solid var(--accent);
   border-radius: 3px;
-  background: var(--panel);
+  // Text is typed on the sheet: keep its light background so entity colours stay readable.
+  background: var(--paper);
   box-shadow: 0 0 0 2px var(--accent-soft);
-  color: var(--ink);
-  caret-color: var(--ink);
+  color: var(--paper-ink);
+  caret-color: var(--paper-ink);
   outline: none;
   overflow: hidden;
   -webkit-user-select: text;

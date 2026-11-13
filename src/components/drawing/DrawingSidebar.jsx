@@ -8,7 +8,7 @@ import DrawingAnnotationFields from '~components/drawing/DrawingAnnotationFields
 import DrawingPlotStylesPanel from '~components/drawing/DrawingPlotStylesPanel';
 import { filterDrawingLayers } from '~utils/drawingLayers';
 import DrawingInquiryPanel from '~components/drawing/DrawingInquiryPanel';
-import { createDimensionSourceMap } from '~utils/drawingDimensionSources';
+import { createDimensionSourceMap, getDrawingDimensionSourceMap } from '~utils/drawingDimensionSources';
 import { presentDrawingDimension } from '~utils/drawingDimensionPresentation';
 import { retainDimensionStyleOverrides } from '~utils/drawingDimensionStyles';
 import DrawingDimensionStylesPanel from '~components/drawing/DrawingDimensionStylesPanel';
@@ -21,6 +21,7 @@ import Icon from '~components/ui/Icon';
 
 import { DrawingEntityAppearanceFields, DrawingLayerAppearanceFields } from '~components/drawing/DrawingAppearanceFields';
 import DrawingDimensionFields from '~components/drawing/DrawingDimensionFields';
+import DrawingDimensionCommonFields from '~components/drawing/DrawingDimensionCommonFields';
 import DrawingQdimOptions from '~components/drawing/DrawingQdimOptions';
 import DrawingTextStylesPanel from '~components/drawing/DrawingTextStylesPanel';
 import { useI18n } from '~i18n/I18nProvider';
@@ -312,6 +313,7 @@ function SelectionPanel({ content, selectedIds, onCommit, t }) {
     if (selected.length === 0) return <p className="drawing-sidebar-empty">{t('sidebar.selectObjects')}</p>;
     const single = selected.length === 1 ? selected[0] : null;
     const selectionLocked = selected.some(entity => !canEditEntity(content, entity));
+    const commonLayerId = selected.every(entity => entity.layerId === selected[0].layerId) ? selected[0].layerId || '' : '';
     const selectedQdimSeriesIds = new Set(selected.flatMap(entity => (
         entity.type === 'linearDimension' && entity.seriesId ? [entity.seriesId] : []
     )));
@@ -349,8 +351,8 @@ function SelectionPanel({ content, selectedIds, onCommit, t }) {
             </label>
             <label className="drawing-sidebar-field">
                 <span>{t('sidebar.layer')}</span>
-                <Select disabled={selectionLocked} value={single?.layerId || ''} onChange={event => setSelected(entity => ({ ...entity, layerId: event.target.value }))}>
-                    {!single && <option value="">{t('sidebar.multipleLayers')}</option>}
+                <Select disabled={selectionLocked} value={commonLayerId} onChange={event => setSelected(entity => ({ ...entity, layerId: event.target.value }))}>
+                    {!commonLayerId && <option value="">{t('sidebar.multipleLayers')}</option>}
                     {content.layers.map(layer => <option key={layer.id} value={layer.id}>{layer.name}</option>)}
                 </Select>
             </label>
@@ -364,10 +366,12 @@ function SelectionPanel({ content, selectedIds, onCommit, t }) {
                 onUpdate={setSelected}
                 t={t}
             />
+            {selected.every(entity => isDrawingDimensionEntity(entity)) && <DrawingDimensionCommonFields content={content} dimensions={selected} disabled={selectionLocked} onUpdate={setSelected} t={t} />}
             {single && isDrawingDimensionEntity(single) && !qdimSeriesAnchor && (
                 <DrawingDimensionFields
                     automaticBreakTruncated={Boolean(single.dimensionAutoBreak && presentDrawingDimension(getDimensionGeometry(single, createDimensionSourceMap(content.entities, content.blocks, content)), single)?.automaticBreakTruncated)}
                     dimension={single}
+                    sources={getDrawingDimensionSourceMap(content)}
                     disabled={selectionLocked}
                     onChange={(nextDimension, patch) => setSelected(() => retainDimensionStyleOverrides(nextDimension, patch))}
                     t={t}

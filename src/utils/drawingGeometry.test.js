@@ -756,7 +756,9 @@ test('entity grips edit line ends, rectangle corners, and circle centers or radi
 test('dimension grip changes its distance while keeping the measured source associative', () => {
     const source = { id: 'source', type: 'line', x1: 0, y1: 0, x2: 10, y2: 0 };
     const dimension = { id: 'dimension', type: 'linearDimension', sourceId: 'source', offset: 1 };
-    assert.deepEqual(getEntityGrips(dimension, source), [{ id: 'dimension-position', x: 5, y: 1 }]);
+    // The dimension-line grip sits on the line; the label has its own grip on the text.
+    assert.deepEqual(getEntityGrips(dimension, source).find(grip => grip.id === 'dimension-position'), { id: 'dimension-position', x: 5, y: 1 });
+    assert.deepEqual(getEntityGrips(dimension, source).map(grip => grip.id), ['dimension-position', 'dimension-text']);
     const moved = editEntityGrip(dimension, 'dimension-position', { x: 5, y: 3 }, source);
     assert.equal(moved.offset, 3);
     assert.equal(getDimensionGeometry(moved, source).value, 10);

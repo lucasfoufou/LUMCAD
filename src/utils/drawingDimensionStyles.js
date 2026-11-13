@@ -47,6 +47,15 @@ export function applyDimensionStyle(entity, style, { keepOverrides = false } = {
     return { ...entity, ...normalizeDimensionStyleValues({ ...style, ...overrides }), dimensionStyleId: style.id, dimensionStyleOverrides: overrides };
 }
 
+/**
+ * Text size of dimensions that store none (legacy or imported): the current
+ * style's size, so they keep one size at every zoom like styled dimensions.
+ */
+export function defaultDimensionTextSize(content) {
+    const style = findDimensionStyle(content || {}, content?.activeDimensionStyleId) || findDimensionStyle(content || {}, DEFAULT_DIMENSION_STYLE_ID);
+    return style?.textSize || DEFAULT_DIMENSION_STYLE.textSize;
+}
+
 export function normalizeDimensionStyleOverrides(input) {
     if (!input || typeof input !== 'object') return {};
     const normalized = normalizeDimensionStyleValues(input);

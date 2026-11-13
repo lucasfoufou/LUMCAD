@@ -102,7 +102,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionPrompt"
+      "messages.radialDimensionPrompt"
     ]
   },
   "multiLeaderEdit": {
@@ -161,7 +161,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionPrompt"
+      "messages.arcDimensionPrompt"
     ]
   },
   "layerUnisolate": {
@@ -472,7 +472,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionPrompt"
+      "messages.angularDimensionPrompt"
     ]
   },
   "textToFront": {
@@ -574,14 +574,14 @@
   },
   "quickDimension": {
     "activeTool": "select",
-    "operation": null,
-    "stage": null,
+    "operation": "dimensionSelection",
+    "stage": "select",
     "workspace": "model",
     "layoutTool": null,
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionSelectionRequired"
+      "messages.quickDimensionSelectPrompt"
     ]
   },
   "multilineEdit": {
@@ -883,7 +883,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionPrompt"
+      "messages.radialDimensionPrompt"
     ]
   },
   "dimensionDisassociate": {
@@ -943,7 +943,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "messages.multilineTextPrompt"
     ]
   },
   "openSheetSet": {
@@ -982,14 +982,14 @@
   },
   "baselineDimension": {
     "activeTool": "select",
-    "operation": null,
-    "stage": null,
+    "operation": "dimensionSelection",
+    "stage": "select",
     "workspace": "model",
     "layoutTool": null,
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionSelectionRequired"
+      "messages.dimensionSeriesSelectPrompt"
     ]
   },
   "convertColorTable": {
@@ -1145,7 +1145,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionPrompt"
+      "messages.ordinateDimensionPrompt"
     ]
   },
   "hatchToBack": {
@@ -1654,7 +1654,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionPrompt"
+      "messages.linearDimensionPrompt"
     ]
   },
   "distanceInquiry": {
@@ -1833,7 +1833,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionPrompt"
+      "messages.linearDimensionPrompt"
     ]
   },
   "countArea": {
@@ -1973,7 +1973,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.toolActive"
+      "messages.textPrompt"
     ]
   },
   "modelSpace": {
@@ -2354,7 +2354,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionPrompt"
+      "messages.centerMarkPrompt"
     ]
   },
   "multiline": {
@@ -2663,7 +2663,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionPrompt"
+      "messages.radialDimensionPrompt"
     ]
   },
   "line": {
@@ -2911,14 +2911,14 @@
   },
   "continueDimension": {
     "activeTool": "select",
-    "operation": null,
-    "stage": null,
+    "operation": "dimensionSelection",
+    "stage": "select",
     "workspace": "model",
     "layoutTool": null,
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionSelectionRequired"
+      "messages.dimensionSeriesSelectPrompt"
     ]
   },
   "countTable": {
@@ -3292,7 +3292,7 @@
     "entities": 0,
     "fileChooser": false,
     "messageKeys": [
-      "messages.dimensionPrompt"
+      "messages.linearDimensionPrompt"
     ]
   },
   "recover": {

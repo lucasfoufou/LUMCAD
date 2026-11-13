@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { canEditEntity } from '~utils/drawingDocument';
+import { changeDrawingPlanScale } from '~utils/drawingPlanScale';
 import { ANNOTATION_HIDDEN, currentAnnotationScale, normalizeAnnotationScales, normalizeDrawingAnnotation, resolveDrawingAnnotationContent, restoreDrawingAnnotationContent, commitDrawingAnnotationRepresentation, supportsDrawingAnnotation, validAnnotationRatio, validAnnotationScale } from '~utils/drawingAnnotations';
 
 export default function useDrawingAnnotations({ history, enabled, selectedIds, setSelectedIds, setMessage, t }) {
@@ -21,8 +22,10 @@ export default function useDrawingAnnotations({ history, enabled, selectedIds, s
             const catalog = normalizeAnnotationScales(source.annotationScales);
             const requested = Number(tokens[0]);
             if (action === 'LIST' && !tokens.length) setMessage(t('annotation.list', { scales: catalog.join(', '), current: scale }));
-            else if (action === 'CURRENT' && tokens.length === 1 && validAnnotationScale(requested)) {
-                save({ ...source, settings: { ...source.settings, annotationScale: requested }, annotationScales: normalizeAnnotationScales([...catalog, requested]) }); setSelectedIds([]);
+            else if (action === 'CURRENT' && (tokens.length === 1 || tokens.length === 2 && tokens[1].toUpperCase() === 'RESCALE') && validAnnotationScale(requested)) {
+                // The plan scale: styles keep their paper size; RESCALE also resizes existing dimensions and texts.
+                history.commit(changeDrawingPlanScale(source, requested, { rescaleExisting: tokens.length === 2 }));
+                setMessage(t(tokens.length === 2 ? 'planScale.rescaled' : 'planScale.changed', { scale: requested })); setSelectedIds([]);
             } else if (action === 'ALLVISIBLE' && tokens.length === 1 && ['ON', 'OFF'].includes(tokens[0].toUpperCase())) {
                 save({ ...source, settings: { ...source.settings, annotationShowAll: tokens[0].toUpperCase() === 'ON' } }); setSelectedIds([]);
             } else if (action === 'ADD' && tokens.length === 1 && validAnnotationScale(requested) && (catalog.includes(requested) || catalog.length < 128)) save({ ...source, annotationScales: normalizeAnnotationScales([...catalog, requested]) });

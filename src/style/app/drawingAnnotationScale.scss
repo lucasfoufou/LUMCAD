@@ -1,0 +1,7 @@
+// Plan scale (annotation scale) control of the model status bar.
+.drawing-plan-scale { margin-right: 4px; padding-right: 6px; border-right: 1px solid var(--line); }
+.drawing-plan-scale-value { font-family: var(--font-num); letter-spacing: 0; text-transform: none; color: var(--ink); }
+.drawing-plan-scale-panel { width: 280px; }
+.drawing-plan-scale-hint, .drawing-plan-scale-confirm p { margin: 0 0 6px; padding: 0 6px; color: var(--muted); }
+.drawing-plan-scale-presets { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; margin-bottom: 6px; }
+.drawing-plan-scale-presets .drawing-status-aid { justify-content: center; padding: 0 2px; font-family: var(--font-num); letter-spacing: 0; text-transform: none; }

@@ -24,6 +24,7 @@ export default function DrawingAnnotationFields({ content, selectedIds, onComman
             onChange={event => onCommand('scaleListEdit', `ALLVISIBLE ${event.target.checked ? 'ON' : 'OFF'}`)} />{t('annotation.showAll')}</label>
         {editable && <label className="drawing-sidebar-check"><Input type="checkbox" checked={selected.every(entity => Boolean(entity.annotation))}
             onChange={event => onCommand('objectScale', event.target.checked ? 'ON' : 'OFF')} />{t('annotation.enabled')}</label>}
+        {editable && <p className="drawing-sidebar-empty">{t('annotation.autoScaleHint')}</p>}
         {editable && annotation && <>
             <label className="drawing-sidebar-field"><span>{t('annotation.add')}</span>
                 <Select value="" onChange={event => onCommand('objectScale', `ADD ${event.target.value}`)}>
