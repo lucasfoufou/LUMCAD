@@ -329,7 +329,6 @@
 .drawing-dynamic-input {
   position: absolute;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   width: 200px;
   min-height: 30px;
@@ -341,12 +340,16 @@
   color: var(--accent);
   font-family: var(--font-num);
   z-index: 9;
+  // Beside the cursor, never under it, and transparent to the pointer until the
+  // user types: a canvas click can never land on the box by accident.
+  pointer-events: none;
 
-  > span { padding: 0 6px; }
+  &.is-typing { pointer-events: auto; }
+  &.is-measure-only { width: auto; min-width: 0; }
 
   input {
     min-height: 28px;
-    padding-left: 0;
+    padding: 0 6px;
     border: 0;
     background: transparent;
     color: var(--ink);
@@ -354,6 +357,42 @@
   }
 
   input:focus { outline: none; }
+}
+
+.drawing-dynamic-input-measure {
+  padding: 2px 6px 4px;
+  border-top: 1px solid var(--line);
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+
+  .is-measure-only > & { border-top: 0; padding: 4px 8px; }
+}
+
+.drawing-context-menu {
+  position: fixed;
+  z-index: 120;
+  display: grid;
+  width: 220px;
+  padding: 4px;
+  border-radius: var(--radius-lg);
+  background: var(--raised);
+  box-shadow: var(--shadow-pop);
+
+  button {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    max-width: none;
+    min-height: 28px;
+    color: var(--ink);
+    text-align: left;
+
+    &.is-danger { color: var(--danger); }
+    &:focus-visible { outline: 1px solid var(--focus); outline-offset: -2px; }
+  }
+
+  kbd { color: var(--faint); font-family: var(--font-num); font-size: var(--text-xs); }
 }
 
 // --- Command line (window header) ------------------------------------------------

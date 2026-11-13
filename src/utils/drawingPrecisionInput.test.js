@@ -6,6 +6,7 @@ import {
     evaluateDrawingExpression,
     remapDrawingExpressionVariables,
     drawingDynamicInputAnchor,
+    drawingDynamicInputPointerAnchor,
     hasDrawingPointSyntax,
     parseDrawingPointInput,
     resolveDrawingPointInput,
@@ -182,4 +183,17 @@ test('dynamic input anchors follow SVG meet letterboxing and remain inside the c
         { width: 300, height: 200 },
     ), { x: 102, y: 158 });
     assert.equal(drawingDynamicInputAnchor(null, {}, {}), null);
+});
+
+test('dynamic input sits beside the pointer and flips away from the canvas edges', () => {
+    const size = { width: 1000, height: 600 };
+    assert.deepEqual(drawingDynamicInputPointerAnchor({ x: 100, y: 100 }, size), { x: 122, y: 122 });
+    // Near the right and bottom edges the box goes left of and above the pointer.
+    assert.deepEqual(drawingDynamicInputPointerAnchor({ x: 950, y: 580 }, size), { x: 728, y: 524 });
+    for (const pointer of [{ x: 100, y: 100 }, { x: 950, y: 580 }, { x: 500, y: 590 }]) {
+        const box = drawingDynamicInputPointerAnchor(pointer, size);
+        const covers = pointer.x >= box.x && pointer.x <= box.x + 200 && pointer.y >= box.y && pointer.y <= box.y + 34;
+        assert.equal(covers, false);
+    }
+    assert.equal(drawingDynamicInputPointerAnchor(null, size), null);
 });
