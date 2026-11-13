@@ -79,6 +79,9 @@ import DrawingEditorBody from '~components/drawing/DrawingEditorBody';
 import DrawingSnapControls from '~components/drawing/DrawingSnapControls';
 import DrawingStatusBar from '~components/drawing/DrawingStatusBar';
 import DrawingEditorHeader from '~components/drawing/DrawingEditorHeader';
+import DrawingCommandPalette from '~components/drawing/DrawingCommandPalette';
+import UnsavedChangesDialog from '~components/drawing/UnsavedChangesDialog';
+import DrawingEmptyState from '~components/drawing/DrawingEmptyState';
 import DrawingLayoutEditor from '~components/drawing/DrawingLayoutEditor';
 import DrawingPrintPage from '~components/drawing/DrawingPrintPage';
 import DrawingPublishDialog from '~components/drawing/DrawingPublishDialog';
@@ -96,6 +99,9 @@ import useDrawingHistory from '~hooks/useDrawingHistory';
 import useAppUpdater from '~hooks/useAppUpdater';
 import useLcadAutosave from '~hooks/useLcadAutosave';
 import useLcadFileCommands from '~hooks/useLcadFileCommands';
+import useDrawingFileTransfer from '~hooks/useDrawingFileTransfer';
+import useLatestRef from '~hooks/useLatestRef';
+import { withPreselectedDrawingFile } from '~utils/drawingFileSelection';
 import useDrawingRecovery from '~hooks/useDrawingRecovery';
 import useLocalDrawingImageImport from '~hooks/useLocalDrawingImageImport';
 import useMcpFiles from '~hooks/useMcpFiles';
@@ -194,6 +200,7 @@ export default function DrawingEditorWorkspace({
     initialRecoveryGraph = null,
     initialTemplateSourcePath = null,
     initialMessage = '',
+    initialImport = null,
     sandbox = false,
     onReplaceSession,
     onOpenSettings,
@@ -203,6 +210,8 @@ export default function DrawingEditorWorkspace({
     const canvasRef = useRef(null);
     const layoutCanvasRef = useRef(null);
     const commandBarRef = useRef(null);
+    const fileMenuRef = useRef(null);
+    const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
     const [commandOptionsTarget, setCommandOptionsTarget] = useState(null);
     const imageInputRef = useRef(null);
     const blockSelectionRef = useRef([]);
@@ -301,6 +310,7 @@ export default function DrawingEditorWorkspace({
     }, [blockEditor.session, t, updater.installAvailableUpdate, updater.version]);
     const {
         autoPublish,
+        chooseUnsaved,
         closePublishDialog,
         createNewDrawing,
         createQuickDrawing,
@@ -313,7 +323,9 @@ export default function DrawingEditorWorkspace({
         printJob,
         publishRenderedLayouts,
         publishRequest,
+        saveDrawing,
         saveDrawingAs,
+        unsavedPrompt,
     } = useLcadFileCommands({
         autosave,
         document,
@@ -1763,7 +1775,7 @@ export default function DrawingEditorWorkspace({
             const command = parseDrawingCommand(rawValue)?.command;
             // IMAGEATTACH reads an explicit path without a dialog; only its picker form is refused.
             const pickerOnly = command === 'imageAttach' && !getDrawingCommandInput(rawValue).trim();
-            if (pickerOnly || ['new', 'quickNew', 'open', 'saveAs', 'plot', 'pdf', 'pdfAll', 'pdfSelected', 'publish', 'dwfx', 'aliasEdit'].includes(command)) {
+            if (pickerOnly || ['new', 'quickNew', 'open', 'saveAs', 'quickSave', 'import', 'export', 'options', 'help', 'plot', 'pdf', 'pdfAll', 'pdfSelected', 'publish', 'dwfx', 'aliasEdit'].includes(command)) {
                 throw new Error(t('headless.dialogUnavailable'));
             }
         }
@@ -2715,6 +2727,16 @@ export default function DrawingEditorWorkspace({
         else if (parsed.command === 'undo') history.undo();
         else if (parsed.command === 'redo') history.redo();
         else if (parsed.command === 'saveAs') await saveDrawingAs();
+        else if (parsed.command === 'quickSave') await saveDrawing();
+        else if (parsed.command === 'import') await fileTransfer.importFile(getDrawingCommandInput(rawValue));
+        else if (parsed.command === 'export') await fileTransfer.exportFile(getDrawingCommandInput(rawValue));
+        else if (parsed.command === 'options') {
+            onOpenSettings(/^FILES?$/i.test(getDrawingCommandInput(rawValue)) ? 'files' : undefined);
+            setMessage(t('messages.settingsOpened'));
+        } else if (parsed.command === 'help') {
+            setCommandPaletteOpen(true);
+            setMessage(t('commandPalette.opened'));
+        }
         else if (parsed.command === 'new') await createNewDrawing(getDrawingCommandInput(rawValue));
         else if (parsed.command === 'quickNew') await createQuickDrawing(getDrawingCommandInput(rawValue));
         else if (parsed.command === 'saveTemplate') await saveDrawingTemplate(getDrawingCommandInput(rawValue));
@@ -2733,6 +2755,29 @@ export default function DrawingEditorWorkspace({
         else if (parsed.command === 'zoom' && parsed.args[0]) canvasRef.current?.zoom(1 / parsed.args[0]);
         else setMessage(t('messages.unknownCommand', { command: parsed.alias }));
     };
+
+    const submitCommandRef = useLatestRef(submitCommand);
+    const fileTransfer = useDrawingFileTransfer({
+        runCommand: value => submitCommandRef.current(value),
+        importImageFile: event => handleImageFile(event),
+        onChooseExport: () => fileMenuRef.current?.openExport(),
+        setMessage,
+        t,
+    });
+    const closeCommandPalette = useCallback(() => setCommandPaletteOpen(false), []);
+    const runPaletteCommand = useCallback(name => {
+        setCommandPaletteOpen(false);
+        submitCommandRef.current(name).catch(() => {});
+    }, [submitCommandRef]);
+    // OPEN of a DWG/DXF starts a new drawing, then imports the chosen file once.
+    const initialImportRef = useRef(initialImport);
+    useEffect(() => {
+        const pending = initialImportRef.current;
+        if (!pending) return;
+        initialImportRef.current = null;
+        withPreselectedDrawingFile(pending.selection, () => submitCommandRef.current(pending.command))
+            .then(() => canvasRef.current?.fit()).catch(() => {});
+    }, [submitCommandRef]);
 
     const toggleAllSnaps = () => {
         const snaps = history.content.settings.snaps;
@@ -2771,6 +2816,12 @@ export default function DrawingEditorWorkspace({
         cut: cutClip,
         paste: beginPasteClip,
         saveAs: saveDrawingAs,
+        save: saveDrawing,
+        openSettings: () => onOpenSettings(),
+        help: () => setCommandPaletteOpen(true),
+        import: () => fileTransfer.importFile(),
+        export: () => fileMenuRef.current?.openExport(),
+        plot: () => exportPdf(activeLayout ? [activeLayout.id] : layouts.map(layout => layout.id)),
         newDocument: createNewDrawing,
         open: openDrawing,
         delete: () => workspaceMode === 'layout' ? deleteSelectedViewport() : deleteSelection(),
@@ -2964,11 +3015,17 @@ export default function DrawingEditorWorkspace({
                     saveStatus={autosave.status}
                     isRecovery={autosave.isRecovery || (recovered && !filePath)}
                     lastSavedAt={autosave.lastSavedAt}
+                    recovered={recovered}
+                    fileMenuRef={fileMenuRef}
                     onNew={() => createNewDrawing().catch(() => {})}
                     onOpen={() => openDrawing().catch(() => {})}
+                    onImport={() => fileTransfer.importFile().catch(() => {})}
+                    onExport={format => fileTransfer.exportFile(format).catch(() => {})}
                     onPlot={() => exportPdf(activeLayout ? [activeLayout.id] : layouts.map(layout => layout.id)).catch(() => {})}
+                    onSave={() => saveDrawing().catch(() => {})}
                     onSaveAs={() => saveDrawingAs().catch(() => {})}
                     onOpenSettings={onOpenSettings}
+                    onHelp={() => setCommandPaletteOpen(true)}
                     commandLine={(
                         <DrawingCommandBar
                             ref={commandBarRef}
@@ -2979,6 +3036,7 @@ export default function DrawingEditorWorkspace({
                             operation={interactiveOperation}
                             activeTool={workspaceMode === 'model' ? activeTool : 'select'}
                             optionsRef={setCommandOptionsTarget}
+                            onOpenSettings={onOpenSettings}
                         />
                     )}
                     editActions={{
@@ -3133,12 +3191,25 @@ export default function DrawingEditorWorkspace({
                 />
                 <Input ref={imageInputRef} type="file" accept="image/*" hidden onChange={handleImageFile} disabled={isUploading} />
                 {isUploading && <div className="drawing-upload-indicator">{t('messages.importingImage')}</div>}
+                {workspaceMode === 'model' && !blockEditor.session && !history.content.entities.length && activeTool === 'select' && !interactiveOperation && (
+                    <DrawingEmptyState
+                        onOpen={() => openDrawing().catch(() => {})}
+                        onImport={() => fileTransfer.importFile().catch(() => {})}
+                        onHelp={() => setCommandPaletteOpen(true)}
+                    />
+                )}
             </div>
             {publishPages.active && <DrawingPublishRenderer ref={publishPages.rendererRef} drawing={document} layouts={layouts} />}
             <DrawingModelExportRenderer request={wmf.renderRequest} />
             <DrawingModelExportRenderer request={imageExport.request} />
             {sheetSet.publication.request && <DrawingPublishRenderer
                 entries={sheetSet.publication.request.entries} onReady={sheetSet.publication.onReady} />}
+            <UnsavedChangesDialog request={unsavedPrompt} onChoose={chooseUnsaved} />
+            <DrawingCommandPalette
+                open={commandPaletteOpen}
+                onClose={closeCommandPalette}
+                onRun={runPaletteCommand}
+            />
             {publishRequest && (
                 <DrawingPublishDialog
                     drawing={document}

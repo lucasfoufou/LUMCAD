@@ -2,6 +2,7 @@ import { downloadBrowserBlob } from './browserDownload.js';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open, save } from '../utils/nativeDialogs.js';
+import { takePreselectedDrawingFile } from './drawingFileSelection.js';
 
 import { createI18nError } from '../i18n/translator.js';
 import { createLcadArchive, readLcadArchive } from './lcadArchive.js';
@@ -182,6 +183,8 @@ function normalizeLoadedDocument(loaded) {
 }
 
 export function chooseBrowserFile({ accept = '.lcad,application/x-lumcad,application/zip' } = {}) {
+    const preselected = takePreselectedDrawingFile('file');
+    if (preselected) return Promise.resolve(preselected);
     return new Promise(resolve => {
         const input = document.createElement('input');
         input.type = 'file';

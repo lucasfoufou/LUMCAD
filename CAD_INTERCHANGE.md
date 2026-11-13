@@ -19,7 +19,7 @@ MCP example (the path is `input`, not part of `command`):
 {"command":"DXFIN","input":"\"/absolute/roof.dxf\" UNIT mm"}
 ```
 
-Use the same `execute_command` tool with `DWGOUT` and an absolute destination to export DWG. `OPEN`/`SAVEAS` and the native document dialogs still operate on `.lcad`; these interchange commands do not change the active document path. Import leaves the existing drawing in place, selects the appended objects and creates collision-safe layer/block names. Export does not change history.
+Use the same `execute_command` tool with `DWGOUT` and an absolute destination to export DWG. `SAVEAS`, `QSAVE` and the native save dialogs operate on `.lcad`. `OPEN` (and **File › Open…**) also accepts `.dwg` and `.dxf`: it starts a new unsaved drawing named after the file and runs `DWGIN`/`DXFIN` on it. `IMPORT` (**File › Import…**) chooses any supported file once and runs the matching command by extension; `EXPORT DXF|DWG|…` (**File › Export**) runs the matching export. These interchange commands do not change the active document path. Import leaves the existing drawing in place, selects the appended objects and creates collision-safe layer/block names. Export does not change history.
 
 ## Supported subset and fidelity
 
@@ -48,9 +48,10 @@ The importer validates before committing. A refusal leaves drawing content/histo
 Install `dwgread` and `dwgwrite` from [GNU LibreDWG](https://www.gnu.org/software/libredwg/). On macOS, `brew install libredwg` is enough. LUMCAD looks for the first folder containing **both** executables, in this order:
 
 1. `LUMCAD_LIBREDWG_DIR`, when set before launching LUMCAD;
-2. the folder entered in **Settings › DWG and DXF** (desktop application). When a folder is entered, it is the only one searched: a wrong folder reports LibreDWG as missing rather than silently using another installation;
-3. otherwise, the application's `PATH`;
-4. then standard install folders: `/opt/homebrew/bin`, `/usr/local/bin` and `/opt/local/bin` on macOS; `/usr/local/bin`, `/usr/bin` and `~/.local/bin` on Linux; `%ProgramFiles%\LibreDWG[\bin]` and `%LOCALAPPDATA%\Programs\LibreDWG[\bin]` on Windows.
+2. the folder entered in **Settings › Files and DWG** (desktop application, with a **Browse…** button). When a folder is entered, it is the only one searched: a wrong folder reports LibreDWG as missing rather than silently using another installation;
+3. otherwise, a copy shipped with the application: `libredwg` (or `libredwg/bin`) in the application resources directory, as an installer may bundle it;
+4. then the application's `PATH`;
+5. then standard install folders: `/opt/homebrew/bin`, `/usr/local/bin` and `/opt/local/bin` on macOS; `/usr/local/bin`, `/usr/bin` and `~/.local/bin` on Linux; `%ProgramFiles%\LibreDWG[\bin]` and `%LOCALAPPDATA%\Programs\LibreDWG[\bin]` on Windows.
 
 Applications started from Finder or a desktop menu do not inherit the shell `PATH`, which is why standard folders and the Settings field exist. Headless runs use default settings, so they rely on the variable, `PATH` or standard folders:
 
@@ -65,7 +66,7 @@ $env:LUMCAD_LIBREDWG_DIR = 'C:\Tools\LibreDWG\bin'
 .\lumcad.exe --headless
 ```
 
-The Windows directory must contain `dwgread.exe`, `dwgwrite.exe` and their required runtime dependencies. No converter download, installation or bundling is performed by LUMCAD. LibreDWG is not included with LUMCAD: the Settings section states this, shows whether it was found and where, and gives install instructions per platform when it is missing. Missing executables produce a localized diagnostic pointing to that section. Settings only check that the files exist; nothing is executed until a DWG command runs.
+The Windows directory must contain `dwgread.exe`, `dwgwrite.exe` and their required runtime dependencies. LUMCAD never downloads or installs a converter at run time. Current installers do not yet ship LibreDWG; the resources lookup above is ready for an installer that does. The Settings section shows whether LibreDWG was found and where, and gives install instructions for the current platform when it is missing. Missing executables produce a localized diagnostic pointing to that section, with a button that opens it. Settings only check that the files exist; nothing is executed until a DWG command runs.
 
 The adapter launches executables directly, without a shell, inside an isolated temporary directory. It uses `dwgread -O DXF` for import and `dwgwrite --as=r2000` for export. LibreDWG writes CRLF line endings through a text-mode file stream; Windows builds can consequently produce CRCRLF. The adapter repairs these doubled carriage returns in intermediate DXF output before parsing, preserving empty string values and legacy text bytes. Source DWG/DXF files and exported DWG bytes are not rewritten by this repair. LibreDWG conversion remains experimental and does not guarantee compatibility with arbitrary real-world DWG files or AutoCAD. The intermediate DXF must still satisfy the supported subset above. Packaged converters and broader version/fidelity acceptance are follow-up work.
 

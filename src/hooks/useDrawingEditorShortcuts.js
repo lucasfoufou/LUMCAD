@@ -16,7 +16,17 @@ export default function useDrawingEditorShortcuts({ actions, commandBarRef }) {
             if (event.defaultPrevented || event.isComposing || document.querySelector('[role="dialog"][aria-modal="true"]')) return;
             const targetIsInput = isTextInput(event.target);
             const modifier = event.ctrlKey || event.metaKey;
-            if (modifier && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 's') { event.preventDefault(); return; }
+            // Fixed shortcuts, not rebindable: Save, Settings (as in every desktop app).
+            if (modifier && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 's') {
+                event.preventDefault();
+                if (!event.repeat) Promise.resolve().then(actionsRef.current.save).catch(() => {});
+                return;
+            }
+            if (modifier && !event.altKey && event.key === ',') {
+                event.preventDefault();
+                actionsRef.current.openSettings?.();
+                return;
+            }
             if (event.key === 'Escape') { actionsRef.current.cancel(); return; }
             const binding = preferencesRef.current.find(row => row.shortcut === drawingShortcutFromEvent(event));
             if (binding && (!targetIsInput || ['@saveAs', '@open', '@newDocument'].includes(binding.command))) {
@@ -25,6 +35,12 @@ export default function useDrawingEditorShortcuts({ actions, commandBarRef }) {
                 const action = binding.command.startsWith('@') ? actionsRef.current[binding.command.slice(1)]
                     : () => actionsRef.current.command(getDrawingCommandDefinition(binding.command).name);
                 Promise.resolve().then(action).catch(() => {});
+                return;
+            }
+            // F1 opens the command list unless the user bound it to something else.
+            if (event.key === 'F1' && !modifier && !event.altKey && !event.shiftKey) {
+                event.preventDefault();
+                actionsRef.current.help?.();
                 return;
             }
             if (targetIsInput) return;
@@ -41,7 +57,7 @@ export default function useDrawingEditorShortcuts({ actions, commandBarRef }) {
         let unlisten = null;
         if (isTauriRuntime()) listen('lumcad://drawing-action', ({ payload }) => {
             if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
-            const allowed = ['newDocument', 'open', 'saveAs', 'undo', 'redo', 'copy', 'cut', 'paste', 'delete'];
+            const allowed = ['newDocument', 'open', 'save', 'saveAs', 'import', 'export', 'plot', 'undo', 'redo', 'copy', 'cut', 'paste', 'delete'];
             if (!allowed.includes(payload)) return;
             Promise.resolve().then(() => actionsRef.current[payload]?.()).catch(() => {});
         }).then(cleanup => { if (disposed) cleanup(); else unlisten = cleanup; }).catch(() => {});

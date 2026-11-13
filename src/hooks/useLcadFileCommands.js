@@ -3,7 +3,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import useLatestRef from '~hooks/useLatestRef';
 import { useI18n } from '~i18n/I18nProvider';
 import { localizeError } from '~i18n/translator';
+import { readLcadArchive } from '~utils/lcadArchive';
 import { createLcadDocument, createLcadEnvelope } from '~utils/lcadDocument';
+import { DRAWING_OPEN_EXTENSIONS, getDrawingNameFromFile, resolveDrawingOpenFormat } from '~utils/drawingFileFormats';
+import { open as openNativeFile } from '~utils/nativeDialogs';
 import { createLcadRecoveredSession, readSavedRecoveredCandidate } from '~utils/lcadRecovery';
 import { createLcadTemplateSession, parseNewDrawingInput, parseTemplateSaveInput, prepareLcadTemplate } from '~utils/lcadTemplates';
 import { printRenderedLayouts } from '~utils/drawingPrint';
@@ -14,8 +17,10 @@ import {
     writeDrawingPublishFile,
 } from '~utils/drawingPublish';
 import {
+    chooseBrowserFile,
     clearLcadRecovery,
     exportLcadDocumentAs,
+    getLcadPathLabel,
     isTauriRuntime,
     listenForLcadOpen,
     openLcadDocument,
@@ -39,6 +44,24 @@ export default function useLcadFileCommands({
     const [printJob, setPrintJob] = useState(null);
     const [publishRequest, setPublishRequest] = useState(null);
     const newDrawingPending = useRef(false);
+    // Save / Don't save / Cancel prompt; its promise resolves with the choice.
+    const [unsavedPrompt, setUnsavedPrompt] = useState(null);
+    const unsavedResolveRef = useRef(null);
+
+    const askUnsavedChoice = useCallback(name => new Promise(resolve => {
+        unsavedResolveRef.current?.('cancel');
+        unsavedResolveRef.current = resolve;
+        setUnsavedPrompt({ name });
+    }), []);
+
+    const chooseUnsaved = useCallback(choice => {
+        const resolve = unsavedResolveRef.current;
+        unsavedResolveRef.current = null;
+        setUnsavedPrompt(null);
+        resolve?.(choice);
+    }, []);
+
+    useEffect(() => () => unsavedResolveRef.current?.('cancel'), []);
 
     const saveDrawingAs = useCallback(async () => {
         if (blockEditing) { setMessage(t('block.error.closeFirst')); return null; }
@@ -52,6 +75,20 @@ export default function useLcadFileCommands({
         }
     }, [autosave, blockEditing, setMessage, t]);
 
+    // QSAVE / Ctrl+S: write the current file now, or ask for one like SAVEAS.
+    const saveDrawing = useCallback(async () => {
+        if (blockEditing) { setMessage(t('block.error.closeFirst')); return null; }
+        if (!filePath) return saveDrawingAs();
+        try {
+            const result = await autosave.saveNow();
+            if (result) setMessage(t('file.savedTo', { name: getLcadPathLabel(result.path || filePath) }));
+            return result;
+        } catch (error) {
+            setMessage(localizeError(error, t, 'file.currentSaveFailed'));
+            return null;
+        }
+    }, [autosave, blockEditing, filePath, saveDrawingAs, setMessage, t]);
+
     const prepareSessionReplacement = useCallback(async () => {
         if (blockEditing) { setMessage(t('block.error.closeFirst')); return false; }
         try {
@@ -59,8 +96,10 @@ export default function useLcadFileCommands({
                 autosave.isRecovery || recovered || autosave.status !== 'saved'
             );
             if (unsavedLocalDocument) {
-                const shouldSave = window.confirm(t('file.confirmUnsaved'));
-                if (shouldSave && !await autosave.saveNow()) return false;
+                // Cancel keeps the current drawing and its local recovery untouched.
+                const choice = await askUnsavedChoice(document.name);
+                if (choice === 'cancel') { setMessage(t('file.replaceCancelled')); return false; }
+                if (choice === 'save' && !await autosave.saveNow()) return false;
             } else if (autosave.status === 'dirty' || autosave.status === 'saving') {
                 await autosave.saveNow();
             }
@@ -69,7 +108,7 @@ export default function useLcadFileCommands({
             setMessage(localizeError(error, t, 'file.currentSaveFailed'));
             return false;
         }
-    }, [autosave, blockEditing, filePath, recovered, setMessage, t]);
+    }, [askUnsavedChoice, autosave, blockEditing, document.name, filePath, recovered, setMessage, t]);
 
     const replaceWithLoaded = useCallback(async loaded => {
         await clearLcadRecovery();
@@ -141,15 +180,39 @@ export default function useLcadFileCommands({
         }
     }, [blockEditing, document, filePath, protectedPaths, setMessage, t]);
 
+    // OPEN reads drawings, and DWG/DXF files as a new drawing holding their import.
     const openDrawing = useCallback(async () => {
         if (!await prepareSessionReplacement()) return;
         try {
-            const loaded = await openLcadDocument({ filterName: t('fileDialog.lcadDrawing') });
-            if (loaded) await replaceWithLoaded(loaded);
+            const selection = await chooseDrawingToOpen(t);
+            if (!selection) return;
+            const format = resolveDrawingOpenFormat(selection.name);
+            if (format === 'lcad' || (!format && selection.kind === 'file' && !selection.name.includes('.'))) {
+                const loaded = selection.kind === 'path'
+                    ? await readLcadDocumentAtPath(selection.value)
+                    : { path: null, recovered: false, envelope: readLcadArchive(await selection.value.arrayBuffer()) };
+                await replaceWithLoaded(loaded);
+                return;
+            }
+            if (!format) { setMessage(t('file.openUnsupported', { name: selection.name })); return; }
+            if (format === 'dwg' && !isTauriRuntime()) { setMessage(t('cad.error.cadDwgDesktop')); return; }
+            const name = getDrawingNameFromFile(selection.name, t('document.untitled'));
+            await clearLcadRecovery();
+            onReplaceSession({
+                document: createLcadDocument({
+                    name,
+                    layoutName: t('layout.defaultName', { number: 1 }),
+                    gridSpacing: drawingDefaults?.gridSpacing,
+                    tracking: drawingDefaults?.tracking,
+                }),
+                path: null,
+                recovered: false,
+                initialImport: { command: format === 'dwg' ? 'DWGIN' : 'DXFIN', selection: { kind: selection.kind, value: selection.value } },
+            });
         } catch (error) {
             setMessage(localizeError(error, t, 'file.openFailed'));
         }
-    }, [prepareSessionReplacement, replaceWithLoaded, setMessage, t]);
+    }, [drawingDefaults, onReplaceSession, prepareSessionReplacement, replaceWithLoaded, setMessage, t]);
 
     const openDrawingAtPath = useCallback(async path => {
         if (!path || !await prepareSessionReplacement()) return;
@@ -329,6 +392,7 @@ export default function useLcadFileCommands({
     }, [document.name, document.pageSetups, setMessage, t]);
 
     return {
+        chooseUnsaved,
         createNewDrawing,
         createQuickDrawing,
         saveDrawingTemplate,
@@ -343,6 +407,23 @@ export default function useLcadFileCommands({
         printJob,
         publishRenderedLayouts,
         publishRequest,
+        saveDrawing,
         saveDrawingAs,
+        unsavedPrompt,
     };
+}
+
+/** One picker for every format OPEN understands; returns its name and native path or browser File. */
+async function chooseDrawingToOpen(t) {
+    if (isTauriRuntime()) {
+        const path = await openNativeFile({ multiple: false, directory: false, filters: [
+            { name: t('fileDialog.openableDrawing'), extensions: [...DRAWING_OPEN_EXTENSIONS] },
+            { name: t('fileDialog.lcadDrawing'), extensions: ['lcad'] },
+            { name: t('fileDialog.cadDrawing'), extensions: ['dwg', 'dxf'] },
+        ] });
+        return path ? { kind: 'path', value: path, name: getLcadPathLabel(path) } : null;
+    }
+    // An unsupported choice (via "All files") gets an explanation instead of an archive error.
+    const file = await chooseBrowserFile({ accept: '.lcad,.dxf,.dwg,application/x-lumcad,application/zip' });
+    return file ? { kind: 'file', value: file, name: file.name } : null;
 }
