@@ -365,3 +365,13 @@ The [document pipeline](./benchmarks/dwg-import-2026-10-30/document.json) and [b
 | Delete/undo/redo, maximum | 84.2 ms | 189.3 ms |
 
 The load and pan targets are met here; hover, zoom, selection and bulk-edit targets are still exceeded. These synthetic timings must not be presented as the timings of the much denser customer DWGs.
+
+## UX overhaul — 2026-11-13
+
+No rendering, snapping-index or persistence path was redesigned. Three changes are relevant to the budgets:
+
+- Cursor coordinates in the status bar are written to the DOM once per frame, without a React render of the editor.
+- Dimensions without a stored text size take the size of the current style at every zoom. They no longer re-render when the view width changes, which they did on the synthetic fixtures.
+- The Y-axis conversion happens where a value is typed or displayed, never inside a render or hit-testing loop.
+
+`npm run bench` was rerun on the merged branch as a regression check, not as a new baseline: the machine was shared with other validation work during this pass. `npm run bench:browser` was not rerun; interaction budgets still need an isolated run before the baseline tables above are updated.

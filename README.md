@@ -258,6 +258,31 @@ Dimension creation previews use the current style before placement. Styled arrow
 
 `CENTERLINE [ALTERNATE]` creates an associative midline/bisector from two selected line segments or two source picks. Its properties and end grip control extension beyond source extents. `CENTERREASSOCIATE` accepts circle/arc sources for centre marks and paired line sources for centre lines, or starts interactive picking. `CENTERDISASSOCIATE` retains geometry as local snapshots; `CENTERRESET` restores default geometry settings and current dimension-style appearance. All support cancellation where interactive and one-step undo for completed edits.
 
+### Finding files, settings and commands
+
+The **File** menu in the window header is the same on every platform: New, Open, Import, Export,
+Save (Ctrl/Cmd+S), Save as, Print / PDF and Settings (Ctrl/Cmd+,). **Open** also accepts `.dwg`
+and `.dxf` files and imports them into a new drawing; **Import** picks the right command from the
+file extension (DWG, DXF, PDF, DGN, WMF, images, `.lcad` block libraries) and **Export** lists the
+output formats. `IMPORT`, `EXPORT`, `QSAVE` and `OPTIONS` are the matching commands. The header
+shows the save state in words (Unsaved, Local recovery, Saving, Saved). Replacing an unsaved
+drawing asks Save / Don't save / Cancel, and Cancel leaves everything untouched.
+
+Command search matches names, aliases and the translated label, ignoring accents and case
+("import", "calque", "cote"). `HELP` (`?`, `AIDE`, F1) opens the palette of all commands, grouped
+by family. Enter never runs a suggestion you did not choose: a suggestion runs when selected with
+the arrows, Tab or a click, or when the typed text is exactly a name or alias. The history button
+of the command line also opens the session log (commands and their full replies).
+
+On an idle canvas, Enter or Space repeats the last command and a right click opens a context
+menu; during a command, a right click is Enter. Ctrl/Cmd+A selects everything. `ZOOM` (`Z`)
+accepts Extents, All, Window and a factor.
+
+Coordinates and angles are shown and typed with the **Y axis up** and counter-clockwise angles, as
+in AutoCAD. The stored geometry and the `.lcad` format are unchanged; Settings › Drawing has a
+switch back to the previous screen-down convention. MCP keeps the stored frame (see MCP.md). In
+French, the comma is the decimal separator and points are typed `x;y`; typing `0,0` explains it.
+
 ### Shared creation and properties
 
 The command line sits in the window header (Mod+K focuses it; typing anywhere also starts
@@ -272,11 +297,18 @@ metres. An option chip starts the matching command option in the command line, w
 single place to type points and values. Snap, grid, ortho, polar and
 object tracking toggles live in the status bar at the bottom of the window. Text,
 dimension and plot styles, parameters, constraints and measurements open in a floating
-window from command search or the **Manage** section of the Properties tab. Cancel/Escape discards an unfinished creation; property edits apply live and can be
+window from command search or the **Manage** menu at the top of the right panel. Cancel/Escape discards an unfinished creation; property edits apply live and can be
 undone. Continuous LINE entry remains active until cancelled. Rich text uses the shared
 in-place editor with explicit apply/cancel.
 
 ### Annotation scales
+
+The **Scale 1:n** control in the model status bar sets the plan scale (the annotation scale).
+Dimension styles are edited in millimetres on paper; the size in the drawing is that value times
+the plan scale. Changing the plan scale offers to rescale existing dimensions and texts in one undo
+step. A picked object is dimensioned in three steps: object (or two points with `POINTS`), then
+the position of the dimension line, with a live preview; Enter accepts a position outside the
+outline. Dimension text is selectable and has its own grip.
 
 The annotation-scale section of the Properties tab selects the model denominator independently of
 screen zoom. Enable annotation on selected text, dimensions, hatches or blocks/leaders,
@@ -421,4 +453,4 @@ See [NATIVE_QA.md](./NATIVE_QA.md) for the native acceptance record and pending 
 
 Use the native executable with `--headless` to run without a visible window, then use MCP `open_document`, `save_document` and `export_pdf` for unattended drawing/PDF files. The existing command engine and publication renderer are shared; the runtime still needs the native WebView and a graphical session. See [HEADLESS.md](./HEADLESS.md) for launch, isolation and examples.
 
-`npm run test:e2e` runs real Chromium interaction checks across all 298 catalog commands plus complete geometry/history/file workflows. Entry/precondition coverage is distinguished from full successful-tool coverage in [E2E_TESTING.md](./E2E_TESTING.md). `npm run test:headless` verifies the built native runtime through MCP and checks the resulting multipage PDF.
+`npm run test:e2e` runs real Chromium interaction checks across all 304 catalog commands plus complete geometry/history/file workflows. Entry/precondition coverage is distinguished from full successful-tool coverage in [E2E_TESTING.md](./E2E_TESTING.md). `npm run test:headless` verifies the built native runtime through MCP and checks the resulting multipage PDF.

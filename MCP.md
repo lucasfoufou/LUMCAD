@@ -238,6 +238,12 @@ Cancels the current command and clears the selection.
 
 `SAVEAS`, `OPEN`, and `PSETOUT` intentionally open native system dialogs, just as they do from the interface. Plot and publish commands first open LUMCAD's preview/configuration dialog; PDF and DWFx destination selection is native only after the user confirms that preview. `PDFSELECTED` uses the layout tabs selected through Cmd/Ctrl-click, in their current document order. The MCP call activates an interactive dialog but cannot choose a destination on the user's behalf. Use `AUTOPUBLISH` when a saved drawing must publish without any dialog. Regular drawing persistence is handled continuously by autosave.
 
+## Commands added by the 2026-11-13 UX overhaul
+
+The catalog holds 304 commands. `IMPORT`, `EXPORT`, `QSAVE` (alternatives `SAVE`, `ENREGISTRER`), `OPTIONS` and `HELP` open dialogs, pickers or panels of the interface, like the commands above, and are refused in headless mode; use the explicit file tools and the format-specific commands (`DXFIN`, `DXFOUT`, `PDFIMPORT`, …) from an agent. `VPSCALE n` (also `1:n`, `1/n`, `n:1`) sets the scale of the selected or only viewport of the active layout. `ZOOM` accepts `E`, `A`, `W` with two points, or a factor, and has the `Z` alias. `E`, `ERASE` and `EFFACER` are alternatives of `DELETE`; `LAYER` without input opens the Layers panel. `SCALELISTEDIT CURRENT n RESCALE` changes the plan scale and rescales non-annotative dimensions and texts in one undo step.
+
+Three behaviours differ from the interface on purpose, so that an agent stays deterministic: an empty `enter` action never repeats the previous command; a command prefix is never completed; coordinates and angles stay in the stored frame (see *Coordinate frames*). The `DIMENSION` tool now waits for the position of the dimension line after the picked object or the two points: send a point, an offset value, or an `enter` action to accept the default position.
+
 ## Tests and command coverage
 
 The command registry lives in `src/mcp/commands.json`. Both the command bar and the Rust MCP server consume this file.

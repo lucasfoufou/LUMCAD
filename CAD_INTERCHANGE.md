@@ -68,6 +68,15 @@ $env:LUMCAD_LIBREDWG_DIR = 'C:\Tools\LibreDWG\bin'
 
 The Windows directory must contain `dwgread.exe`, `dwgwrite.exe` and their required runtime dependencies. LUMCAD never downloads or installs a converter at run time. Current installers do not yet ship LibreDWG; the resources lookup above is ready for an installer that does. The Settings section shows whether LibreDWG was found and where, and gives install instructions for the current platform when it is missing. Missing executables produce a localized diagnostic pointing to that section, with a button that opens it. Settings only check that the files exist; nothing is executed until a DWG command runs.
 
+### Bundling LibreDWG with the Windows installer (not done yet)
+
+The application already searches a `libredwg` folder (then `libredwg/bin`) in its bundled resources, after the folder entered in Settings and before `PATH`. The Windows release job does not ship that folder yet. The step was not added because it could not be executed while it was written. To add it, in the Windows build job of `.github/workflows/release.yml`, before `tauri-action`:
+
+1. Download the win64 archive of a pinned LibreDWG release, verify a pinned SHA-256 (`Get-FileHash`, fail on mismatch) and extract `dwgread.exe`, `dwgwrite.exe`, their DLLs and `COPYING` into `src-tauri/libredwg/`.
+2. Pass a job-specific configuration, for example `src-tauri/tauri.libredwg.conf.json` with `{"bundle":{"resources":{"../LICENSE":"LICENSE","libredwg/":"libredwg/"}}}`, through `--config`. Do not put it in `tauri.conf.json`: a missing folder would break the other platforms and the desktop checks.
+3. LibreDWG is GPLv3 or later, compatible with this GPL-3.0-only distribution. Ship `COPYING` and a `SOURCE.txt` naming the version, the URL and the checksum of the matching source archive.
+4. After an NSIS install, check that Settings › Files and DWG reports LibreDWG as found in the installation folder.
+
 The adapter launches executables directly, without a shell, inside an isolated temporary directory. It uses `dwgread -O DXF` for import and `dwgwrite --as=r2000` for export. LibreDWG writes CRLF line endings through a text-mode file stream; Windows builds can consequently produce CRCRLF. The adapter repairs these doubled carriage returns in intermediate DXF output before parsing, preserving empty string values and legacy text bytes. Source DWG/DXF files and exported DWG bytes are not rewritten by this repair. LibreDWG conversion remains experimental and does not guarantee compatibility with arbitrary real-world DWG files or AutoCAD. The intermediate DXF must still satisfy the supported subset above. Packaged converters and broader version/fidelity acceptance are follow-up work.
 
 ## Limits and verification
