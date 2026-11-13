@@ -708,14 +708,30 @@
 
 .drawing-status-separator { width: 1px; height: 16px; margin: 0 4px; background: var(--line); }
 
+// Live pointer position; fixed width so the aids beside it do not move.
+.drawing-cursor-position {
+  display: inline-flex;
+  justify-content: flex-end;
+  width: 13.5rem;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font: var(--text-sm) var(--font-num);
+  white-space: nowrap;
+
+  &.is-idle { color: var(--muted); }
+  output { overflow: hidden; text-overflow: ellipsis; }
+}
+
 .drawing-snap-scale {
   display: inline-flex;
   align-items: center;
   gap: 2px;
   color: var(--muted);
   font: var(--text-sm) var(--font-num);
+  white-space: nowrap;
 
-  input { width: 4.5rem; min-height: 22px; padding: 0 4px; border-color: transparent; background: transparent; font: inherit; }
+  input { width: 3.6rem; min-height: 22px; padding: 0 4px; border-color: transparent; background: transparent; font: inherit; }
   input:hover:not(:focus) { background: var(--field); }
 }
 
@@ -763,6 +779,12 @@
   .drawing-manager-window { right: 272px; }
   .drawing-sidebar-tabs button { padding: 0 4px; font-size: var(--text-sm); }
   .drawing-manage-trigger span { display: none; }
+  // Narrow status bar: compact aids and no zoom buttons (wheel, Zoom field
+  // and the ZOOM command remain) so the layout tabs keep some room.
+  .drawing-cursor-position { width: 11rem; font-size: var(--text-xs); }
+  .drawing-status-aid { padding: 0 4px; letter-spacing: 0; }
+  .drawing-status-aids .drawing-status-view { display: none; }
+  .drawing-workspace-tab-strip { min-width: 4.5rem; }
   // Narrow panel: compact layer toggles leave room for the layer name.
   .drawing-sidebar .drawing-layer-row-header { gap: 4px; }
   .drawing-sidebar .drawing-layer-actions > button { width: 20px; min-width: 20px; }
