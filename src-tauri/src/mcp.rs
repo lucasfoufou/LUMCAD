@@ -758,7 +758,7 @@ mod tests {
     #[test]
     fn shared_command_manifest_is_unique_and_complete() {
         let commands = command_manifest();
-        assert_eq!(commands.len(), 303);
+        assert_eq!(commands.len(), 304);
         assert_eq!(
             commands
                 .iter()

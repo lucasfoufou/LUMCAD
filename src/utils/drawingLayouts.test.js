@@ -64,9 +64,9 @@ test('layout dimension text keeps a constant physical paper height', () => {
     }), 5);
 });
 
-test('drawing layouts normalize to one editable A0 layout', () => {
+test('drawing layouts normalize to one editable A3 layout', () => {
     const [layout] = normalizeDrawingLayouts(null);
-    assert.equal(layout.format, 'A0');
+    assert.equal(layout.format, 'A3');
     assert.equal(layout.orientation, 'landscape');
     assert.equal(layout.name, 'Layout 1');
     assert.deepEqual(layout.viewports, []);

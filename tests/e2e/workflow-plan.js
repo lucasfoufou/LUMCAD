@@ -252,6 +252,7 @@ export const COVERED = {
     viewportLayer: 'tools-layouts.spec.js › VPLAYER freezes a layer in one viewport only',
     viewportMax: 'tools-layouts.spec.js › VPMAX maximises the selected viewport and VPMIN returns to the sheet',
     viewportMin: 'tools-layouts.spec.js › VPMAX maximises the selected viewport and VPMIN returns to the sheet',
+    viewportScale: 'tools-layouts.spec.js › VPSCALE sets the selected viewport to an exact standard scale',
     alignSpace: 'tools-layouts.spec.js › ALIGNSPACE scales and centres a viewport on paper points',
     changeSpace: 'tools-layouts.spec.js › CHSPACE moves a model object onto the active layout paper',
     exportLayout: 'tools-layouts.spec.js › EXPORTLAYOUT downloads the active layout as a separate drawing',

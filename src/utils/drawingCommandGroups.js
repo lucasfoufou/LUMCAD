@@ -57,7 +57,7 @@ const GROUPS = [
         'gcHorizontal', 'gcParallel', 'gcPerpendicular', 'gcSymmetric', 'gcTangent', 'gcVertical', 'gcSmooth',
     ]],
     ['layout', [
-        'layout', 'pageSetup', 'pageSetupImport', 'pageSetupExport', 'modelSpace', 'paperSpace', 'viewport',
+        'layout', 'pageSetup', 'pageSetupImport', 'pageSetupExport', 'modelSpace', 'paperSpace', 'viewport', 'viewportScale',
         'viewportClip', 'viewportLayer', 'viewportMax', 'viewportMin', 'changeSpace', 'exportLayout', 'alignSpace',
         'plot', 'pdf', 'pdfAll', 'pdfSelected', 'publish', 'autoPublish', 'dwfx', 'styleManager', 'plotStyle',
         'convertPlotStyles', 'convertColorTable', 'sheetSet', 'newSheetSet', 'openSheetSet', 'sheetSetArchive',

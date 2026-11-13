@@ -9,7 +9,9 @@ import {
     getDrawingPaperSize,
     getDrawingPrintableArea,
     getDrawingViewportClipPoints,
+    getDrawingViewportScale,
 } from '~utils/drawingLayouts';
+import { formatDrawingScaleLabel } from '~utils/drawingSheetSetup';
 import { getDrawingBounds } from '~utils/drawingGeometry';
 import {
     applyDrawingPlotStyle,
@@ -212,6 +214,15 @@ function DrawingLayoutViewport({ assets, content, handleSize, interactive, plotS
                         data-layout-viewport-id={viewport.id}
                         points={clipPointString}
                     />
+                    <text
+                        className="drawing-layout-viewport-scale-label"
+                        x={viewport.x + handleSize * 0.6}
+                        y={viewport.y + handleSize * 1.5}
+                        fontSize={handleSize * 1.15}
+                        aria-hidden="true"
+                    >
+                        {formatDrawingScaleLabel(getDrawingViewportScale(viewport))}
+                    </text>
                     {selected && <ViewportHandles viewport={viewport} size={handleSize} />}
                 </>
             )}

@@ -57,10 +57,9 @@ export default function DrawingPaperAnnotationPanel({
     };
 
     return (
-        <fieldset className="drawing-layout-fieldset drawing-paper-annotation-panel">
-            <legend>{t('layout.paperAnnotations')}</legend>
+        <div className="drawing-paper-annotation-panel">
             <p className="drawing-layout-help">{t('layout.paperAnnotationsHint')}</p>
-            <div className="drawing-layout-sidebar-actions">
+            <div className="drawing-layout-sidebar-actions is-stacked">
                 <Button type="button" disabled={!canEditEntity(content, { layerId: content.activeLayerId })} onClick={() => create('text')}>{t('layout.addPaperText')}</Button>
                 <Button type="button" disabled={!canEditEntity(content, { layerId: content.activeLayerId })} onClick={() => create('line')}>{t('layout.addPaperLine')}</Button>
                 <Button type="button" disabled={!canEditEntity(content, { layerId: content.activeLayerId })} onClick={() => create('rectangle')}>{t('layout.addPaperRectangle')}</Button>
@@ -103,6 +102,6 @@ export default function DrawingPaperAnnotationPanel({
                     </div>
                 </fieldset>
             )}
-        </fieldset>
+        </div>
     );
 }
