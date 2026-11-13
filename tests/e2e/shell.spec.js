@@ -87,6 +87,9 @@ test('IMPORT routes a DXF to DXFIN in one undo step; OPEN of a DXF starts a new 
     const before = await state(page);
     choosing = page.waitForEvent('filechooser');
     await command(page, 'OPEN');
+    // The undone import may have reached local recovery: then the prompt asks first.
+    const firstPrompt = page.getByRole('dialog', { name: /Save changes to/ });
+    await firstPrompt.waitFor({ timeout: 1500 }).then(() => firstPrompt.getByRole('button', { name: 'Don’t save' }).click()).catch(() => {});
     await (await choosing).setFiles({ name: 'Toiture Dupont.dxf', mimeType: 'application/dxf', buffer: Buffer.from(dxf) });
     await expect.poll(async () => (await state(page))?.document.name).toBe('Toiture Dupont');
     const opened = await state(page);
