@@ -764,6 +764,8 @@ function TextFields({ values, textStyles = [], t, onChange, disabled = false, in
 }
 
 function RectangleEditFields({ entity, disabled, t, onChange }) {
+    // The signed height runs along the rectangle's local Y axis, which flips with Y up.
+    const heightSign = useUserSettings().yAxisUp === true ? -1 : 1;
     const cornerStyle = ['chamfer', 'fillet'].includes(entity.cornerStyle) ? entity.cornerStyle : 'square';
     const updateNumber = (property, value) => updateFinite(onChange, property, value);
     const updateCornerStyle = nextStyle => onChange(nextStyle === 'square'
@@ -772,7 +774,8 @@ function RectangleEditFields({ entity, disabled, t, onChange }) {
     return (
         <div className="drawing-creation-fields">
             <NumberField label={t('creation.width')} value={entity.width} disabled={disabled} onChange={value => updateNumber('width', value)} />
-            <NumberField label={t('creation.height')} value={entity.height} disabled={disabled} onChange={value => updateNumber('height', value)} />
+            <NumberField label={t('creation.height')} value={Number.isFinite(entity.height) ? entity.height * heightSign || 0 : entity.height} disabled={disabled}
+                onChange={value => updateNumber('height', Number.isFinite(value) ? value * heightSign || 0 : value)} />
             <DetailsFields t={t}>
                 <UserPointFields point={{ x: entity.x, y: entity.y }} labels={[t('creation.x'), t('creation.y')]} disabled={disabled}
                     onChange={point => onChange({ x: point.x, y: point.y })} />

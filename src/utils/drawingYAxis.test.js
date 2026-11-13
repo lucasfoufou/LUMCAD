@@ -23,6 +23,8 @@ const rotatedUcs = { ucs: { x: 10, y: -20, rotation: 330 } }; // user: origin (1
 test('Y up flips the stored screen-down Y once, around the UCS origin', () => {
     near(drawingWorldToUser({ x: 2, y: -3 }, up({})), { x: 2, y: 3 });
     near(drawingUserToWorld({ x: 2, y: 3 }, up({})), { x: 2, y: -3 });
+    assert.ok(Object.is(drawingWorldToUser({ x: 1, y: 0 }, up({})).y, 0), 'Y = 0 never reads as -0');
+    assert.ok(Object.is(drawingUserToWorld({ x: 1, y: 0 }, up({})).y, 0));
     near(drawingWorldToUser({ x: 12, y: -25 }, up({ ucs: { x: 10, y: -20, rotation: 0 } })), { x: 2, y: 5 });
     for (const settings of [up({}), up(rotatedUcs), down(rotatedUcs), up({ ucs: { x: -3, y: 4, rotation: 123 } })]) {
         for (const point of [{ x: 0, y: 0 }, { x: 3.5, y: -7 }, { x: -1e3, y: 42 }]) {
@@ -106,6 +108,7 @@ test('rotations, directions and vectors convert between frames', () => {
     near(drawingWorldVectorToUser({ x: 3, y: -3 }, settings), { x: 3, y: 3 });
     near(drawingUserVectorToWorld({ x: 3, y: 3 }, settings), { x: 3, y: -3 });
     assert.deepEqual(drawingLimitsFromUser({ minX: 0, minY: 1, maxX: 2, maxY: 3, enabled: true }, true), { minX: 0, minY: -3, maxX: 2, maxY: -1, enabled: true });
+    assert.ok(Object.is(drawingLimitsFromUser({ minX: 0, minY: 0, maxX: 1, maxY: 1 }, true).maxY, 0), 'no negative zero is stored');
     assert.deepEqual(drawingLimitsToUser(drawingLimitsFromUser({ minX: 0, minY: 1, maxX: 2, maxY: 3 }, true), true), { minX: 0, minY: 1, maxX: 2, maxY: 3 });
 });
 

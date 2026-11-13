@@ -40,7 +40,7 @@ export function normalizeDrawingNamedUcs(value) {
 export function drawingUcsToWorld(point, ucs) {
     if (!point) return point;
     const frame = normalizeDrawingUcs(ucs); const radians = frame.rotation * Math.PI / 180;
-    const y = ucs?.yUp === true ? -point.y : point.y;
+    const y = ucs?.yUp === true && point.y !== 0 ? -point.y : point.y;
     return { ...point, x: frame.x + point.x * Math.cos(radians) - y * Math.sin(radians), y: frame.y + point.x * Math.sin(radians) + y * Math.cos(radians) };
 }
 export function drawingWorldToUcs(point, ucs) {
@@ -48,7 +48,7 @@ export function drawingWorldToUcs(point, ucs) {
     const frame = normalizeDrawingUcs(ucs); const radians = frame.rotation * Math.PI / 180;
     const dx = point.x - frame.x; const dy = point.y - frame.y;
     const y = -dx * Math.sin(radians) + dy * Math.cos(radians);
-    return { ...point, x: dx * Math.cos(radians) + dy * Math.sin(radians), y: ucs?.yUp === true ? -y : y };
+    return { ...point, x: dx * Math.cos(radians) + dy * Math.sin(radians), y: ucs?.yUp === true && y !== 0 ? -y : y };
 }
 
 /**
@@ -130,7 +130,7 @@ export function drawingUcsFromUser(ucs, yAxisUp) {
 /** Drawing limits typed or read by the user (min/max swap on Y when it is flipped). */
 export function drawingLimitsFromUser(limits, yAxisUp) {
     if (yAxisUp !== true || !limits) return limits;
-    return { ...limits, minY: -limits.maxY, maxY: -limits.minY };
+    return { ...limits, minY: -limits.maxY || 0, maxY: -limits.minY || 0 };
 }
 export const drawingLimitsToUser = drawingLimitsFromUser;
 function normalizeAngle(value) {
