@@ -374,4 +374,4 @@ No rendering, snapping-index or persistence path was redesigned. Three changes a
 - Dimensions without a stored text size take the size of the current style at every zoom. They no longer re-render when the view width changes, which they did on the synthetic fixtures.
 - The Y-axis conversion happens where a value is typed or displayed, never inside a render or hit-testing loop.
 
-`npm run bench` was rerun on the merged branch as a regression check, not as a new baseline: the machine was shared with other validation work during this pass. `npm run bench:browser` was not rerun; interaction budgets still need an isolated run before the baseline tables above are updated.
+`npm run bench -- S L` was rerun on the merged branch as a regression check, not as a new baseline. On `L` (median / p95, ms): open 85 / 98, save 84 / 95, one-entity commit 2.9 / 3.1, pointer snapping 0.1 / 0.2, first snap after an edit 1.9 / 8.0, quarter window selection 3.8 / 4.4. All are inside the budgets. `npm run bench:browser` was not rerun; interaction budgets still need an isolated run before the baseline tables above are updated.
