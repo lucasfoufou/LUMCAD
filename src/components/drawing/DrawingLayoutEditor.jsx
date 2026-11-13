@@ -39,6 +39,7 @@ export default function DrawingLayoutEditor({
     pageSetups = [],
     selectedViewportId,
     viewportMaximized = false,
+    yAxisUp = false,
 }) {
     const [selectedPaperEntityId, setSelectedPaperEntityId] = useState(null);
     const selectedViewport = layout.viewports.find(viewport => viewport.id === selectedViewportId) || null;
@@ -114,6 +115,7 @@ export default function DrawingLayoutEditor({
             </main>
             <DrawingLayoutSidebar
                 content={content}
+                yAxisUp={yAxisUp}
                 currentModelViewport={currentModelViewport}
                 layout={layout}
                 layoutCount={layoutCount}

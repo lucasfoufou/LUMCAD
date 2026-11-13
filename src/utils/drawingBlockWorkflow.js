@@ -1,8 +1,13 @@
 import { drawingAttributeDefinitions, normalizeDrawingAttributeTag, tokenizeDrawingAttributeInput } from './drawingBlockAttributes.js';
 import { setDrawingBasePoint } from './drawingBasePoint.js';
+import { drawingEntryDirectionToWorld, drawingEntryPointToWorld } from './drawingCoordinates.js';
 import { defineNamedDrawingBlock, findNamedDrawingBlock, insertNamedDrawingBlock, parseNamedBlockInput } from './drawingNamedBlocks.js';
 
-export function createDrawingBlockWorkflow({ history, selectedIds, canvasRef, commandBarRef, setInteractiveOperation, setActiveTool, setSelectedIds, setMessage, t }) {
+export function createDrawingBlockWorkflow({ history, selectedIds, canvasRef, commandBarRef, setInteractiveOperation, setActiveTool, setSelectedIds, setMessage, t,
+    getUserSettings = () => ({}) }) {
+    // Typed base/insertion points and rotations are read in the user frame (Y up when enabled).
+    const typedPoint = point => point && drawingEntryPointToWorld(point, getUserSettings());
+    const typedAngle = angle => drawingEntryDirectionToWorld(angle, getUserSettings());
     const fail = key => { setMessage(t(`block.error.${key}`)); return true; };
     const finish = (result, key) => {
         if (result.error) return fail(result.error);
@@ -26,21 +31,23 @@ export function createDrawingBlockWorkflow({ history, selectedIds, canvasRef, co
         if (!value) return begin({ type: 'blockBase', stage: 'base' });
         const parts = value.split(/\s+/);
         if (parts.length !== 2) return fail('baseSyntax');
-        const content = setDrawingBasePoint(history.content, { x: Number(parts[0]), y: Number(parts[1]) });
+        const content = setDrawingBasePoint(history.content, typedPoint({ x: Number(parts[0]), y: Number(parts[1]) }));
         return content ? finish({ content }, 'block.baseSaved') : fail('baseSyntax');
     };
     const define = (input, ids = selectedIds) => {
         if (!ids.length) return fail('selection');
         if (!String(input || '').trim()) return begin({ type: 'blockDefine', stage: 'name', entityIds: ids });
-        const options = parseNamedBlockInput(input, 'define');
-        if (!options) return fail('defineSyntax');
+        const parsed = parseNamedBlockInput(input, 'define');
+        if (!parsed) return fail('defineSyntax');
+        const options = { ...parsed, basePoint: typedPoint(parsed.basePoint) };
         if (options.basePoint) return finish(defineNamedDrawingBlock(history.content, ids, options), 'block.defined');
         return begin({ type: 'blockDefine', stage: 'base', entityIds: ids, ...options });
     };
     const insert = (input, attributeValues) => {
         if (!String(input || '').trim()) return begin({ type: 'blockInsert', stage: 'name' });
-        const options = parseNamedBlockInput(input, 'insert');
-        if (!options) return fail('insertSyntax');
+        const parsed = parseNamedBlockInput(input, 'insert');
+        if (!parsed) return fail('insertSyntax');
+        const options = { ...parsed, point: typedPoint(parsed.point), angle: typedAngle(parsed.angle) };
         if (attributeValues) options.attributeValues = attributeValues;
         if (!findNamedDrawingBlock(history.content, options.name)) return fail('missing');
         if (options.point) return finish(insertNamedDrawingBlock(history.content, options.name, options.point, options), 'block.inserted');
@@ -72,7 +79,8 @@ export function createDrawingBlockWorkflow({ history, selectedIds, canvasRef, co
             const match = String(rawValue || '').trim().match(/^(SCALE|ROTATION)\s+([+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+))$/i);
             const value = match && Number(match[2].replace(',', '.'));
             if (match && Number.isFinite(value) && (match[1].toUpperCase() === 'ROTATION' || value > 1e-9 && value <= 1e9)) {
-                setInteractiveOperation({ ...operation, [match[1].toUpperCase() === 'SCALE' ? 'scale' : 'angle']: value });
+                const rotation = match[1].toUpperCase() === 'ROTATION';
+                setInteractiveOperation({ ...operation, [rotation ? 'angle' : 'scale']: rotation ? typedAngle(value) : value });
                 setMessage(t('block.insertPrompt'));
                 return true;
             }

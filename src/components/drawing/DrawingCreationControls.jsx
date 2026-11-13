@@ -16,11 +16,13 @@ import { getDrawingCommandDefinition } from '~utils/drawingCommands';
 import { getEntityBounds } from '~utils/drawingGeometry';
 import { describeDrawingBlockTransform, describeDrawingLine, resizeDrawingLine, updateDrawingBlockTransform } from '~utils/drawingEntityProperties';
 import { translateEntity } from '~utils/drawingPrimitives';
+import { drawingEntryDirectionToWorld, drawingEntryPointToWorld, drawingEntryVectorToWorld, drawingUserFrame, drawingUserRotationToWorld, drawingUserSettings,
+    drawingWorldDirectionForDisplay, drawingWorldRotationToUser, drawingWorldPointForDisplay, drawingWorldVectorForDisplay } from '~utils/drawingCoordinates';
 import { normalizeImageAdjustments } from '~utils/drawingImageAdjustments';
 import { normalizeImageClip, parseImageClipInput } from '~utils/drawingImageClip';
 import { isDrawingWipeout } from '~utils/drawingWipeout';
 import { normalizeDrawingHatchPattern } from '~utils/drawingAdvancedEntities';
-import React, { useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 
 import { editSplineControl, editSplineDefinitionPoint, editSplineDefinitionKnot, editSplineEndpointTangent, splineEndpointDerivative, isEditableSpline } from '~utils/drawingSplineEditing';
 import { changeSplinePointList, convertSplineToControl, convertSplineToPolyline, insertSplineKnot, refitSpline } from '~utils/drawingSplineTopology';
@@ -36,8 +38,33 @@ import {
     resolveDrawingTextStyle,
 } from '~utils/drawingText';
 
+// Drawing settings seen through the "Y axis up" preference: every coordinate or
+// angle field below reads and writes through it (identity when Y is down).
+const UserFrameContext = createContext(null);
+const useUserSettings = () => useContext(UserFrameContext) || {};
+
+/** X and Y fields of a stored point, shown and edited in the user frame. */
+function UserPointFields({ point, labels, disabled, onChange, min, max }) {
+    const settings = useUserSettings();
+    const shown = drawingWorldPointForDisplay(point, settings);
+    return ['x', 'y'].map((axis, index) => <NumberField key={axis} label={labels[index]} value={shown[axis]} min={min} max={max} disabled={disabled}
+        onChange={value => { if (Number.isFinite(value)) onChange(drawingEntryPointToWorld({ ...shown, [axis]: value }, settings)); }} />);
+}
+/** An absolute direction in degrees (stored), shown and edited in the user frame. */
+function UserDirectionField({ label, degrees, disabled, step, onChange }) {
+    const settings = useUserSettings();
+    return <NumberField label={label} value={Number.isFinite(degrees) ? drawingWorldDirectionForDisplay(degrees, settings) : degrees} step={step} disabled={disabled}
+        onChange={value => { if (Number.isFinite(value)) onChange(drawingEntryDirectionToWorld(value, settings)); }} />;
+}
+/** Stored arc sweep flag as the user reads it: with Y up, screen counter-clockwise is stored clockwise. */
+function userCounterClockwise(storedCounterClockwise, settings) {
+    const stored = storedCounterClockwise !== false;
+    return settings?.yAxisUp === true ? !stored : stored;
+}
+
 export default function DrawingCreationControls({
     activeTool,
+    yAxisUp = false,
     embedded = false,
     lengthUnit = 'm',
     mode,
@@ -79,6 +106,7 @@ export default function DrawingCreationControls({
     };
 
     return (
+        <UserFrameContext.Provider value={drawingUserSettings(content?.settings, yAxisUp)}>
         <section
             className={`drawing-creation-controls${editMode ? ' is-editing' : ''}${embedded ? ' is-embedded' : ''}`}
             aria-label={editMode
@@ -118,6 +146,7 @@ export default function DrawingCreationControls({
             {contextual && commandInput && <ContextFields operation={operation} activeTool={activeTool}
                 input={commandInput} onCancel={onCancel} t={t} />}
         </section>
+        </UserFrameContext.Provider>
     );
 }
 
@@ -156,7 +185,7 @@ function EntityEditFields({ content, entity, disabled, textStyles, t, onChange, 
     if (entity.revisionSymbol) return <RevisionFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (entity.linework) return <LineworkFields content={content} entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (entity.type === 'point') return <PointFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
-    if (['line', 'xline', 'ray'].includes(entity.type)) return <LineFields entity={entity} disabled={disabled} ucs={content?.settings?.ucs} t={t} onChange={onChange} />;
+    if (['line', 'xline', 'ray'].includes(entity.type)) return <LineFields entity={entity} disabled={disabled} t={t} onChange={onChange} />;
     if (isDrawingWipeout(entity)) return <div className="drawing-creation-fields"><SelectField label={t('wipeout.frame')} disabled={disabled}
         value={entity.wipeout.frame === false ? 'off' : 'on'} options={[['on', t('image.cropOn')], ['off', t('image.cropOff')]]}
         onChange={value => onChange({ wipeout: { frame: value === 'on' } })} /></div>;
@@ -195,7 +224,8 @@ function LeaderFields({ content, entity, disabled, t, onChange }) {
     </>;
 }
 
-function LineFields({ entity, disabled, ucs, t, onChange }) {
+function LineFields({ entity, disabled, t, onChange }) {
+    const ucs = drawingUserFrame(useUserSettings());
     // Length and angle are only meaningful for a finite segment.
     const measures = entity.type === 'line' ? describeDrawingLine(entity, ucs) : null;
     const resize = change => {
@@ -209,18 +239,18 @@ function LineFields({ entity, disabled, ucs, t, onChange }) {
             <NumberField label={t('creation.angle')} value={measures.angle} step={1} disabled={disabled}
                 onChange={value => resize({ angle: value })} />
         </>}
-        {['x1', 'y1', 'x2', 'y2'].map(key => <NumberField key={key}
-            label={t('creation.endpoint', { coordinate: key.toUpperCase() })} value={entity[key]} disabled={disabled}
-            onChange={value => {
-                if (!Number.isFinite(value) || Math.abs(value) > 1e9) return;
-                const next = { ...entity, [key]: value };
-                if (Math.hypot(next.x2 - next.x1, next.y2 - next.y1) > 1e-9) onChange({ [key]: value });
+        {['1', '2'].map(end => <UserPointFields key={end} point={{ x: entity[`x${end}`], y: entity[`y${end}`] }} disabled={disabled}
+            labels={['X', 'Y'].map(axis => t('creation.endpoint', { coordinate: `${axis}${end}` }))}
+            onChange={point => {
+                if (![point.x, point.y].every(value => Math.abs(value) <= 1e9)) return;
+                const next = { ...entity, [`x${end}`]: point.x, [`y${end}`]: point.y };
+                if (Math.hypot(next.x2 - next.x1, next.y2 - next.y1) > 1e-9) onChange({ [`x${end}`]: point.x, [`y${end}`]: point.y });
             }} />)}
     </div>;
 }
 
 function BlockReferenceFields({ content, entity, disabled, t, onChange }) {
-    const ucs = content?.settings?.ucs;
+    const ucs = drawingUserFrame(useUserSettings());
     const block = content?.blocks?.find(candidate => candidate.id === entity.blockId);
     const transform = describeDrawingBlockTransform(entity.transform, ucs);
     const update = change => {
@@ -284,8 +314,8 @@ function PointPolylineFields({ entity, disabled, t, onChange }) {
         <div className="drawing-creation-fields">
             <SelectField label={t('polylineEdit.vertex')} value={String(index)} disabled={disabled}
                 options={entity.points.map((_, i) => [String(i), String(i + 1)])} onChange={value => setSelected(Number(value))} />
-            {['x', 'y'].map(axis => <NumberField key={axis} label={t(`creation.${axis}`)} value={point[axis]} disabled={disabled}
-                onChange={value => update({ action: 'vertex', index, point: { ...point, [axis]: value } })} />)}
+            <UserPointFields point={point} labels={[t('creation.x'), t('creation.y')]} disabled={disabled}
+                onChange={next => update({ action: 'vertex', index, point: { ...point, x: next.x, y: next.y } })} />
             <CheckboxField label={t('polylineEdit.closed')} checked={Boolean(entity.closed)} disabled={disabled}
                 onChange={closed => update({ action: 'close', closed })} />
             <Button type="button" className="drawing-creation-action" disabled={disabled} onClick={() => update({ action: 'reverse' })}>{t('polylineEdit.reverse')}</Button>
@@ -299,15 +329,20 @@ function PointPolylineFields({ entity, disabled, t, onChange }) {
 }
 
 function PositionFields({ entity, disabled, t, onChange }) {
+    const settings = useUserSettings();
     const bounds = getEntityBounds(entity);
     if (!bounds) return null;
+    // The lower-left corner of the bounds as the user reads them.
+    const corners = [[bounds.minX, bounds.minY], [bounds.maxX, bounds.minY], [bounds.minX, bounds.maxY], [bounds.maxX, bounds.maxY]]
+        .map(([x, y]) => drawingWorldPointForDisplay({ x, y }, settings));
+    const origin = { x: Math.min(...corners.map(point => point.x)), y: Math.min(...corners.map(point => point.y)) };
     return <div className="drawing-creation-fields">
         {['x', 'y'].map(axis => <NumberField key={axis} label={t(`creation.${axis}`)}
-            value={bounds[axis === 'x' ? 'minX' : 'minY']} disabled={disabled}
+            value={origin[axis]} disabled={disabled}
             onChange={value => {
                 if (!Number.isFinite(value) || Math.abs(value) > 1e9) return;
-                const delta = value - bounds[axis === 'x' ? 'minX' : 'minY'];
-                onChange(translateEntity(entity, axis === 'x' ? delta : 0, axis === 'y' ? delta : 0));
+                const delta = drawingEntryVectorToWorld({ x: axis === 'x' ? value - origin.x : 0, y: axis === 'y' ? value - origin.y : 0 }, settings);
+                onChange(translateEntity(entity, delta.x, delta.y));
             }} />)}
         <p className="drawing-creation-field is-wide">{t('creation.geometryGrips')}</p>
     </div>;
@@ -368,14 +403,14 @@ function HatchFields({ entity, disabled, t, onChange }) {
             options={['solid', 'lines', 'cross', 'gradient', 'radial'].map(name => [name, t(`hatch.${name}`)])} />
         {['lines', 'cross'].includes(pattern.name) && <NumberField label={t('hatch.spacing')} value={pattern.spacing} min={0.02} max={1e6} disabled={disabled}
             onChange={value => { if (Number.isFinite(value) && value >= 0.02 && value <= 1e6) update({ spacing: value, scale: 1 }); }} />}
-        {pattern.name !== 'solid' && <NumberField label={t('creation.rotation')} value={pattern.angle} disabled={disabled}
-            onChange={value => { if (Number.isFinite(value)) update({ angle: value }); }} />}
+        {pattern.name !== 'solid' && <UserDirectionField label={t('creation.rotation')} degrees={pattern.angle} disabled={disabled}
+            onChange={angle => update({ angle })} />}
         {['gradient', 'radial'].includes(pattern.name) && <label className="drawing-creation-field"><span>{t('hatch.endColor')}</span>
             <Input type="color" aria-label={t('hatch.endColor')} value={pattern.endColor || '#ffffff'} disabled={disabled} onChange={event => update({ endColor: event.target.value })} />
         </label>}
         <DetailsFields t={t}>
-            {['x', 'y'].map(axis => <NumberField key={axis} label={t('hatch.origin', { axis: axis.toUpperCase() })} value={pattern.origin[axis]} disabled={disabled}
-                onChange={value => { if (Number.isFinite(value) && Math.abs(value) <= 1e12) update({ origin: { ...pattern.origin, [axis]: value } }); }} />)}
+            <UserPointFields point={pattern.origin} labels={['X', 'Y'].map(axis => t('hatch.origin', { axis }))} disabled={disabled}
+                onChange={origin => { if (Math.abs(origin.x) <= 1e12 && Math.abs(origin.y) <= 1e12) update({ origin: { ...pattern.origin, x: origin.x, y: origin.y } }); }} />
             {entity.sourceIds?.length > 0 && <Button type="button" className="drawing-creation-action" disabled={disabled}
                 onClick={() => onChange({ sourceIds: undefined })}>{t('hatch.detach')}</Button>}
         </DetailsFields>
@@ -396,8 +431,8 @@ function SplineDefinitionFields({ entity, disabled, t, onChange }) {
         <SelectField label={t(definition.mode === 'fit' ? 'creation.splineFit' : 'creation.splineControl')}
             value={String(pointIndex)} onChange={value => setSelectedPoint(Number(value))}
             options={definition.points.map((point, index) => [String(index), String(index + 1)])} />
-        {['x', 'y'].map(axis => <NumberField key={axis} label={t('creation.splinePointCoordinate', { index: pointIndex + 1, axis: axis.toUpperCase() })}
-            value={point[axis]} disabled={disabled} onChange={value => update(editSplineDefinitionPoint(entity, pointIndex, { ...point, [axis]: value }))} />)}
+        <UserPointFields point={point} labels={['X', 'Y'].map(axis => t('creation.splinePointCoordinate', { index: pointIndex + 1, axis }))}
+            disabled={disabled} onChange={next => update(editSplineDefinitionPoint(entity, pointIndex, { ...point, x: next.x, y: next.y }))} />
         <SelectField label={t('creation.splineKnot')} value={String(knotIndex)} onChange={value => setSelectedKnot(Number(value))}
             options={definition.knots.map((knot, index) => [String(index), String(index + 1)])} />
         <NumberField label={t('creation.splineParameter')} value={definition.knots[knotIndex]} min={0} max={1} step={0.01}
@@ -426,6 +461,7 @@ function SplineDefinitionFields({ entity, disabled, t, onChange }) {
 }
 
 function SplineTangentFields({ entity, disabled, t, onChange }) {
+    const settings = useUserSettings();
     const [endpoint, setEndpoint] = useState('start');
     const definition = entity.splineDefinition;
     const tangent = splineEndpointDerivative(entity, endpoint);
@@ -436,7 +472,11 @@ function SplineTangentFields({ entity, disabled, t, onChange }) {
         <SelectField label={t('creation.splineTangent')} value={endpoint} onChange={setEndpoint}
             options={['start', 'end'].map(value => [value, t(`creation.splineTangent${value === 'start' ? 'Start' : 'End'}`)])} />
         {['x', 'y'].map(axis => <NumberField key={axis} label={t('creation.splineDerivative', { axis: axis.toUpperCase() })}
-            value={tangent[axis]} disabled={disabled} onChange={value => onChange(editSplineEndpointTangent(entity, endpoint, { ...tangent, [axis]: value }))} />)}
+            value={drawingWorldVectorForDisplay(tangent, settings)[axis]} disabled={disabled} onChange={value => {
+                if (!Number.isFinite(value)) return;
+                const shown = drawingWorldVectorForDisplay(tangent, settings);
+                onChange(editSplineEndpointTangent(entity, endpoint, { ...tangent, ...drawingEntryVectorToWorld({ ...shown, [axis]: value }, settings) }));
+            }} />)}
         {definition.mode === 'fit' && <Button type="button" className="drawing-creation-action" disabled={disabled}
             onClick={() => onChange(editSplineEndpointTangent(entity, endpoint, natural ? tangent : null))}>
             {t(natural ? 'creation.splineConstrainTangent' : 'creation.splineNaturalTangent')}
@@ -454,11 +494,11 @@ function SplineEditFields({ entity, disabled, t, onChange }) {
         {parts.length > 1 && <SelectField label={t('creation.splineSpan')} value={String(span)}
             onChange={value => setSelectedSpan(Number(value))} options={parts.map((part, index) => [String(index), String(index + 1)])} />}
         {controls.map((point, index) => <React.Fragment key={index}>
-            {['x', 'y'].map(axis => <NumberField key={axis} label={t('creation.splineCoordinate', { index: index + 1, axis: axis.toUpperCase() })}
-                value={point[axis]} disabled={disabled} onChange={value => {
-                    const next = editSplineControl(entity, span, index, { ...point, [axis]: value });
+            <UserPointFields point={point} labels={['X', 'Y'].map(axis => t('creation.splineCoordinate', { index: index + 1, axis }))}
+                disabled={disabled} onChange={value => {
+                    const next = editSplineControl(entity, span, index, { ...point, x: value.x, y: value.y });
                     if (next !== entity) onChange(entity.type === 'spline' ? { controlPoints: next.controlPoints } : { parts: next.parts });
-                }} />)}
+                }} />
         </React.Fragment>)}
         <SplineConversionFields entity={entity} disabled={disabled} t={t} onChange={onChange} />
     </div>;
@@ -513,7 +553,7 @@ function RectangleCreationFields({ options, t, onChange }) {
             {sizeMode === 'area' && (
                 <NumberField label={t('creation.area')} value={options.area} min={0.0001} onChange={value => onChange({ area: value })} />
             )}
-            <NumberField label={t('creation.rotation')} value={options.rotation} step={1} placeholder="0" onChange={value => onChange({ rotation: value })} />
+            <UserRotationOption value={options.rotation} label={t('creation.rotation')} onChange={rotation => onChange({ rotation })} />
             <SelectField label={t('creation.cornerStyle')} value={cornerStyle} onChange={setCornerStyle} options={[
                 ['square', t('creation.square')],
                 ['chamfer', t('creation.chamfer')],
@@ -579,6 +619,7 @@ function PolygonCreationFields({ options, t, onChange }) {
 }
 
 function EllipseFields({ entity = null, mode, options = {}, disabled = false, t, onModeChange, onChange }) {
+    const settings = useUserSettings();
     const values = entity || options;
     const isArc = entity ? !entity.fullEllipse : ['axisArc', 'centerArc'].includes(mode);
     const update = patch => {
@@ -592,18 +633,19 @@ function EllipseFields({ entity = null, mode, options = {}, disabled = false, t,
             ]} />}
             {entity && <>
                 <DetailsFields t={t}>
-                    <NumberField label={t('creation.centerX')} value={entity.cx} disabled={disabled} onChange={value => updateFinite(update, 'cx', value)} />
-                    <NumberField label={t('creation.centerY')} value={entity.cy} disabled={disabled} onChange={value => updateFinite(update, 'cy', value)} />
-                    <NumberField label={t('creation.rotation')} value={entity.rotation} disabled={disabled} onChange={value => updateFinite(update, 'rotation', value)} />
+                    <UserPointFields point={{ x: entity.cx, y: entity.cy }} labels={[t('creation.centerX'), t('creation.centerY')]} disabled={disabled}
+                        onChange={center => update({ cx: center.x, cy: center.y })} />
+                    <UserDirectionField label={t('creation.rotation')} degrees={entity.rotation} disabled={disabled} onChange={rotation => update({ rotation })} />
                 </DetailsFields>
                 <NumberField label={t('creation.ellipseRadiusX')} value={entity.rx} min={0.0001} disabled={disabled} onChange={value => updatePositiveFinite(update, 'rx', value)} />
                 <NumberField label={t('creation.ellipseRadiusY')} value={entity.ry} min={0.0001} disabled={disabled} onChange={value => updatePositiveFinite(update, 'ry', value)} />
                 {isArc && <>
-                    <NumberField label={t('creation.arcStartAngle')} value={radiansToDegrees(entity.startAngle)} disabled={disabled} onChange={value => updateAngle(update, 'startAngle', value)} />
-                    <NumberField label={t('creation.arcEndAngle')} value={radiansToDegrees(entity.endAngle)} disabled={disabled} onChange={value => updateAngle(update, 'endAngle', value)} />
+                    <UserParameterAngleField relative label={t('creation.arcStartAngle')} radians={entity.startAngle} disabled={disabled} onChange={startAngle => update({ startAngle })} />
+                    <UserParameterAngleField relative label={t('creation.arcEndAngle')} radians={entity.endAngle} disabled={disabled} onChange={endAngle => update({ endAngle })} />
                 </>}
             </>}
-            {isArc && <SelectField label={t('creation.direction')} value={values.counterClockwise === false ? 'clockwise' : 'counterClockwise'} disabled={disabled} onChange={value => update({ counterClockwise: value !== 'clockwise' })} options={[
+            {isArc && <SelectField label={t('creation.direction')} value={userCounterClockwise(values.counterClockwise, settings) ? 'counterClockwise' : 'clockwise'} disabled={disabled}
+                onChange={value => update({ counterClockwise: userCounterClockwise(value !== 'clockwise', settings) })} options={[
                 ['counterClockwise', t('creation.counterClockwise')], ['clockwise', t('creation.clockwise')],
             ]} />}
         </div>
@@ -611,6 +653,7 @@ function EllipseFields({ entity = null, mode, options = {}, disabled = false, t,
 }
 
 function ArcCreationFields({ mode, options, t, onModeChange, onChange }) {
+    const settings = useUserSettings();
     return (
         <div className="drawing-creation-fields">
             <SelectField label={t('creation.mode')} value={mode} onChange={onModeChange} options={[
@@ -620,7 +663,8 @@ function ArcCreationFields({ mode, options, t, onModeChange, onChange }) {
                 ['startCenterAngle', t('creation.arcStartCenterAngle')],
             ]} />
             {mode !== 'threePoint' && (
-                <SelectField label={t('creation.direction')} value={options.counterClockwise === false ? 'clockwise' : 'counterClockwise'} onChange={value => onChange({ counterClockwise: value !== 'clockwise' })} options={[
+                <SelectField label={t('creation.direction')} value={userCounterClockwise(options.counterClockwise, settings) ? 'counterClockwise' : 'clockwise'}
+                    onChange={value => onChange({ counterClockwise: userCounterClockwise(value !== 'clockwise', settings) })} options={[
                     ['counterClockwise', t('creation.counterClockwise')],
                     ['clockwise', t('creation.clockwise')],
                 ]} />
@@ -665,11 +709,11 @@ function TextFields({ values, textStyles = [], t, onChange, disabled = false, in
         <div className="drawing-creation-fields">
             {includeGeometry && (
                 <DetailsFields t={t}>
-                    <NumberField label={t('creation.x')} value={values.x} disabled={disabled} onChange={value => updateNumber('x', value)} />
-                    <NumberField label={t('creation.y')} value={values.y} disabled={disabled} onChange={value => updateNumber('y', value)} />
+                    <UserPointFields point={{ x: values.x, y: values.y }} labels={[t('creation.x'), t('creation.y')]} disabled={disabled}
+                        onChange={point => onChange({ x: point.x, y: point.y })} />
                     <NumberField label={t('creation.width')} value={values.width} disabled={disabled} onChange={value => updateNumber('width', value)} />
                     <NumberField label={t('creation.height')} value={values.height} disabled={disabled} onChange={value => updateNumber('height', value)} />
-                    <NumberField label={t('creation.rotation')} value={values.rotation} step={1} disabled={disabled} onChange={value => updateNumber('rotation', value)} />
+                    <UserDirectionField label={t('creation.rotation')} degrees={values.rotation ?? 0} step={1} disabled={disabled} onChange={rotation => onChange({ rotation })} />
                 </DetailsFields>
             )}
             <SelectField label={t('creation.textMode')} value={textMode} disabled={disabled} onChange={changeTextMode} options={[
@@ -720,6 +764,8 @@ function TextFields({ values, textStyles = [], t, onChange, disabled = false, in
 }
 
 function RectangleEditFields({ entity, disabled, t, onChange }) {
+    // The signed height runs along the rectangle's local Y axis, which flips with Y up.
+    const heightSign = useUserSettings().yAxisUp === true ? -1 : 1;
     const cornerStyle = ['chamfer', 'fillet'].includes(entity.cornerStyle) ? entity.cornerStyle : 'square';
     const updateNumber = (property, value) => updateFinite(onChange, property, value);
     const updateCornerStyle = nextStyle => onChange(nextStyle === 'square'
@@ -728,11 +774,12 @@ function RectangleEditFields({ entity, disabled, t, onChange }) {
     return (
         <div className="drawing-creation-fields">
             <NumberField label={t('creation.width')} value={entity.width} disabled={disabled} onChange={value => updateNumber('width', value)} />
-            <NumberField label={t('creation.height')} value={entity.height} disabled={disabled} onChange={value => updateNumber('height', value)} />
+            <NumberField label={t('creation.height')} value={Number.isFinite(entity.height) ? entity.height * heightSign || 0 : entity.height} disabled={disabled}
+                onChange={value => updateNumber('height', Number.isFinite(value) ? value * heightSign || 0 : value)} />
             <DetailsFields t={t}>
-                <NumberField label={t('creation.x')} value={entity.x} disabled={disabled} onChange={value => updateNumber('x', value)} />
-                <NumberField label={t('creation.y')} value={entity.y} disabled={disabled} onChange={value => updateNumber('y', value)} />
-                <NumberField label={t('creation.rotation')} value={entity.rotation} step={1} disabled={disabled} onChange={value => updateNumber('rotation', value)} />
+                <UserPointFields point={{ x: entity.x, y: entity.y }} labels={[t('creation.x'), t('creation.y')]} disabled={disabled}
+                    onChange={point => onChange({ x: point.x, y: point.y })} />
+                <UserDirectionField label={t('creation.rotation')} degrees={entity.rotation ?? 0} step={1} disabled={disabled} onChange={rotation => onChange({ rotation })} />
             </DetailsFields>
             <SelectField label={t('creation.cornerStyle')} value={cornerStyle} disabled={disabled} onChange={updateCornerStyle} options={[
                 ['square', t('creation.square')],
@@ -749,8 +796,7 @@ function RectangleEditFields({ entity, disabled, t, onChange }) {
 function PointFields({ entity, disabled, t, onChange }) {
     const style = normalizeDrawingPointStyle(entity.pointStyle);
     return <div className="drawing-creation-fields">
-        <NumberField label="X" value={entity.x} min={-1e12} max={1e12} disabled={disabled} onChange={value => updateFinite(onChange, 'x', value)} />
-        <NumberField label="Y" value={entity.y} min={-1e12} max={1e12} disabled={disabled} onChange={value => updateFinite(onChange, 'y', value)} />
+        <UserPointFields point={entity} labels={['X', 'Y']} min={-1e12} max={1e12} disabled={disabled} onChange={point => onChange({ x: point.x, y: point.y })} />
         <SelectField label={t('pointPlacement.symbol')} value={style.symbol} disabled={disabled}
             options={DRAWING_POINT_STYLES.map(symbol => [symbol, t(`pointPlacement.style.${symbol}`)])}
             onChange={symbol => onChange({ pointStyle: { ...style, symbol } })} />
@@ -763,8 +809,8 @@ function CircleEditFields({ entity, disabled, t, onChange }) {
     return (
         <div className="drawing-creation-fields">
             <DetailsFields t={t}>
-                <NumberField label={t('creation.centerX')} value={entity.cx} disabled={disabled} onChange={value => updateFinite(onChange, 'cx', value)} />
-                <NumberField label={t('creation.centerY')} value={entity.cy} disabled={disabled} onChange={value => updateFinite(onChange, 'cy', value)} />
+                <UserPointFields point={{ x: entity.cx, y: entity.cy }} labels={[t('creation.centerX'), t('creation.centerY')]} disabled={disabled}
+                    onChange={center => onChange({ cx: center.x, cy: center.y })} />
             </DetailsFields>
             <NumberField label={t('creation.radius')} value={entity.r} min={0.0001} disabled={disabled} onChange={value => updatePositiveFinite(onChange, 'r', value)} />
             <NumberField label={t('creation.diameter')} value={entity.r * 2} min={0.0002} disabled={disabled}
@@ -777,9 +823,9 @@ function PolygonEditFields({ entity, disabled, t, onChange }) {
     return (
         <div className="drawing-creation-fields">
             <DetailsFields t={t}>
-                <NumberField label={t('creation.centerX')} value={entity.cx} disabled={disabled} onChange={value => updateFinite(onChange, 'cx', value)} />
-                <NumberField label={t('creation.centerY')} value={entity.cy} disabled={disabled} onChange={value => updateFinite(onChange, 'cy', value)} />
-                <NumberField label={t('creation.rotation')} value={entity.rotation} step={1} disabled={disabled} onChange={value => updateFinite(onChange, 'rotation', value)} />
+                <UserPointFields point={{ x: entity.cx, y: entity.cy }} labels={[t('creation.centerX'), t('creation.centerY')]} disabled={disabled}
+                    onChange={center => onChange({ cx: center.x, cy: center.y })} />
+                <UserDirectionField label={t('creation.rotation')} degrees={entity.rotation ?? 0} step={1} disabled={disabled} onChange={rotation => onChange({ rotation })} />
             </DetailsFields>
             <NumberField label={t('creation.radius')} value={entity.r} min={0.0001} disabled={disabled} onChange={value => updatePositiveFinite(onChange, 'r', value)} />
             <NumberField label={t('creation.polygonSides')} value={entity.sides} min={3} max={1_000} step={1} disabled={disabled} onChange={value => updateFinite(onChange, 'sides', Number.isFinite(value) ? Math.max(3, Math.min(1_000, Math.round(value))) : value)} />
@@ -792,16 +838,18 @@ function PolygonEditFields({ entity, disabled, t, onChange }) {
 }
 
 function ArcEditFields({ entity, disabled, t, onChange }) {
+    const settings = useUserSettings();
     return (
         <div className="drawing-creation-fields">
             <DetailsFields t={t}>
-                <NumberField label={t('creation.centerX')} value={entity.cx} disabled={disabled} onChange={value => updateFinite(onChange, 'cx', value)} />
-                <NumberField label={t('creation.centerY')} value={entity.cy} disabled={disabled} onChange={value => updateFinite(onChange, 'cy', value)} />
-                <NumberField label={t('creation.arcStartAngle')} value={radiansToDegrees(entity.startAngle)} step={1} disabled={disabled} onChange={value => updateAngle(onChange, 'startAngle', value)} />
-                <NumberField label={t('creation.arcEndAngle')} value={radiansToDegrees(entity.endAngle)} step={1} disabled={disabled} onChange={value => updateAngle(onChange, 'endAngle', value)} />
+                <UserPointFields point={{ x: entity.cx, y: entity.cy }} labels={[t('creation.centerX'), t('creation.centerY')]} disabled={disabled}
+                    onChange={center => onChange({ cx: center.x, cy: center.y })} />
+                <UserParameterAngleField label={t('creation.arcStartAngle')} radians={entity.startAngle} step={1} disabled={disabled} onChange={startAngle => onChange({ startAngle })} />
+                <UserParameterAngleField label={t('creation.arcEndAngle')} radians={entity.endAngle} step={1} disabled={disabled} onChange={endAngle => onChange({ endAngle })} />
             </DetailsFields>
             <NumberField label={t('creation.radius')} value={entity.r} min={0.0001} disabled={disabled} onChange={value => updatePositiveFinite(onChange, 'r', value)} />
-            <SelectField label={t('creation.direction')} value={entity.counterClockwise === false ? 'clockwise' : 'counterClockwise'} disabled={disabled} onChange={value => onChange({ counterClockwise: value !== 'clockwise' })} options={[
+            <SelectField label={t('creation.direction')} value={userCounterClockwise(entity.counterClockwise, settings) ? 'counterClockwise' : 'clockwise'} disabled={disabled}
+                onChange={value => onChange({ counterClockwise: userCounterClockwise(value !== 'clockwise', settings) })} options={[
                 ['counterClockwise', t('creation.counterClockwise')],
                 ['clockwise', t('creation.clockwise')],
             ]} />
@@ -822,8 +870,26 @@ function updatePositiveFinite(onChange, property, value, allowUndefined = false)
     else if (Number.isFinite(value) && value > 0 && value <= 1e12) onChange({ [property]: value });
 }
 
-function updateAngle(onChange, property, value) {
-    if (Number.isFinite(value)) onChange({ [property]: value * Math.PI / 180 });
+/** A rectangle creation ROTATION option (stored degrees), typed in the user frame. */
+function UserRotationOption({ value, label, onChange }) {
+    const settings = useUserSettings();
+    return <NumberField label={label} value={Number.isFinite(value) ? drawingWorldDirectionForDisplay(value, settings) : value} step={1} placeholder="0"
+        onChange={next => onChange(Number.isFinite(next) ? drawingEntryDirectionToWorld(next, settings) : next)} />;
+}
+
+/**
+ * An arc angle (stored radians) in user degrees: a circular arc angle is an
+ * absolute direction; an elliptical-arc parameter is measured from the
+ * ellipse axis (`relative`), so only its sign follows the Y flip.
+ */
+function UserParameterAngleField({ label, radians, step, disabled, relative = false, onChange }) {
+    const settings = useUserSettings();
+    if (relative) {
+        return <NumberField label={label} value={Number.isFinite(radians) ? drawingWorldRotationToUser(radiansToDegrees(radians), settings) : undefined}
+            step={step} disabled={disabled} onChange={value => { if (Number.isFinite(value)) onChange(drawingUserRotationToWorld(value, settings) * Math.PI / 180); }} />;
+    }
+    return <UserDirectionField label={label} degrees={radiansToDegrees(radians)} step={step} disabled={disabled}
+        onChange={degrees => onChange(degrees * Math.PI / 180)} />;
 }
 
 function radiansToDegrees(value) {

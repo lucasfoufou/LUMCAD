@@ -1293,6 +1293,8 @@ const en = {
     'settings.angleGradians': 'Gradians',
     'settings.clockwiseAngles': 'Positive angles turn clockwise',
     'settings.clockwiseAnglesHint': 'Reverse the usual positive rotation direction.',
+    'settings.yAxisUp': 'Y axis up (like AutoCAD)',
+    'settings.yAxisUpHint': 'Typed and displayed coordinates and angles use Y up and counter-clockwise angles. Files and the MCP keep the stored coordinates.',
     'settings.mirrorText': 'Mirror text glyphs',
     'settings.mirrorTextHint': 'Reflect the lettering as well as the text frame.',
     'settings.interchangeTitle': 'DWG and DXF files',

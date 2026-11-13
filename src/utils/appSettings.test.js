@@ -11,6 +11,7 @@ test('application settings use safe complete defaults', () => {
     assert.equal(DEFAULT_APP_SETTINGS.drawingDefaults.angleUnit, 'degrees');
     assert.equal(DEFAULT_APP_SETTINGS.drawingDefaults.clockwiseAngles, false);
     assert.equal(DEFAULT_APP_SETTINGS.drawingDefaults.mirrorText, false);
+    assert.equal(DEFAULT_APP_SETTINGS.drawingDefaults.yAxisUp, true);
     assert.equal(DEFAULT_APP_SETTINGS.mcp.enabled, true);
     assert.equal(DEFAULT_APP_SETTINGS.mcp.preferredPort, 43622);
 });
@@ -26,6 +27,7 @@ test('application settings normalize persisted and user-entered values', () => {
             angleUnit: 'turns',
             clockwiseAngles: 1,
             mirrorText: true,
+            yAxisUp: false,
         },
         mcp: { enabled: false, preferredPort: 80 },
     }), {
@@ -40,12 +42,19 @@ test('application settings normalize persisted and user-entered values', () => {
             angleUnit: 'degrees',
             clockwiseAngles: true,
             mirrorText: true,
+            yAxisUp: false,
         },
         mcp: { enabled: false, preferredPort: 1024 },
         cadInterchange: { libredwgDirectory: '' },
         commandAliases: [],
         commandShortcuts: DEFAULT_APP_SETTINGS.commandShortcuts,
     });
+});
+
+test('the Y-up preference defaults on, also for settings saved before it existed', () => {
+    assert.equal(normalizeAppSettings({ drawingDefaults: { angleUnit: 'degrees' } }).drawingDefaults.yAxisUp, true);
+    assert.equal(normalizeAppSettings({ drawingDefaults: { yAxisUp: 0 } }).drawingDefaults.yAxisUp, true);
+    assert.equal(normalizeAppSettings({ drawingDefaults: { yAxisUp: false } }).drawingDefaults.yAxisUp, false);
 });
 
 test('new drawing preferences are applied without changing the .lcad schema', () => {

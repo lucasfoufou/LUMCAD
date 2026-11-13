@@ -4,7 +4,8 @@ import React, { useEffect, useRef, useState } from 'react';
 
 import Icon from '~components/ui/Icon';
 import { useI18n } from '~i18n/I18nProvider';
-import { parsePolarAnglesInput } from '~utils/drawingDraftingSettings';
+import { normalizePolarAngles, parsePolarAnglesInput } from '~utils/drawingDraftingSettings';
+import { drawingUserRotationToWorld, drawingUserSettings, drawingWorldRotationToUser } from '~utils/drawingCoordinates';
 import DrawingCursorCoordinates from '~components/drawing/DrawingCursorCoordinates';
 
 const objectSnapKeys = ['endpoint', 'midpoint', 'center', 'intersection', 'nearest'];
@@ -19,16 +20,20 @@ export default function DrawingSnapControls({
     draftingSettingsOpen = false,
     onDraftingSettingsOpenChange,
     onTemporaryTrackingPoint,
+    yAxisUp = false,
 }) {
     const { locale, t } = useI18n();
     const shortcutLabel = useDrawingShortcutLabel();
     const settings = content.settings;
+    const userSettings = drawingUserSettings(settings, yAxisUp);
+    // Additional polar angles are stored in the stored frame and read in the user frame.
+    const userPolarAngles = angles => normalizePolarAngles((angles || []).map(angle => drawingWorldRotationToUser(angle, userSettings)));
     const snaps = settings.snaps;
     const [snapMenuOpen, setSnapMenuOpen] = useState(false);
     const [scaleDraft, setScaleDraft] = useState(() => formatScaleRatio(scaleRatio, locale));
-    const [polarAnglesDraft, setPolarAnglesDraft] = useState(() => formatPolarAngles(settings.polarAngles, locale));
+    const [polarAnglesDraft, setPolarAnglesDraft] = useState(() => formatPolarAngles(userPolarAngles(settings.polarAngles), locale));
     useEffect(() => setScaleDraft(formatScaleRatio(scaleRatio, locale)), [locale, scaleRatio]);
-    useEffect(() => setPolarAnglesDraft(formatPolarAngles(settings.polarAngles, locale)), [settings.polarAngles, locale]);
+    useEffect(() => setPolarAnglesDraft(formatPolarAngles(userPolarAngles(settings.polarAngles), locale)), [settings.polarAngles, locale, yAxisUp]);
 
     const updateSettings = patch => onChange({ ...content, settings: { ...content.settings, ...patch } });
     const updateSnaps = patch => updateSettings({ snaps: { ...snaps, ...patch } });
@@ -42,7 +47,7 @@ export default function DrawingSnapControls({
     };
     const applyPolarAngles = () => {
         const angles = parsePolarAnglesInput(polarAnglesDraft, locale);
-        updateSettings({ polarAngles: angles });
+        updateSettings({ polarAngles: normalizePolarAngles(angles.map(angle => drawingUserRotationToWorld(angle, userSettings))) });
         setPolarAnglesDraft(formatPolarAngles(angles, locale));
     };
     const relations = settings.trackingRelations || {};
@@ -55,7 +60,7 @@ export default function DrawingSnapControls({
 
     return (
         <div className="drawing-snap-controls" role="group" aria-label={t('snap.aids')}>
-            <DrawingCursorCoordinates settings={settings} />
+            <DrawingCursorCoordinates settings={userSettings} />
             <span className="drawing-status-separator" aria-hidden="true" />
             <StatusPopover
                 open={snapMenuOpen}

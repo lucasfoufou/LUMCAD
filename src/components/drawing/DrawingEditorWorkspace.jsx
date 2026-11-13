@@ -40,7 +40,8 @@ import { exportDrawingLayout } from '~utils/drawingLayoutExport';
 import { createLcadEnvelope } from '~utils/lcadDocument';
 import { updateDrawingLeader } from '~utils/drawingLeaders';
 import useDrawingCoordinates from '~hooks/useDrawingCoordinates';
-import { resolveDrawingUcsInput } from '~utils/drawingCoordinates';
+import { drawingEntryDirectionToWorld, drawingEntryPointToWorld, drawingEntryVectorToWorld, drawingUserRotationToWorld, drawingUserSettings, drawingWorldRotationToUser,
+    drawingWorldVectorForDisplay, resolveDrawingUcsInput } from '~utils/drawingCoordinates';
 import useDrawingPlotStyles from '~hooks/useDrawingPlotStyles';
 import { isDrawingLayerVisible } from '~utils/drawingLayers';
 import useDrawingLayers from '~hooks/useDrawingLayers';
@@ -218,6 +219,12 @@ export default function DrawingEditorWorkspace({
 }) {
     const { formatNumber, locale, t } = useI18n();
     const { settings, updateSettings } = useAppSettings();
+    // Typed and displayed coordinates follow the "Y axis up" preference; MCP
+    // actions always keep the stored (screen-down) frame, see MCP.md.
+    const mcpActionRef = useRef(false);
+    const yAxisUp = settings.drawingDefaults.yAxisUp;
+    const inputYAxisUp = () => yAxisUp && !mcpActionRef.current;
+    const userSettings = () => drawingUserSettings(history.content.settings, inputYAxisUp());
     const canvasRef = useRef(null);
     const layoutCanvasRef = useRef(null);
     const commandBarRef = useRef(null);
@@ -235,7 +242,7 @@ export default function DrawingEditorWorkspace({
         offset: 1,
         move: 1,
         copy: 1,
-        rotate: settings.drawingDefaults.clockwiseAngles ? -90 : 90,
+        rotate: drawingUserRotationToWorld(settings.drawingDefaults.clockwiseAngles ? -90 : 90, { yAxisUp: settings.drawingDefaults.yAxisUp }),
         scale: 1,
         arrayColumns: 2,
         arrayRows: 2,
@@ -372,12 +379,12 @@ export default function DrawingEditorWorkspace({
             return activeLayout?.id ? [activeLayout.id] : [];
         });
     }, [activeLayout?.id, layouts]);
-    const inquiry = useDrawingInquiry({ content: history.content, selectedIds, operation: interactiveOperation,
+    const inquiry = useDrawingInquiry({ content: history.content, getUserSettings: () => userSettings(), selectedIds, operation: interactiveOperation,
         setOperation: setInteractiveOperation, setActiveTool, setMessage, setSidebarPanel, enabled: workspaceMode === 'model', t, initialResult: initialRecoveryReport });
     const recovery = useDrawingRecovery({ filePath, document, commitDocument: modelHistory.commitDocument, blockEditing: Boolean(blockEditor.session), present: inquiry.present,
         openRecoveredDrawing, setMessage, t, initialReport: initialRecoveryReport, initialGraph: initialRecoveryGraph });
     recoverySaveRef.current = recovery.recordSavedCopy;
-    const coordinates = useDrawingCoordinates({ history, setMessage, enabled: workspaceMode === 'model' && !blockEditor.session, t });
+    const coordinates = useDrawingCoordinates({ history, setMessage, enabled: workspaceMode === 'model' && !blockEditor.session, t, inputYAxisUp: () => inputYAxisUp() });
     const plotStyles = useDrawingPlotStyles({ history, selectedIds, setMessage, setSidebarPanel, enabled: !blockEditor.session, t });
     const layerManager = useDrawingLayers({ history: modelHistory, selectedIds, setMessage, setSidebarPanel, enabled: !blockEditor.session, t });
     const sheetSet = useDrawingSheetSet({ sessionRef: sheetSetSessionRef, document, filePath, present: inquiry.present, setMessage, t });
@@ -644,10 +651,11 @@ export default function DrawingEditorWorkspace({
     });
     const { activateArraySelection, beginArray, handleArrayPoint, submitArrayValue } = useDrawingArrayCommand({
         canvasRef, commandBarRef, history, lastOperationValuesRef, selectedEntities,
-        setActiveTool, setInteractiveOperation, setMessage, setSelectedIds,
+        setActiveTool, setInteractiveOperation, setMessage, setSelectedIds, getUserSettings: () => userSettings(),
     });
     const blockCommands = createDrawingBlockWorkflow({
         history, selectedIds, canvasRef, commandBarRef, setInteractiveOperation, setActiveTool, setSelectedIds, setMessage, t,
+        getUserSettings: () => userSettings(),
     });
     const imageSource = useDrawingImageSource({
         history, assets, documentId: initialDocument.id, viewport, setAssets, setSelectedIds, setActiveTool, setMessage,
@@ -804,9 +812,9 @@ export default function DrawingEditorWorkspace({
 
     useEffect(() => {
         if (!hasAppliedRotationRef.current) {
-            lastOperationValuesRef.current.rotate = settings.drawingDefaults.clockwiseAngles ? -90 : 90;
+            lastOperationValuesRef.current.rotate = drawingUserRotationToWorld(settings.drawingDefaults.clockwiseAngles ? -90 : 90, { yAxisUp });
         }
-    }, [settings.drawingDefaults.clockwiseAngles]);
+    }, [settings.drawingDefaults.clockwiseAngles, yAxisUp]);
 
     useEffect(() => {
         if (previousLocaleRef.current === locale) return;
@@ -1042,7 +1050,7 @@ export default function DrawingEditorWorkspace({
         finishInteractiveOperation(result.selectedIds, t(operationUsesCopy(operation)
             ? 'messages.rotationCopyApplied'
             : 'messages.rotationApplied', {
-            angle: formatOperationNumber(displayRotationAngle(angle, operation), locale),
+            angle: formatOperationNumber(displayRotationAngle(drawingWorldRotationToUser(angle, userSettings()), operation), locale),
             unit: angleUnitSymbol(operation.angleUnit),
         }));
         return true;
@@ -1278,7 +1286,7 @@ export default function DrawingEditorWorkspace({
                 };
                 setMessage(t(promptKeys[interactiveOperation.type], {
                     angle: formatOperationNumber(displayRotationAngle(
-                        lastOperationValuesRef.current.rotate,
+                        drawingWorldRotationToUser(lastOperationValuesRef.current.rotate, userSettings()),
                         interactiveOperation,
                     ), locale),
                     unit: angleUnitSymbol(interactiveOperation.angleUnit),
@@ -1301,7 +1309,7 @@ export default function DrawingEditorWorkspace({
             if (interactiveOperation.type === 'move') {
                 const delta = operationDelta(interactiveOperation.basePoint, point);
                 history.commit(updateSelectedEntities(history.content, interactiveOperation.entityIds, entity => translateEntity(entity, delta.x, delta.y)));
-                finishInteractiveOperation(interactiveOperation.entityIds, t('messages.moveApplied', { delta: formatOperationDelta(delta, locale) }));
+                finishInteractiveOperation(interactiveOperation.entityIds, t('messages.moveApplied', { delta: formatOperationDelta(drawingWorldVectorForDisplay(delta, userSettings()), locale) }));
             } else if (interactiveOperation.type === 'copy') {
                 const delta = operationDelta(interactiveOperation.basePoint, point);
                 const operationIds = new Set(interactiveOperation.entityIds);
@@ -1388,7 +1396,7 @@ export default function DrawingEditorWorkspace({
     const submitPrecisionPoint = (rawValue, { allowDirectDistance = true } = {}) => {
         const activeCanvas = workspaceMode === 'layout' ? layoutCanvasRef : canvasRef;
         const context = activeCanvas.current?.getPrecisionInputContext?.() || {};
-        const result = (workspaceMode === 'layout' ? resolveDrawingPointInput : (value, options) => resolveDrawingUcsInput(value, options, history.content.settings))(rawValue, {
+        const result = (workspaceMode === 'layout' ? resolveDrawingPointInput : (value, options) => resolveDrawingUcsInput(value, options, userSettings()))(rawValue, {
             ...context,
             allowDirectDistance,
             decimalComma: locale === 'fr',
@@ -1584,7 +1592,7 @@ export default function DrawingEditorWorkspace({
         }
         if (interactiveOperation.stage === 'select') return confirmOperationSelection();
         if (interactiveOperation.stage === 'reference') {
-            if (values.length >= 2) handleReferencePoint(interactiveOperation, { x: values[0], y: values[1] });
+            if (values.length >= 2) handleReferencePoint(interactiveOperation, drawingEntryPointToWorld({ x: values[0], y: values[1] }, userSettings()));
             else setMessage(referenceTransformPrompt(interactiveOperation, t));
             return true;
         }
@@ -1608,7 +1616,7 @@ export default function DrawingEditorWorkspace({
             const basePoint = interactiveOperation.basePoint;
             const currentPoint = canvasRef.current?.getOperationPoint();
             let delta = null;
-            if (values.length >= 2) delta = { x: values[0], y: values[1] };
+            if (values.length >= 2) delta = drawingEntryVectorToWorld({ x: values[0], y: values[1] }, userSettings());
             else {
                 const distance = values[0] ?? lastOperationValuesRef.current[interactiveOperation.type];
                 delta = directionalDelta(basePoint, currentPoint, distance);
@@ -1620,13 +1628,13 @@ export default function DrawingEditorWorkspace({
         }
         if (interactiveOperation.stage === 'angle') {
             const enteredAngle = values[0] ?? interactiveOperation.requestedValue
-                ?? displayRotationAngle(lastOperationValuesRef.current.rotate, interactiveOperation);
+                ?? displayRotationAngle(drawingWorldRotationToUser(lastOperationValuesRef.current.rotate, userSettings()), interactiveOperation);
             const configured = createAngleConfig(enteredAngle, {
                 unit: interactiveOperation.angleUnit,
                 direction: interactiveOperation.angleDirection,
             });
             if (!configured) return true;
-            applyRotateOperation(interactiveOperation, configured.radians * 180 / Math.PI, interactiveOperation.basePoint);
+            applyRotateOperation(interactiveOperation, drawingUserRotationToWorld(configured.radians * 180 / Math.PI, userSettings()), interactiveOperation.basePoint);
             return true;
         }
         if (interactiveOperation.stage === 'scale-xy') {
@@ -1706,7 +1714,7 @@ export default function DrawingEditorWorkspace({
                             ortho: false,
                             polarTracking: true,
                             polarIncrement: increment,
-                            polarAngles: normalizePolarAngles(additionalAngles),
+                            polarAngles: normalizePolarAngles(additionalAngles.map(angle => drawingUserRotationToWorld(angle, userSettings()))),
                         },
                     }));
                     setMessage(t('messages.polarConfigured', { increment }));
@@ -2161,7 +2169,7 @@ export default function DrawingEditorWorkspace({
             return;
         }
         if (parsed.command === 'rotatedDimension') {
-            const dimensionAngle = (parsed.args[0] || 0) * Math.PI / 180;
+            const dimensionAngle = drawingEntryDirectionToWorld(parsed.args[0] || 0, userSettings()) * Math.PI / 180;
             commitDimensionCommand(withDefaultCommandPlacements(createQuickDimensionResult(
                 history.content,
                 selectedIdsOfTypes(['line', 'rectangle', 'polygon', 'ellipse', 'linearDimension']),
@@ -2967,6 +2975,72 @@ export default function DrawingEditorWorkspace({
         command: name => submitCommand(name).catch(() => {}),
     };
 
+    const executeMcpAction = async action => {
+        if (action.type === 'selection') {
+            const knownIds = new Set(history.content.entities.map(entity => entity.id));
+            const viewportIds = new Set(activeLayout?.viewports.map(viewport => viewport.id) || []);
+            const paperIds = new Set(activeLayout?.paperEntities?.map(entity => entity.id) || []);
+            const ids = [...new Set(action.ids || [])];
+            const unknownIds = ids.filter(id => !knownIds.has(id) && !viewportIds.has(id) && !paperIds.has(id));
+            if (unknownIds.length) throw new Error(`Unknown LUMCAD entity IDs: ${unknownIds.join(', ')}`);
+            const paperSelection = ids.filter(id => paperIds.has(id));
+            if (paperSelection.length) {
+                if (paperSelection.length !== 1 || ids.length !== 1 || workspaceMode !== 'layout') throw new Error('Select one paper annotation in the active layout.');
+                if (!layoutCanvasRef.current?.selectPaperEntity(paperSelection[0])) throw new Error('Paper annotation cannot be selected.');
+                setSelectedViewportId(null); setSelectedIds([]); return;
+            }
+            if (workspaceMode === 'layout') layoutCanvasRef.current?.selectPaperEntity(null);
+            const selectedViewportIds = ids.filter(id => viewportIds.has(id));
+            const selectedEntityIds = ids.filter(id => knownIds.has(id));
+            if (selectedViewportIds.length && selectedEntityIds.length) {
+                throw new Error('A LUMCAD selection cannot mix model entities and layout viewports.');
+            }
+            if (selectedViewportIds.length > 1) {
+                throw new Error('Only one layout viewport can be selected at a time.');
+            }
+            if (selectedViewportIds.length && blockEditor.session) throw new Error('Close the block editor before selecting a layout viewport.');
+            if (selectedViewportIds.length) {
+                setWorkspaceMode('layout');
+                setSelectedViewportId(selectedViewportIds[0]);
+                setSelectedIds([]);
+                return;
+            }
+            if (workspaceMode === 'layout') setSelectedViewportId(null);
+            setSelectedIds(ids.filter(id => {
+                const entity = history.content.entities.find(item => item.id === id);
+                return entity && canSelectEntity(history.content, entity);
+            }));
+            return;
+        }
+        if (action.type === 'command') {
+            const definition = getDrawingCommandDefinition(action.command);
+            if (!definition) throw new Error(`Unknown LUMCAD command: ${String(action.command || '')}`);
+            await submitCommand([definition.name, action.input].filter(value => value !== null && value !== undefined && value !== '').join(' '));
+            return;
+        }
+        if (action.type === 'point') {
+            const activeCanvas = workspaceMode === 'layout' ? layoutCanvasRef : canvasRef;
+            const accepted = activeCanvas.current?.submitPoint(
+                { x: action.x, y: action.y },
+                { targetId: action.targetId, shift: action.shift, snap: action.snap },
+            );
+            if (!accepted) throw new Error('The active LUMCAD command cannot accept this point.');
+            return;
+        }
+        if (action.type === 'input') {
+            await submitCommand(action.value, { allowRepeat: false });
+            return;
+        }
+        if (action.type === 'enter') {
+            await submitCommand('', { allowRepeat: false });
+            return;
+        }
+        if (action.type === 'escape') {
+            cancelCommand();
+            return;
+        }
+        throw new Error(`Unsupported LUMCAD MCP action: ${String(action.type || '')}`);
+    };
     const mcpFiles = useMcpFiles({ document, blockEditing: Boolean(blockEditor.session), onReplaceSession,
         setFilePath: handlePathChange, withPublishPages: publishPages.withPublishPages, protectedPaths: recoverySourcePaths });
     useLumcadMcpBridge({
@@ -3009,70 +3083,8 @@ export default function DrawingEditorWorkspace({
             },
         }),
         executeAction: async action => {
-            if (action.type === 'selection') {
-                const knownIds = new Set(history.content.entities.map(entity => entity.id));
-                const viewportIds = new Set(activeLayout?.viewports.map(viewport => viewport.id) || []);
-                const paperIds = new Set(activeLayout?.paperEntities?.map(entity => entity.id) || []);
-                const ids = [...new Set(action.ids || [])];
-                const unknownIds = ids.filter(id => !knownIds.has(id) && !viewportIds.has(id) && !paperIds.has(id));
-                if (unknownIds.length) throw new Error(`Unknown LUMCAD entity IDs: ${unknownIds.join(', ')}`);
-                const paperSelection = ids.filter(id => paperIds.has(id));
-                if (paperSelection.length) {
-                    if (paperSelection.length !== 1 || ids.length !== 1 || workspaceMode !== 'layout') throw new Error('Select one paper annotation in the active layout.');
-                    if (!layoutCanvasRef.current?.selectPaperEntity(paperSelection[0])) throw new Error('Paper annotation cannot be selected.');
-                    setSelectedViewportId(null); setSelectedIds([]); return;
-                }
-                if (workspaceMode === 'layout') layoutCanvasRef.current?.selectPaperEntity(null);
-                const selectedViewportIds = ids.filter(id => viewportIds.has(id));
-                const selectedEntityIds = ids.filter(id => knownIds.has(id));
-                if (selectedViewportIds.length && selectedEntityIds.length) {
-                    throw new Error('A LUMCAD selection cannot mix model entities and layout viewports.');
-                }
-                if (selectedViewportIds.length > 1) {
-                    throw new Error('Only one layout viewport can be selected at a time.');
-                }
-                if (selectedViewportIds.length && blockEditor.session) throw new Error('Close the block editor before selecting a layout viewport.');
-                if (selectedViewportIds.length) {
-                    setWorkspaceMode('layout');
-                    setSelectedViewportId(selectedViewportIds[0]);
-                    setSelectedIds([]);
-                    return;
-                }
-                if (workspaceMode === 'layout') setSelectedViewportId(null);
-                setSelectedIds(ids.filter(id => {
-                    const entity = history.content.entities.find(item => item.id === id);
-                    return entity && canSelectEntity(history.content, entity);
-                }));
-                return;
-            }
-            if (action.type === 'command') {
-                const definition = getDrawingCommandDefinition(action.command);
-                if (!definition) throw new Error(`Unknown LUMCAD command: ${String(action.command || '')}`);
-                await submitCommand([definition.name, action.input].filter(value => value !== null && value !== undefined && value !== '').join(' '));
-                return;
-            }
-            if (action.type === 'point') {
-                const activeCanvas = workspaceMode === 'layout' ? layoutCanvasRef : canvasRef;
-                const accepted = activeCanvas.current?.submitPoint(
-                    { x: action.x, y: action.y },
-                    { targetId: action.targetId, shift: action.shift, snap: action.snap },
-                );
-                if (!accepted) throw new Error('The active LUMCAD command cannot accept this point.');
-                return;
-            }
-            if (action.type === 'input') {
-                await submitCommand(action.value, { allowRepeat: false });
-                return;
-            }
-            if (action.type === 'enter') {
-                await submitCommand('', { allowRepeat: false });
-                return;
-            }
-            if (action.type === 'escape') {
-                cancelCommand();
-                return;
-            }
-            throw new Error(`Unsupported LUMCAD MCP action: ${String(action.type || '')}`);
+            mcpActionRef.current = true;
+            try { await executeMcpAction(action); } finally { mcpActionRef.current = false; }
         },
         replaceDocument: async replacement => {
             if (blockEditor.session) throw new Error('Close the block editor with BCLOSE before replacing the document.');
@@ -3171,7 +3183,7 @@ export default function DrawingEditorWorkspace({
                                 : drawingToolPromptMessage(tool, t));
                         }}
                         canvasRef={canvasRef}
-                        canvas={{ content: history.content, assets, activeTool, dimensionMode, selectedIds, interactiveOperation, backgroundContext: referenceContext,
+                        canvas={{ content: history.content, assets, yAxisUp, getInputYAxisUp: inputYAxisUp, activeTool, dimensionMode, selectedIds, interactiveOperation, backgroundContext: referenceContext,
                             onSelectionChange: setSelectedIds, onCommit: history.commit, onViewportChange: setViewport,
                             onEndCoalescing: history.endCoalescing, onCancelCommand: cancelCommand,
                             onStatus: setMessage, onInteractiveOperation: handleInteractiveOperation,
@@ -3199,7 +3211,7 @@ export default function DrawingEditorWorkspace({
                                 ), { coalesceKey: `creation-panel-${creationPanelEntity.id}` })
                                 : null }}
                         optionsTarget={workspaceMode === 'model' ? commandOptionsTarget : null}
-                        sidebar={{ content: history.content, selectedIds, parametersEnabled: !blockEditor.session?.referenceSource, onSelectConstraintObjects: setSelectedIds, onSmartBlockCommand: smartBlocks.run, smartBlockDetection: smartBlocks.detection, dynamicBlockEditing: Boolean(blockEditor.session && !blockEditor.session.referenceSource), onCommit: history.commit, onAnnotationCommand: annotations.run,
+                        sidebar={{ content: history.content, yAxisUp, selectedIds, parametersEnabled: !blockEditor.session?.referenceSource, onSelectConstraintObjects: setSelectedIds, onSmartBlockCommand: smartBlocks.run, smartBlockDetection: smartBlocks.detection, dynamicBlockEditing: Boolean(blockEditor.session && !blockEditor.session.referenceSource), onCommit: history.commit, onAnnotationCommand: annotations.run,
                             inquiryResult: inquiry.result, comparisonPreview: comparison.preview, onCopyInquiry: inquiry.copy, onInspectTransmittal: () => sheetSet.run('sheetSet', 'INVENTORY'), onSelectDuplicateGroup: selectionQueries.selectDuplicateGroup, onSelectCountOccurrence: selectionQueries.selectCountOccurrence,
                             onOpenRecovery: recovery.open, canOpenRecovery: recovery.canOpen,
                             onSelectRecovery: recovery.select, onShowRecoveryManager: recovery.showManager, hasRecoveryGraph: recovery.hasGraph,
@@ -3212,6 +3224,7 @@ export default function DrawingEditorWorkspace({
                     />
                 ) : activeLayout && (
                     <DrawingLayoutEditor
+                        yAxisUp={yAxisUp}
                         activeTool={layoutTool}
                         assets={assets}
                         canvasRef={layoutCanvasRef}
@@ -3282,6 +3295,7 @@ export default function DrawingEditorWorkspace({
                         <DrawingPlanScaleControl content={history.content} onCommand={annotations.run} />
                         <DrawingSnapControls
                             content={history.content}
+                            yAxisUp={yAxisUp}
                             onChange={history.commit}
                             scaleRatio={getScreenScaleRatio(viewport.worldUnitsPerPixel)}
                             onScaleChange={ratio => canvasRef.current?.setScaleRatio(ratio)}

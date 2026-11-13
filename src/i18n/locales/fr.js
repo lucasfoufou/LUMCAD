@@ -1293,6 +1293,8 @@ const fr = {
     'settings.angleGradians': 'Grades',
     'settings.clockwiseAngles': 'Les angles positifs tournent dans le sens horaire',
     'settings.clockwiseAnglesHint': 'Inverse le sens positif de rotation habituel.',
+    'settings.yAxisUp': 'Axe Y vers le haut (comme AutoCAD)',
+    'settings.yAxisUpHint': 'Les coordonnées et angles saisis ou affichés ont l’axe Y vers le haut et les angles positifs dans le sens anti-horaire. Les fichiers et le MCP gardent les coordonnées stockées.',
     'settings.mirrorText': 'Retourner les caractères du texte',
     'settings.mirrorTextHint': 'Reflète les caractères en plus du cadre de texte.',
     'settings.interchangeTitle': 'Fichiers DWG et DXF',

@@ -1,16 +1,16 @@
-import { drawingWorldToUcs } from '~utils/drawingCoordinates';
+import { drawingEntryPointToWorld, drawingWorldPointForDisplay, drawingWorldToUser } from '~utils/drawingCoordinates';
 import { useRef, useState } from 'react';
 import { canSelectEntity } from '~utils/drawingDocument';
 import { measureDrawingEntity, measureDrawingPoints } from '~utils/drawingInquiry';
 
 const COMMANDS = new Set(['measureGeometry', 'distanceInquiry', 'areaInquiry', 'coordinateInquiry', 'entityList', 'drawingStatus', 'massProperties']);
 
-export default function useDrawingInquiry({ content, selectedIds, operation, setOperation, setActiveTool, setMessage, setSidebarPanel, enabled, t, initialResult = null }) {
+export default function useDrawingInquiry({ content, getUserSettings = () => content.settings, selectedIds, operation, setOperation, setActiveTool, setMessage, setSidebarPanel, enabled, t, initialResult = null }) {
     const [result, setResult] = useState(initialResult);
     const resultRef = useRef(initialResult);
     const [cumulativeArea, setCumulativeArea] = useState(0);
     const present = data => {
-        if (data?.mode === 'id') data = { ...data, world: { x: data.x, y: data.y }, ...drawingWorldToUcs({ x: data.x, y: data.y }, content.settings?.ucs), coordinateSystem: content.settings?.ucs };
+        if (data?.mode === 'id') data = { ...data, world: { x: data.x, y: data.y }, ...drawingWorldToUser({ x: data.x, y: data.y }, getUserSettings()), coordinateSystem: content.settings?.ucs };
         // Native requests can read immediately after asynchronous file work,
         // before a background WebKit window has committed its next render.
         resultRef.current = data;
@@ -26,7 +26,8 @@ export default function useDrawingInquiry({ content, selectedIds, operation, set
         const idSet = new Set(ids);
         const entities = content.entities.filter(entity => idSet.has(entity.id) && canSelectEntity(content, entity));
         if (!entities.length || entities.length > 256) { setMessage(t('inquiry.selection')); return; }
-        const measurements = entities.map(measureDrawingEntity);
+        // Centroids are read like any other coordinate (user frame when Y is up).
+        const measurements = entities.map(entity => withDisplayedCentroid(measureDrawingEntity(entity), getUserSettings()));
         const field = mode === 'radius' ? 'radius' : mode === 'length' ? 'perimeter' : 'area';
         if (measurements.some(value => !value || !Number.isFinite(value[field])) || mode === 'mass' && entities.length !== 1) {
             setMessage(t('inquiry.unsupported')); return;
@@ -67,8 +68,8 @@ export default function useDrawingInquiry({ content, selectedIds, operation, set
         if (!mode) { setMessage(t('inquiry.syntax')); return true; }
         if (tokens.length && ['distance', 'angle', 'id'].includes(mode)) {
             const values = tokens.map(value => Number(value.replace(',', '.')));
-            const points = values.reduce((all, value, index) => index % 2 ? all : [...all, { x: value, y: values[index + 1] }], []);
-            const measured = measureDrawingPoints(mode, points);
+            const points = values.reduce((all, value, index) => index % 2 ? all : [...all, drawingEntryPointToWorld({ x: value, y: values[index + 1] }, getUserSettings())], []);
+            const measured = measureInUserFrame(mode, points, getUserSettings());
             if (measured) present({ mode, lengthUnit: 'm', angleUnit: '°', ...measured });
             else setMessage(t('inquiry.syntax'));
             return true;
@@ -88,7 +89,7 @@ export default function useDrawingInquiry({ content, selectedIds, operation, set
         const points = [...operation.points, { x: point.x, y: point.y }];
         const count = { distance: 2, angle: 3, id: 1 }[operation.mode];
         if (points.length === count) {
-            const measured = measureDrawingPoints(operation.mode, points);
+            const measured = measureInUserFrame(operation.mode, points, getUserSettings());
             if (measured) present({ mode: operation.mode, lengthUnit: 'm', angleUnit: '°', ...measured });
             else setMessage(t('inquiry.unsupported'));
         } else { setOperation({ ...operation, points }); setMessage(t(operation.mode === 'area' ? 'inquiry.areaPrompt' : 'inquiry.pointPrompt')); }
@@ -96,10 +97,23 @@ export default function useDrawingInquiry({ content, selectedIds, operation, set
     };
     const input = value => {
         if (operation?.type !== 'inquiry' || operation.mode !== 'area' || !['', 'DONE'].includes(value.trim().toUpperCase())) return false;
-        const measured = operation.points.length >= 3 && measureDrawingEntity({ type: 'polyline', closed: true, points: operation.points });
+        const measured = operation.points.length >= 3 && measureDrawingEntity({ type: 'polyline', closed: true,
+            points: operation.points.map(point => drawingWorldPointForDisplay(point, getUserSettings())) });
         if (measured?.area) present({ mode: 'area', lengthUnit: 'm', areaUnit: 'm²', ...measured });
         else setMessage(t('inquiry.unsupported'));
         return true;
     };
     return { result, getResult: () => resultRef.current, run, point, input, copy, present };
+}
+
+// DIST dx/dy and angle are read in the user frame when Y is up (identity
+// otherwise); ID points are converted once in present().
+function measureInUserFrame(mode, points, settings) {
+    return measureDrawingPoints(mode, mode === 'id' ? points : points.map(point => drawingWorldPointForDisplay(point, settings)));
+}
+
+function withDisplayedCentroid(measurement, settings) {
+    if (!measurement || !Number.isFinite(measurement.centroidX)) return measurement;
+    const centroid = drawingWorldPointForDisplay({ x: measurement.centroidX, y: measurement.centroidY }, settings);
+    return { ...measurement, centroidX: centroid.x, centroidY: centroid.y };
 }

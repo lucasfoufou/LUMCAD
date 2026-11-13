@@ -1,3 +1,4 @@
+import { drawingEntryPointToWorld, drawingUserSettings, drawingWorldPointForDisplay } from '~utils/drawingCoordinates';
 import { Button, Input, Select } from '~components/ui/Controls';
 import React from 'react';
 
@@ -61,6 +62,7 @@ export default function DrawingLayoutSidebar({
     pageSetups = [],
     selectedViewportId,
     selectedPaperEntityId,
+    yAxisUp = false,
 }) {
     const { t } = useI18n();
     const viewport = layout.viewports.find(item => item.id === selectedViewportId) || null;
@@ -112,6 +114,7 @@ export default function DrawingLayoutSidebar({
                 {viewport && (
                     <ViewportFields
                         content={content}
+                        yAxisUp={yAxisUp}
                         viewport={viewport}
                         onChange={updateViewport}
                         onResize={resizeViewport}
@@ -231,14 +234,20 @@ function SidebarSection({ children, defaultOpen = false, title }) {
     );
 }
 
-function ViewportFields({ content, viewport, onChange, onResize, onFit, onUseCurrent, onZoom, onDelete, t }) {
+function ViewportFields({ content, viewport, onChange, onResize, onFit, onUseCurrent, onZoom, onDelete, t, yAxisUp = false }) {
     const viewBox = viewport.modelViewBox;
-    const centerX = viewBox.x + viewBox.width / 2;
-    const centerY = viewBox.y + viewBox.height / 2;
+    // The model centre is a model coordinate: read and typed in the user frame (Y up when enabled).
+    const userSettings = drawingUserSettings(content?.settings, yAxisUp);
+    const center = drawingWorldPointForDisplay({ x: viewBox.x + viewBox.width / 2, y: viewBox.y + viewBox.height / 2 }, userSettings);
     const setModel = patch => onChange({
         ...viewport,
         modelViewBox: { ...viewBox, ...patch },
     });
+    const setCenter = (axis, value) => {
+        if (!Number.isFinite(value)) return;
+        const next = drawingEntryPointToWorld({ ...center, [axis]: value }, userSettings);
+        setModel({ x: next.x - viewBox.width / 2, y: next.y - viewBox.height / 2 });
+    };
     return (
         <section className="drawing-layout-viewport-panel" aria-label={t('layout.viewportProperties')}>
             <h3>{t('layout.viewportProperties')}</h3>
@@ -260,8 +269,8 @@ function ViewportFields({ content, viewport, onChange, onResize, onFit, onUseCur
                     <NumberField label={t('layout.yMm')} value={viewport.y} precision={1} onChange={value => onChange({ ...viewport, y: value })} />
                     <NumberField label={t('layout.widthMm')} value={viewport.width} precision={1} min="8" onChange={value => onResize({ width: value })} />
                     <NumberField label={t('layout.heightMm')} value={viewport.height} precision={1} min="8" onChange={value => onResize({ height: value })} />
-                    <NumberField disabled={viewport.locked} label={t('layout.modelCenterX')} value={centerX} precision={3} step="0.1" onChange={value => setModel({ x: value - viewBox.width / 2 })} />
-                    <NumberField disabled={viewport.locked} label={t('layout.modelCenterY')} value={centerY} precision={3} step="0.1" onChange={value => setModel({ y: value - viewBox.height / 2 })} />
+                    <NumberField disabled={viewport.locked} label={t('layout.modelCenterX')} value={center.x} precision={3} step="0.1" onChange={value => setCenter('x', value)} />
+                    <NumberField disabled={viewport.locked} label={t('layout.modelCenterY')} value={center.y} precision={3} step="0.1" onChange={value => setCenter('y', value)} />
                 </div>
             </SidebarSection>
             <SidebarSection title={t('layout.viewportDisplay')}>

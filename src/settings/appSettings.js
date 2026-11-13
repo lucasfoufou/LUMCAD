@@ -21,6 +21,7 @@ export const DEFAULT_APP_SETTINGS = Object.freeze({
         angleUnit: 'degrees',
         clockwiseAngles: false,
         mirrorText: false,
+        yAxisUp: true,
     }),
     mcp: Object.freeze({
         enabled: true,
@@ -54,6 +55,8 @@ export function normalizeAppSettings(value) {
                 : 'degrees',
             clockwiseAngles: Boolean(drawingDefaults.clockwiseAngles),
             mirrorText: Boolean(drawingDefaults.mirrorText),
+            // Settings saved before this option existed adopt the AutoCAD convention.
+            yAxisUp: drawingDefaults.yAxisUp !== false,
         },
         mcp: {
             enabled: source.mcp ? mcp.enabled !== false : true,

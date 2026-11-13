@@ -142,6 +142,8 @@ pub struct DrawingDefaults {
     pub angle_unit: String,
     pub clockwise_angles: bool,
     pub mirror_text: bool,
+    /// Y axis up for typed and displayed coordinates (AutoCAD); stored geometry keeps Y down.
+    pub y_axis_up: bool,
 }
 
 impl Default for DrawingDefaults {
@@ -154,6 +156,7 @@ impl Default for DrawingDefaults {
             angle_unit: "degrees".into(),
             clockwise_angles: false,
             mirror_text: false,
+            y_axis_up: true,
         }
     }
 }
@@ -432,6 +435,15 @@ mod tests {
     }
 
     #[test]
+    fn y_axis_up_defaults_on_for_settings_saved_before_it_existed() {
+        assert!(AppSettings::default().drawing_defaults.y_axis_up);
+        let legacy: DrawingDefaults = serde_json::from_str(r#"{"angleUnit":"degrees","clockwiseAngles":false}"#).unwrap();
+        assert!(legacy.y_axis_up);
+        let disabled: DrawingDefaults = serde_json::from_str(r#"{"yAxisUp":false}"#).unwrap();
+        assert!(!disabled.normalized().y_axis_up);
+    }
+
+    #[test]
     fn first_launch_state_becomes_stored_after_the_first_update() {
         let state = AppSettingsState::with_origin(AppSettings::default(), false);
         assert!(!state.is_stored());
@@ -457,6 +469,7 @@ mod tests {
                 angle_unit: "turns".into(),
                 clockwise_angles: true,
                 mirror_text: true,
+                y_axis_up: false,
             },
             mcp: McpPreferences {
                 enabled: true,
@@ -476,6 +489,7 @@ mod tests {
         assert_eq!(settings.drawing_defaults.angle_unit, "degrees");
         assert!(settings.drawing_defaults.clockwise_angles);
         assert!(settings.drawing_defaults.mirror_text);
+        assert!(!settings.drawing_defaults.y_axis_up);
         assert_eq!(settings.mcp.preferred_port, 1_024);
     }
 
@@ -495,6 +509,7 @@ mod tests {
                 angle_unit: "radians".into(),
                 clockwise_angles: true,
                 mirror_text: true,
+                y_axis_up: false,
             },
             mcp: McpPreferences {
                 enabled: false,

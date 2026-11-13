@@ -29,16 +29,113 @@ export function normalizeDrawingNamedUcs(value) {
     });
 }
 
+/*
+ * Two frames meet here. Stored (world) coordinates keep Y pointing down the
+ * screen: entity geometry, .lcad files, rendering and MCP. The user frame is
+ * what people read and type: the UCS, plus, when the application preference
+ * "Y axis up" is on, a Y flip so Y points up and positive angles turn
+ * counter-clockwise on screen, as in AutoCAD. A frame carrying `yUp: true`
+ * (see drawingUserFrame) applies the flip; a plain UCS keeps the stored sense.
+ */
 export function drawingUcsToWorld(point, ucs) {
     if (!point) return point;
     const frame = normalizeDrawingUcs(ucs); const radians = frame.rotation * Math.PI / 180;
-    return { ...point, x: frame.x + point.x * Math.cos(radians) - point.y * Math.sin(radians), y: frame.y + point.x * Math.sin(radians) + point.y * Math.cos(radians) };
+    const y = ucs?.yUp === true && point.y !== 0 ? -point.y : point.y;
+    return { ...point, x: frame.x + point.x * Math.cos(radians) - y * Math.sin(radians), y: frame.y + point.x * Math.sin(radians) + y * Math.cos(radians) };
 }
 export function drawingWorldToUcs(point, ucs) {
     if (!point) return point;
     const frame = normalizeDrawingUcs(ucs); const radians = frame.rotation * Math.PI / 180;
     const dx = point.x - frame.x; const dy = point.y - frame.y;
-    return { ...point, x: dx * Math.cos(radians) + dy * Math.sin(radians), y: -dx * Math.sin(radians) + dy * Math.cos(radians) };
+    const y = -dx * Math.sin(radians) + dy * Math.cos(radians);
+    return { ...point, x: dx * Math.cos(radians) + dy * Math.sin(radians), y: ucs?.yUp === true && y !== 0 ? -y : y };
+}
+
+/**
+ * Drawing settings seen through the application preference: the returned copy
+ * carries `yAxisUp`, read by the user-frame helpers below. It is a view for
+ * conversion only and must never be committed to the document.
+ */
+export function drawingUserSettings(settings, yAxisUp) {
+    return { ...(settings || {}), yAxisUp: yAxisUp === true };
+}
+/** The frame typed and displayed coordinates use: the UCS, flipped when Y is up. */
+export function drawingUserFrame(settings) {
+    return { ...normalizeDrawingUcs(settings?.ucs), yUp: settings?.yAxisUp === true };
+}
+export function drawingWorldToUser(point, settings) { return drawingWorldToUcs(point, drawingUserFrame(settings)); }
+export function drawingUserToWorld(point, settings) { return drawingUcsToWorld(point, drawingUserFrame(settings)); }
+/** A displacement (no origin) read in the user frame. */
+export function drawingWorldVectorToUser(vector, settings) {
+    if (!vector) return vector;
+    const frame = { ...drawingUserFrame(settings), x: 0, y: 0 };
+    return drawingWorldToUcs({ x: vector.x, y: vector.y }, frame);
+}
+export function drawingUserVectorToWorld(vector, settings) {
+    if (!vector) return vector;
+    const frame = { ...drawingUserFrame(settings), x: 0, y: 0 };
+    return drawingUcsToWorld({ x: vector.x, y: vector.y }, frame);
+}
+/**
+ * A relative rotation (degrees). Stored rotations turn from +X towards the
+ * stored +Y, i.e. clockwise on screen; with Y up a positive user rotation
+ * turns counter-clockwise, so the sign flips. The UCS rotation never matters.
+ */
+export function drawingUserRotationToWorld(degrees, settings) {
+    return settings?.yAxisUp === true && Number.isFinite(degrees) ? (degrees === 0 ? 0 : -degrees) : degrees;
+}
+export const drawingWorldRotationToUser = drawingUserRotationToWorld;
+/** An absolute direction (degrees, measured in the frame) between the stored and user frames. */
+export function drawingUserDirectionToWorld(degrees, settings) {
+    if (!Number.isFinite(degrees)) return degrees;
+    const radians = degrees * Math.PI / 180;
+    const vector = drawingUserVectorToWorld({ x: Math.cos(radians), y: Math.sin(radians) }, settings);
+    return normalizeAngle(Math.atan2(vector.y, vector.x) * 180 / Math.PI);
+}
+export function drawingWorldDirectionToUser(degrees, settings) {
+    if (!Number.isFinite(degrees)) return degrees;
+    const radians = degrees * Math.PI / 180;
+    const vector = drawingWorldVectorToUser({ x: Math.cos(radians), y: Math.sin(radians) }, settings);
+    return normalizeAngle(Math.atan2(vector.y, vector.x) * 180 / Math.PI);
+}
+/*
+ * Entry points that historically read stored values directly (typed MOVE
+ * offsets, typed command coordinates, entity fields, messages) use these:
+ * they apply the user frame only when Y is up and are the identity otherwise,
+ * so turning the preference off restores the former behaviour exactly.
+ */
+export function drawingEntryPointToWorld(point, settings) { return settings?.yAxisUp === true ? drawingUserToWorld(point, settings) : point; }
+export function drawingWorldPointForDisplay(point, settings) { return settings?.yAxisUp === true ? drawingWorldToUser(point, settings) : point; }
+export function drawingEntryVectorToWorld(vector, settings) { return settings?.yAxisUp === true ? drawingUserVectorToWorld(vector, settings) : vector; }
+export function drawingWorldVectorForDisplay(vector, settings) { return settings?.yAxisUp === true ? drawingWorldVectorToUser(vector, settings) : vector; }
+export function drawingEntryDirectionToWorld(degrees, settings) { return settings?.yAxisUp === true ? drawingUserDirectionToWorld(degrees, settings) : degrees; }
+export function drawingWorldDirectionForDisplay(degrees, settings) { return settings?.yAxisUp === true ? drawingWorldDirectionToUser(degrees, settings) : degrees; }
+/*
+ * Sheet annotations that print a coordinate (Y ordinate dimensions) are drawn
+ * by pure render code without editor state: the application sets the
+ * preference here once (AppSettingsProvider). Stored geometry never changes.
+ */
+let displayYAxisUp = false;
+export function setDrawingDisplayYAxisUp(value) { displayYAxisUp = value === true; }
+export function drawingDisplayYAxisUp() { return displayYAxisUp; }
+
+/** The UCS as the user types and reads it: origin in user world coordinates, user rotation. */
+export function drawingUcsToUser(ucs, yAxisUp) {
+    const frame = normalizeDrawingUcs(ucs);
+    return yAxisUp === true ? { ...frame, y: frame.y === 0 ? 0 : -frame.y, rotation: normalizeAngle(-frame.rotation) } : frame;
+}
+export function drawingUcsFromUser(ucs, yAxisUp) {
+    return normalizeDrawingUcs(drawingUcsToUser(ucs, yAxisUp));
+}
+/** Drawing limits typed or read by the user (min/max swap on Y when it is flipped). */
+export function drawingLimitsFromUser(limits, yAxisUp) {
+    if (yAxisUp !== true || !limits) return limits;
+    return { ...limits, minY: -limits.maxY || 0, maxY: -limits.minY || 0 };
+}
+export const drawingLimitsToUser = drawingLimitsFromUser;
+function normalizeAngle(value) {
+    const normalized = ((value % 360) + 360) % 360;
+    return Math.abs(normalized - 360) < 1e-9 || Math.abs(normalized) < 1e-9 ? 0 : normalized;
 }
 
 /** A screen-anchored orientation indicator; its position never represents the UCS origin. */
@@ -56,7 +153,7 @@ export function drawingUcsIndicatorGeometry(settings, viewBox, worldUnitsPerPixe
 /** Typed bare lengths remain metres; explicit unit suffixes retain the established parser contract. */
 export function resolveDrawingUcsInput(value, options = {}, settings = {}) {
     const units = normalizeDrawingUnits(settings.units);
-    const ucs = normalizeDrawingUcs(settings.ucs);
+    const ucs = drawingUserFrame(settings);
     const result = resolveDrawingPointInput(value, { ...options,
         angleUnit: settings.units ? units.angle : options.angleUnit,
         referencePoint: drawingWorldToUcs(options.referencePoint, ucs), directionPoint: drawingWorldToUcs(options.directionPoint, ucs) });
@@ -101,7 +198,7 @@ export function formatDrawingAngle(degrees, settings, locale = 'en') {
 export function drawingPolarMeasure(from, to, settings) {
     if (![from?.x, from?.y, to?.x, to?.y].every(Number.isFinite)) return null;
     const units = normalizeDrawingUnits(settings?.units);
-    const ucs = normalizeDrawingUcs(settings?.ucs);
+    const ucs = drawingUserFrame(settings);
     const start = drawingWorldToUcs(from, ucs);
     const end = drawingWorldToUcs(to, ucs);
     const dx = end.x - start.x; const dy = end.y - start.y;
