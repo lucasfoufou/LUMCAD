@@ -52,7 +52,7 @@ import { spaceDrawingDimensions, beginDimensionSpacing, spaceDimensionsAtPoint }
 import { disassociateDrawingDimensions, reassociateDrawingDimensions, beginDimensionReassociation, pickDimensionReassociationSource } from '~utils/drawingDimensionAssociations';
 import { maintainDrawingDimensions, beginDimensionTextPlacement, placeDimensionTextAtPoint, beginDimensionBreak, advanceDimensionBreak } from '~utils/drawingDimensionMaintenance';
 import { runDimensionStyleCommand } from '~utils/drawingDimensionStyleCommands';
-import { withDefaultCommandPlacements } from '~utils/drawingDimensionPlacement';
+import { dimensionToolPromptKey, withDefaultCommandPlacements } from '~utils/drawingDimensionPlacement';
 import { exportDrawingAttributes } from '~utils/drawingAttributeExport';
 import useDrawingTableFiles from '~hooks/useDrawingTableFiles';
 import useDrawingWmf from '~hooks/useDrawingWmf';
@@ -920,6 +920,11 @@ export default function DrawingEditorWorkspace({
             setMessage(operationBasePrompt('scale', t));
             return true;
         }
+        if (interactiveOperation.type === 'dimensionSelection') {
+            setInteractiveOperation(null);
+            submitCommand(interactiveOperation.rawValue).catch(() => {});
+            return true;
+        }
         if (interactiveOperation.type === 'array') return activateArraySelection(interactiveOperation, selectedEntities);
         if (interactiveOperation.type === 'align') return activateAlignSelection(interactiveOperation, selectedEntities);
         if (['join', 'explode', 'xplode'].includes(interactiveOperation.type)) {
@@ -1714,9 +1719,7 @@ export default function DrawingEditorWorkspace({
         canvasRef.current?.cancel();
         canvasRef.current?.setTextCreationMode(textMode);
         setActiveTool('text');
-        setMessage(t('messages.toolActive', {
-            tool: t(textMode === 'multiline' ? 'commands.multilineText' : 'commands.text'),
-        }));
+        setMessage(t(textMode === 'multiline' ? 'messages.multilineTextPrompt' : 'messages.textPrompt'));
     };
 
     const activateDimensionTool = mode => {
@@ -1724,7 +1727,16 @@ export default function DrawingEditorWorkspace({
         canvasRef.current?.cancel();
         setDimensionMode(mode);
         setActiveTool('dimension');
-        setMessage(t('messages.dimensionPrompt'));
+        setMessage(t(dimensionToolPromptKey(mode)));
+    };
+
+    // Series dimensions need picked objects: without a selection, ask for one and rerun on Enter.
+    const beginDimensionSelection = (rawValue, promptKey) => {
+        openModelWorkspace();
+        canvasRef.current?.cancel();
+        setActiveTool('select');
+        setInteractiveOperation({ type: 'dimensionSelection', stage: 'select', rawValue });
+        setMessage(t(promptKey));
     };
 
     const commitDimensionCommand = (result, fallbackMode = null) => {
@@ -2119,6 +2131,7 @@ export default function DrawingEditorWorkspace({
             return;
         }
         if (parsed.command === 'quickDimension') {
+            if (!selectedIds.length) { beginDimensionSelection(rawValue, 'messages.quickDimensionSelectPrompt'); return; }
             commitDimensionCommand(createQuickDimensionResult(
                 history.content,
                 selectedIds,
@@ -2127,6 +2140,7 @@ export default function DrawingEditorWorkspace({
             return;
         }
         if (parsed.command === 'baselineDimension') {
+            if (!selectedIds.length) { beginDimensionSelection(rawValue, 'messages.dimensionSeriesSelectPrompt'); return; }
             const { baselineEnd } = parseQdimCommandOptions(
                 getDrawingCommandInput(rawValue),
                 { qdimMode: 'baseline' },
@@ -2135,6 +2149,7 @@ export default function DrawingEditorWorkspace({
             return;
         }
         if (parsed.command === 'continueDimension') {
+            if (!selectedIds.length) { beginDimensionSelection(rawValue, 'messages.dimensionSeriesSelectPrompt'); return; }
             commitDimensionCommand(createContinuedDimensionResult(history.content, selectedIds));
             return;
         }
@@ -3008,10 +3023,12 @@ export default function DrawingEditorWorkspace({
                             canvasRef.current?.cancel();
                             setCreationPanelEntityId(null);
                             if (tool === 'dimension') setDimensionMode('auto');
+                            if (tool === 'text') canvasRef.current?.setTextCreationMode('singleLine');
                             setActiveTool(tool);
                             setInteractiveOperation(null);
                             setMessage(tool === 'dimension'
                                 ? t('messages.dimensionPrompt')
+                                : tool === 'text' ? t('messages.textPrompt')
                                 : t('messages.toolActive', { tool: t(`commands.${tool}`) }));
                         }}
                         canvasRef={canvasRef}

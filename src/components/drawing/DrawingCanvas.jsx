@@ -114,6 +114,7 @@ import { createStretchPreviewEntities } from '~utils/drawingStretchOperations';
 import { drawingViewBoxScreenTransform, drawingVisibleViewBox, scaleDrawingViewBox, zoomDrawingViewBox } from '~utils/drawingViewport';
 import { drawingTextFontSizeToPixels, resolveDrawingTextStyle, normalizeDrawingTextEntity } from '~utils/drawingText';
 import useStableArray from '~hooks/useStableArray';
+import { commitPendingDrawingText, createPendingDrawingText, singleClickTextFrame } from '~utils/drawingTextPlacement';
 import { defaultDimensionTextSize } from '~utils/drawingDimensionStyles';
 import { dimensionNeedsPlacement, dimensionWithTypedOffset, parseDimensionToolInput, placeDimensionAtPoint, resolveDimensionPickTarget, styledDimensionDraft, withDefaultDimensionPlacement } from '~utils/drawingDimensionPlacement';
 
@@ -176,6 +177,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const [spacePressed, setSpacePressed] = useState(false);
     const [editingTextId, setEditingTextId] = useState(null);
     const [editingTextInitialSelection, setEditingTextInitialSelection] = useState(null);
+    // A text placed with the tool exists only in its editor until it receives some text.
+    const [pendingText, setPendingText] = useState(null);
     const initialCreationConfigRef = useRef(createDefaultDrawingCreationConfig(activeTool));
     const [creationMode, setCreationMode] = useState(initialCreationConfigRef.current.mode);
     const [creationOptions, setCreationOptions] = useState(initialCreationConfigRef.current.options);
@@ -184,8 +187,9 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
     const entityById = useMemo(() => new Map(content.entities.map(entity => [entity.id, entity])), [content.entities]);
     const editingText = useMemo(() => (
-        content.entities.find(entity => entity.id === editingTextId && entity.type === 'text') || null
-    ), [content.entities, editingTextId]);
+        content.entities.find(entity => entity.id === editingTextId && entity.type === 'text')
+            || (pendingText?.id === editingTextId ? pendingText : null)
+    ), [content.entities, editingTextId, pendingText]);
 
     useEffect(() => {
         if (editingTextId && !editingText) {
@@ -342,6 +346,14 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const commitCreationEntity = entity => {
         if (!entity) return false;
         const nextEntity = { ...entity, id: entity.id === 'draft' ? createDrawingId(entity.type) : entity.id };
+        if (nextEntity.type === 'text' && creationOptions?.text === undefined) {
+            setPendingText(createPendingDrawingText(nextEntity));
+            setEditingTextInitialSelection({ start: 0, end: 0 });
+            setEditingTextId(nextEntity.id);
+            setGesture(null);
+            onStatus?.(t('textEditor.typePrompt'));
+            return true;
+        }
         onCommit(
             addEntity(content, nextEntity),
             nextEntity.type === 'text' ? { coalesceKey: `text-edit-${nextEntity.id}` } : undefined,
@@ -377,7 +389,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         return t(activeTool === 'circle' ? 'canvas.circleSecondPoint' : 'canvas.secondPoint');
     };
 
-    const handleCreationPoint = (point, targetId = null) => {
+    const handleCreationPoint = (point, targetId = null, { pointer = false } = {}) => {
         const target = content.entities.find(entity => entity.id === targetId);
         const tangentMode = activeTool === 'circle'
             && ['tangentTangentRadius', 'tangentTangentTangent'].includes(creationMode);
@@ -455,6 +467,10 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                     ? points.length >= 3 || (points.length >= 2 && Number.isFinite(nextGesture.options.radius))
                     : false
         );
+        if (pointer && activeTool === 'text' && nextGesture.options.textMode !== 'multiline' && points.length === 1) {
+            // A single-line text is placed with one click and typed in place; typed points still give a frame.
+            return commitCreationEntity(buildCreationEntity(nextGesture, singleClickTextFrame(point, nextGesture.options, content.textStyles)));
+        }
         const completes = activeTool === 'line' || activeTool === 'text'
             ? points.length >= 2
             : activeTool === 'arc' && ['startCenterAngle', 'startEndRadius'].includes(creationMode)
@@ -860,6 +876,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         },
         cancel() {
             setGesture(null);
+            setPendingText(null);
             if (editingTextId) onEndCoalescing?.();
             setEditingTextId(null);
             setEditingTextInitialSelection(null);
@@ -1059,6 +1076,12 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
 
     const handlePointerDown = event => {
         if (event.button === 2) return;
+        if (editingTextId && event.button === 0) {
+            // Clicking outside the open text editor validates it; the click starts nothing else.
+            event.preventDefault();
+            document.activeElement?.blur?.();
+            return;
+        }
         const gripTarget = event.target.closest?.('[data-grip-id]');
         const gripId = gripTarget?.dataset?.gripId || null;
         const targetId = gripTarget?.dataset?.entityId || pickEntityId(event);
@@ -1169,7 +1192,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             }
             const finalPoint = snapPoint(event, [], gestureReferenceOrigin(gesture));
             showPointerFeedback(finalPoint);
-            handleCreationPoint(finalPoint, targetId);
+            if (activeTool === 'text') event.preventDefault(); // Keep the browser from moving focus away from the editor about to open.
+            handleCreationPoint(finalPoint, targetId, { pointer: true });
             return;
         }
 
@@ -1675,7 +1699,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const sceneContent = useMemo(() => (clipboardPreview
         ? { ...previewContent, layers: clipboardPreview.content.layers, blocks: clipboardPreview.content.blocks }
         : previewContent), [clipboardPreview, previewContent]);
-    const dynamicInputVisible = Boolean(content.settings?.dynamicInput && dynamicInput && (
+    // Typing goes to the text editor while it is open, not to the dynamic input.
+    const dynamicInputVisible = Boolean(content.settings?.dynamicInput && dynamicInput && !editingText && (
         drawingTools.has(activeTool)
         || activeTool === 'dimension'
         || (interactiveOperation && interactiveOperation.stage !== 'select')
@@ -1800,6 +1825,19 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                     style={textEditorStyle.root}
                     contentStyle={textEditorStyle.content}
                     onCommit={entity => {
+                        if (editingText === pendingText) {
+                            // An empty new text creates nothing; otherwise it is added in one undo step.
+                            const created = commitPendingDrawingText(content, entity);
+                            if (created) {
+                                onCommit(created);
+                                onSelectionChange([entity.id]);
+                            }
+                            setPendingText(null);
+                            setEditingTextId(null);
+                            setEditingTextInitialSelection(null);
+                            onStatus?.(t(created ? 'textEditor.committed' : 'textEditor.emptyDiscarded'));
+                            return;
+                        }
                         if (JSON.stringify(entity) !== JSON.stringify(editingText)) {
                             onCommit(
                                 updateSelectedEntities(content, [editingText.id], () => entity),
@@ -1812,6 +1850,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                         onStatus?.(t('textEditor.committed'));
                     }}
                     onCancel={() => {
+                        setPendingText(null);
                         setEditingTextId(null);
                         setEditingTextInitialSelection(null);
                         onEndCoalescing?.();

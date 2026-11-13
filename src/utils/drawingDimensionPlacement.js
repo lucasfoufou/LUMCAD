@@ -155,3 +155,15 @@ export function withDefaultCommandPlacements(result) {
     const replace = entity => (created.has(entity.id) && replacements.get(entity.id)) || entity;
     return { ...result, content: { ...result.content, entities: result.content.entities.map(replace) }, entities: result.entities.map(replace) };
 }
+
+/** Each dimension command announces what it expects instead of the generic DIMENSION prompt. */
+export function dimensionToolPromptKey(mode) {
+    const value = typeof mode === 'object' && mode ? String(mode.mode || 'auto') : String(mode || 'auto');
+    if (['horizontal', 'vertical', 'aligned', 'rotated', 'linear'].includes(value)) return 'messages.linearDimensionPrompt';
+    if (['radius', 'diameter', 'joggedRadius'].includes(value)) return 'messages.radialDimensionPrompt';
+    if (value === 'arcLength') return 'messages.arcDimensionPrompt';
+    if (value === 'angular') return 'messages.angularDimensionPrompt';
+    if (value === 'ordinate') return 'messages.ordinateDimensionPrompt';
+    if (value === 'centerMark') return 'messages.centerMarkPrompt';
+    return 'messages.dimensionPrompt';
+}
