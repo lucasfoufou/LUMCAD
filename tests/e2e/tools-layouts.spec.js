@@ -199,6 +199,97 @@ test('PUBLISH previews all layouts and writes a multi-page PDF', async ({ page }
     expect(pdfPages(file.bytes)).toBe(2);
 });
 
+const viewportScale = viewport => viewport.modelViewBox.width * 1000 / viewport.width;
+const roof = withContent({ entities: [
+    { id: 'r1', type: 'rectangle', x: 0, y: 0, width: 30, height: 20 },
+    { id: 'r2', type: 'line', x1: 0, y1: 0, x2: 30, y2: 20 },
+] });
+
+test('the standard arrangement selector places one viewport at a standard scale', async ({ page }) => {
+    const errors = await start(page);
+    await openDrawing(page, roof);
+    await command(page, 'PSPACE');
+    await page.locator('.drawing-layout-arrangement-field select').selectOption('single');
+    await expect.poll(async () => (await activeLayout(page)).viewports.length).toBe(1);
+    const [viewport] = (await activeLayout(page)).viewports;
+    expect([1, 2, 5, 10, 20, 25, 50, 75, 100, 125, 200, 250, 500, 1000, 2000, 5000]).toContain(Math.round(viewportScale(viewport) * 1e6) / 1e6);
+    expect(errors).toEqual([]);
+});
+
+test('PLOT from the model of a new drawing puts it on an A3 sheet at 1:100 with a title block', async ({ page }) => {
+    await start(page);
+    await openDrawing(page, roof);
+    const before = await layouts(page);
+    expect(before[0].viewports).toHaveLength(0);
+    expect(before[0].format).toBe('A3');
+    await command(page, 'PLOT');
+    const dialog = page.locator('.drawing-publish-dialog');
+    const setup = dialog.locator('.drawing-sheet-setup');
+    await expect(setup).toBeVisible();
+    await setup.getByLabel('Scale').selectOption('100');
+    await dialog.getByRole('button', { name: 'Place on the sheet' }).click();
+    await expect.poll(async () => (await layouts(page))[0].viewports.length).toBe(1);
+    const [layout] = await layouts(page);
+    const [viewport] = layout.viewports;
+    expect(layout.format).toBe('A3');
+    expect(layout.orientation).toBe('landscape');
+    expect(viewport.locked).toBe(true);
+    expect(viewportScale(viewport)).toBeCloseTo(100, 6);
+    expect(viewport.modelViewBox.x + viewport.modelViewBox.width / 2).toBeCloseTo(15, 6);
+    const texts = layout.paperEntities.filter(entity => entity.type === 'text').map(entity => entity.text);
+    expect(texts).toEqual(expect.arrayContaining(['Drawing title', 'Scale', '1:100', 'A3']));
+    await expect(dialog.locator('.drawing-publish-sheets')).toContainText('A3 landscape · 1:100');
+    const file = await publishFromDialog(page);
+    expect(pdfPages(file.bytes)).toBe(1);
+    const mediaBox = /MediaBox\s*\[\s*0 0 ([\d.]+) ([\d.]+)/.exec(file.bytes.toString('latin1'));
+    expect(Number(mediaBox[1])).toBeCloseTo(1190.55, 2);
+    expect(Number(mediaBox[2])).toBeCloseTo(841.89, 2);
+    await page.keyboard.press('Escape');
+    // Saving remembers the plot settings (one step); the sheet setup itself is one more.
+    await command(page, 'UNDO');
+    expect((await layouts(page))[0].viewports).toHaveLength(1);
+    await command(page, 'UNDO');
+    await expect.poll(async () => (await layouts(page))[0].viewports.length).toBe(0);
+    expect((await layouts(page))[0].paperEntities).toHaveLength(0);
+});
+
+test('VPSCALE sets the selected viewport to an exact standard scale', async ({ page }) => {
+    await open(page);
+    const id = await newViewport(page);
+    await command(page, 'VPSCALE 1:50');
+    await expect.poll(async () => viewportScale((await activeLayout(page)).viewports.find(item => item.id === id))).toBeCloseTo(50, 6);
+    await command(page, 'UNDO');
+    await expect.poll(async () => viewportScale((await activeLayout(page)).viewports.find(item => item.id === id))).not.toBeCloseTo(50, 6);
+});
+
+test('the wheel over a viewport zooms the paper, never the viewport scale', async ({ page }) => {
+    await open(page);
+    const id = await newViewport(page);
+    const scale = viewportScale((await activeLayout(page)).viewports.find(item => item.id === id));
+    const frame = await page.locator(`.drawing-layout-viewport-frame[data-layout-viewport-id="${id}"]`).boundingBox();
+    await page.mouse.move(frame.x + frame.width / 2, frame.y + frame.height / 2);
+    await page.mouse.wheel(0, -300);
+    await page.mouse.wheel(0, 300);
+    expect(viewportScale((await activeLayout(page)).viewports.find(item => item.id === id))).toBeCloseTo(scale, 9);
+});
+
+test('dragging with the viewport tool creates one viewport and returns to selection', async ({ page }) => {
+    await open(page);
+    await command(page, 'PSPACE');
+    const count = (await activeLayout(page)).viewports.length;
+    await command(page, 'MVIEW');
+    const box = await page.locator('.drawing-layout-stage svg').first().boundingBox();
+    await page.mouse.move(box.x + box.width * 0.55, box.y + box.height * 0.55);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.75, box.y + box.height * 0.75, { steps: 6 });
+    await page.mouse.up();
+    await expect.poll(async () => (await activeLayout(page)).viewports.length).toBe(count + 1);
+    expect((await editor(page)).layoutTool).toBe('select');
+    expect((await editor(page)).selectedViewportId).not.toBeNull();
+    await page.mouse.click(box.x + box.width * 0.65, box.y + box.height * 0.65);
+    expect((await activeLayout(page)).viewports.length).toBe(count + 1);
+});
+
 test('AUTOPUBLISH refuses an unsaved browser drawing without writing anything', async ({ page }) => {
     await open(page);
     let downloaded = false;

@@ -267,7 +267,7 @@ function ViewportFields({ content, viewport, onChange, onResize, onFit, onUseCur
             <SidebarSection title={t('layout.viewportDisplay')}>
                 <ViewportDisplayFields viewport={viewport} onChange={onChange} t={t} />
             </SidebarSection>
-            <SidebarSection title={t('layout.viewportLayers')}>
+            <SidebarSection title={t('layout.viewportLayers')} defaultOpen>
                 <ViewportLayerVisibility content={content} viewport={viewport} onChange={onChange} t={t} />
             </SidebarSection>
             <p className="drawing-layout-help">{t('layout.viewportHelp')}</p>
