@@ -1524,6 +1524,7 @@ const fr = {
     'dimension.fields.inspectionRate': 'Fréquence d’inspection',
     'dimension.fields.coordinateX': 'X',
     'dimension.fields.coordinateY': 'Y',
+    'dimension.fields.mixed': 'Différentes',
     'dimension.measurementMode.aligned': 'Alignée',
     'dimension.measurementMode.horizontal': 'Horizontale',
     'dimension.measurementMode.vertical': 'Verticale',

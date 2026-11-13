@@ -1524,6 +1524,7 @@ const en = {
     'dimension.fields.inspectionRate': 'Inspection rate',
     'dimension.fields.coordinateX': 'X',
     'dimension.fields.coordinateY': 'Y',
+    'dimension.fields.mixed': 'Mixed',
     'dimension.measurementMode.aligned': 'Aligned',
     'dimension.measurementMode.horizontal': 'Horizontal',
     'dimension.measurementMode.vertical': 'Vertical',

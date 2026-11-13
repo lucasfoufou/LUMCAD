@@ -1,5 +1,6 @@
 import { Button, Input, Select } from '~components/ui/Controls';
 import React from 'react';
+import DrawingCommittedNumberField from './DrawingCommittedNumberField';
 
 import {
     DRAWING_DIMENSION_TOLERANCE_MODES,
@@ -453,20 +454,18 @@ function SelectField({ disabled, label, onChange, options, value }) {
     );
 }
 
-function NumberField({ disabled, label, max, min, onChange, step, value }) {
+function NumberField({ disabled, label, max, min, mixed = false, onChange, step, value }) {
     return (
-        <label className="drawing-sidebar-field">
-            <span>{label}</span>
-            <Input
-                disabled={disabled}
-                max={max}
-                min={min}
-                onChange={event => onChange(Number(event.target.value))}
-                step={step}
-                type="number"
-                value={value}
-            />
-        </label>
+        <DrawingCommittedNumberField
+            digits={String(step) === '1' ? 0 : 4}
+            disabled={disabled}
+            label={label}
+            max={max === undefined ? Infinity : Number(max)}
+            min={min === undefined ? -Infinity : Number(min)}
+            mixed={mixed}
+            onChange={onChange}
+            value={value}
+        />
     );
 }
 
