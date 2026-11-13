@@ -15,7 +15,8 @@ import DrawingDimensionStylesPanel from '~components/drawing/DrawingDimensionSty
 import DrawingBlockAttributeFields from '~components/drawing/DrawingBlockAttributeFields';
 import DrawingBlockParameterFields from '~components/drawing/DrawingBlockParameterFields';
 import DrawingBlocksPanel from '~components/drawing/DrawingBlocksPanel';
-import React, { useEffect, useMemo, useState } from 'react';
+import DrawingManagerWindow from '~components/drawing/DrawingManagerWindow';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import Icon from '~components/ui/Icon';
 
@@ -43,12 +44,12 @@ const MANAGER_PANELS = Object.freeze({
     textStyles: 'sidebar.textStyles',
     dimensionStyles: 'commands.dimensionStyle',
     plotStyles: 'commands.styleManager',
-    parameters: 'commands.parameters',
+    parameters: 'sidebar.manageParameters',
     constraints: 'commands.geomConstraint',
     inquiry: 'inquiry.title',
 });
 
-export default function DrawingSidebar({ content, selectedIds, editEntityId = null, onCommit, panel, onPanelChange, blockSearch, onBlockSearch, onBlockDefine, onBlockInsert, onBlockEdit, onBlockImport, onBlockExport, onManageAttribute, onDefineAttribute, onDimensionStyleCommand, inquiryResult, comparisonPreview, onCopyInquiry, onInspectTransmittal, onSelectDuplicateGroup, onSelectCountOccurrence, onOpenRecovery, canOpenRecovery = false, onSelectRecovery, onShowRecoveryManager, hasRecoveryGraph = false, onShowRecoveryHistory, onRetryRecovery, onForgetRecovery, onRelinkRecovery, canRelinkRecovery, layerFilter, onLayerFilter, onPlotStyleCommand, onCreationControlsMount, onAnnotationCommand, dynamicBlockEditing = false, onSmartBlockCommand, smartBlockDetection, libraryBrowser, onBrowseLibrary, onSelectConstraintObjects, parametersEnabled = false }) {
+export default function DrawingSidebar({ content, selectedIds, editEntityId = null, onCommit, panel, onPanelChange, blockSearch, onBlockSearch, onBlockDefine, onBlockInsert, onBlockEdit, onBlockImport, onBlockExport, onManageAttribute, onDefineAttribute, onDimensionStyleCommand, inquiryResult, comparisonPreview, onCopyInquiry, onInspectTransmittal, onSelectDuplicateGroup, onSelectCountOccurrence, onOpenRecovery, canOpenRecovery = false, onSelectRecovery, onShowRecoveryManager, hasRecoveryGraph = false, onShowRecoveryHistory, onRetryRecovery, onForgetRecovery, onRelinkRecovery, canRelinkRecovery, layerFilter, onLayerFilter, onPlotStyleCommand, onCreationControlsMount, onAnnotationCommand, commandActive = false, dynamicBlockEditing = false, onSmartBlockCommand, smartBlockDetection, libraryBrowser, onBrowseLibrary, onSelectConstraintObjects, parametersEnabled = false }) {
     const { t, locale } = useI18n();
     const [internalPanel, setInternalPanel] = useState('selection');
     const requested = panel || internalPanel;
@@ -84,12 +85,16 @@ export default function DrawingSidebar({ content, selectedIds, editEntityId = nu
         ['layers', t('sidebar.layers')],
         ['blocks', t('sidebar.library')],
     ];
+    const managers = Object.entries(MANAGER_PANELS).filter(([id]) => id !== 'parameters' || parametersEnabled);
     return (
         <aside className="drawing-sidebar">
-            <div className="drawing-sidebar-tabs" role="tablist">
-                {tabs.map(([id, label]) => (
-                    <Button type="button" role="tab" key={id} aria-selected={tab === id} className={tab === id ? 'is-active' : ''} onClick={() => showTab(id)}>{label}</Button>
-                ))}
+            <div className="drawing-sidebar-header">
+                <div className="drawing-sidebar-tabs" role="tablist">
+                    {tabs.map(([id, label]) => (
+                        <Button type="button" role="tab" key={id} aria-selected={tab === id} className={tab === id ? 'is-active' : ''} onClick={() => showTab(id)}>{label}</Button>
+                    ))}
+                </div>
+                <DrawingManageMenu managers={managers} current={manager} onOpen={open} t={t} />
             </div>
             <div className="drawing-sidebar-content" role="tabpanel">
                 {dynamicBlockEditing && tab === 'blockVariants' && <DrawingBlockVariantEditor content={content} selectedIds={selectedIds} onCommit={onCommit} t={t} />}
@@ -97,16 +102,6 @@ export default function DrawingSidebar({ content, selectedIds, editEntityId = nu
                     <>
                         <div className="drawing-properties-mount" ref={onCreationControlsMount} />
                         <SelectionPanel content={content} selectedIds={selectedIds} onCommit={onCommit} t={t} />
-                        {!selectedIds.length && (
-                            <section className="ui-section drawing-manage-section">
-                                <header>{t('sidebar.manage')}</header>
-                                <div className="drawing-manage-grid">
-                                    {Object.entries(MANAGER_PANELS)
-                                        .filter(([id]) => id !== 'parameters' || parametersEnabled)
-                                        .map(([id, labelKey]) => <Button type="button" key={id} onClick={() => open(id)}>{t(labelKey)}</Button>)}
-                                </div>
-                            </section>
-                        )}
                         <DrawingAnnotationFields content={content} selectedIds={selectedIds} onCommand={onAnnotationCommand} t={t} />
                     </>
                 )}
@@ -114,7 +109,8 @@ export default function DrawingSidebar({ content, selectedIds, editEntityId = nu
                 {tab === 'blocks' && <DrawingBlocksPanel libraryBrowser={libraryBrowser} onBrowseLibrary={onBrowseLibrary} onSmartCommand={onSmartBlockCommand} detection={smartBlockDetection} content={content} selectedIds={selectedIds} search={blockSearch} onSearch={onBlockSearch} onDefine={onBlockDefine} onInsert={onBlockInsert} onEdit={onBlockEdit} onImport={onBlockImport} onExport={onBlockExport} onManageAttribute={onManageAttribute} onDefineAttribute={onDefineAttribute} />}
             </div>
             {manager && (
-                <DrawingManagerWindow title={t(MANAGER_PANELS[manager])} closeLabel={t('sidebar.closeManager')} onClose={() => open(lastTab)}>
+                <DrawingManagerWindow title={t(MANAGER_PANELS[manager])} closeLabel={t('sidebar.closeManager')} moveLabel={t('sidebar.moveManager')}
+                    commandActive={commandActive} onClose={() => open(lastTab)}>
                     {managerContent[manager]()}
                 </DrawingManagerWindow>
             )}
@@ -122,21 +118,43 @@ export default function DrawingSidebar({ content, selectedIds, editEntityId = nu
     );
 }
 
-// Non-modal window: the drawing stays usable, e.g. to pick objects for constraints.
-function DrawingManagerWindow({ title, closeLabel, onClose, children }) {
+// Permanent access to the managers, whatever the tab and the selection.
+function DrawingManageMenu({ managers, current, onOpen, t }) {
+    const [open, setOpen] = useState(false);
+    const menuRef = useRef(null);
     useEffect(() => {
-        const closeOnEscape = event => { if (event.key === 'Escape' && !event.defaultPrevented) onClose(); };
-        window.addEventListener('keydown', closeOnEscape);
-        return () => window.removeEventListener('keydown', closeOnEscape);
-    }, [onClose]);
+        if (!open) return undefined;
+        menuRef.current?.querySelector('[role="menu"] button')?.focus();
+        const close = event => {
+            if (event.type === 'keydown' ? event.key === 'Escape' : !menuRef.current?.contains(event.target)) {
+                if (event.type === 'keydown') event.preventDefault();
+                setOpen(false);
+            }
+        };
+        window.addEventListener('pointerdown', close, true);
+        window.addEventListener('keydown', close, true);
+        return () => {
+            window.removeEventListener('pointerdown', close, true);
+            window.removeEventListener('keydown', close, true);
+        };
+    }, [open]);
     return (
-        <section className="ui-popover drawing-manager-window" role="dialog" aria-label={title}>
-            <header>
-                <h2>{title}</h2>
-                <Button type="button" className="ui-icon-button is-small" aria-label={closeLabel} title={closeLabel} onClick={onClose}><Icon name="close" size="sm" /></Button>
-            </header>
-            <div className="drawing-manager-body">{children}</div>
-        </section>
+        <div className="drawing-manage-menu" ref={menuRef}>
+            <Button type="button" className="drawing-manage-trigger" aria-haspopup="menu" aria-expanded={open}
+                aria-label={t('sidebar.manage')} title={t('sidebar.manageHint')} onClick={() => setOpen(value => !value)}>
+                <Icon name="manage" size="sm" /><span>{t('sidebar.manage')}</span>
+            </Button>
+            {open && (
+                <div className="ui-popover drawing-manage-popover" role="menu" aria-label={t('sidebar.manage')}>
+                    {managers.map(([id, labelKey]) => (
+                        <Button type="button" role="menuitem" key={id} aria-current={current === id || undefined}
+                            onClick={() => { setOpen(false); onOpen(id); }}>
+                            {t(labelKey)}
+                        </Button>
+                    ))}
+                </div>
+            )}
+        </div>
     );
 }
 

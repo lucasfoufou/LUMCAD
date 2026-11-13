@@ -541,22 +541,34 @@
   background: var(--panel);
 }
 
-.drawing-sidebar-tabs {
+.drawing-sidebar-header {
   display: flex;
-  flex-wrap: wrap;
-  gap: 2px;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
   padding: 6px;
   border-bottom: 1px solid var(--line);
+}
+
+.drawing-sidebar-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 2px;
+  min-width: 0;
 
   button {
     flex: 1 1 auto;
+    min-width: 0;
     min-height: 26px;
-    padding: 0 8px;
+    padding: 0 6px;
+    overflow: hidden;
     border: 0;
     border-radius: var(--radius-sm);
     background: transparent;
     color: var(--muted);
     font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 
     &:hover:not(:disabled) { background: var(--field); color: var(--ink); }
     &.is-active { background: var(--field); color: var(--ink); }
@@ -574,12 +586,42 @@
   overflow-y: auto;
 }
 
-.drawing-manage-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
+.drawing-manage-menu { position: relative; flex: none; }
 
-  button { justify-content: flex-start; min-height: 30px; padding: 4px 8px; text-align: left; white-space: normal; }
+.drawing-manage-trigger {
+  gap: 4px;
+  min-height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-weight: 500;
+
+  &:hover:not(:disabled), &[aria-expanded="true"] { background: var(--field); color: var(--ink); }
+}
+
+.drawing-manage-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 70;
+  display: grid;
+  min-width: 220px;
+  padding: 4px;
+
+  button {
+    justify-content: flex-start;
+    min-height: 30px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    text-align: left;
+
+    &:hover:not(:disabled), &:focus-visible { background: var(--field); }
+    &[aria-current="true"] { color: var(--accent); }
+  }
 }
 
 // Floating, non-modal manager window docked beside the properties panel.
@@ -596,14 +638,17 @@
   > header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 8px 8px 8px 14px;
+    gap: 4px;
+    padding: 6px 8px 6px 4px;
     border-bottom: 1px solid var(--line);
+    cursor: move;
+    touch-action: none;
 
-    h2 { margin: 0; font-size: var(--text-md); }
+    h2 { flex: 1; min-width: 0; margin: 0; overflow: hidden; font-size: var(--text-md); text-overflow: ellipsis; white-space: nowrap; }
   }
 }
+
+.drawing-manager-grip { color: var(--muted); cursor: move; }
 
 .drawing-manager-body { display: grid; align-content: start; gap: 10px; min-height: 0; padding: 12px 14px 16px; overflow-y: auto; }
 
@@ -713,6 +758,8 @@
 @media (max-width: 1100px) {
   .drawing-editor-body { grid-template-columns: auto minmax(0, 1fr) 260px; }
   .drawing-manager-window { right: 272px; }
+  .drawing-sidebar-tabs button { padding: 0 4px; font-size: var(--text-sm); }
+  .drawing-manage-trigger span { display: none; }
   .drawing-command-message { max-width: 40%; }
 }
 
