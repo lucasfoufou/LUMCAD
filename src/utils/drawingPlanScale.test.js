@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 import { changeDrawingPlanScale, countDrawingPlanScaleAnnotations, parseDrawingPlanScale } from './drawingPlanScale.js';
 import { normalizeDimensionStyles } from './drawingDimensionStyles.js';
 
@@ -7,45 +8,43 @@ const annotative = { ...dimension, id: 'a', annotation: { baseScale: 100, scales
 const text = { id: 't', type: 'text', layerId: 'l', x: 0, y: 0, width: 4, height: 1, fontSize: 0.35, text: 'Note', textMode: 'singleLine' };
 const content = { entities: [dimension, annotative, text], blocks: [], settings: {}, dimensionStyles: normalizeDimensionStyles([]), textStyles: [] };
 
-describe('plan scale', () => {
-    it('parses denominators written as 50, 1:50 or 1/50', () => {
-        expect(parseDrawingPlanScale('50')).toBe(50);
-        expect(parseDrawingPlanScale('1:50')).toBe(50);
-        expect(parseDrawingPlanScale('1/12,5')).toBe(12.5);
-        expect(parseDrawingPlanScale('abc')).toBeNull();
-        expect(parseDrawingPlanScale('0')).toBeNull();
-    });
+test('parses denominators written as 50, 1:50 or 1/50', () => {
+    assert.equal(parseDrawingPlanScale('50'), 50);
+    assert.equal(parseDrawingPlanScale('1:50'), 50);
+    assert.equal(parseDrawingPlanScale('1/12,5'), 12.5);
+    assert.equal(parseDrawingPlanScale('abc'), null);
+    assert.equal(parseDrawingPlanScale('0'), null);
+});
 
-    it('counts the non-annotative dimensions and texts it may resize', () => {
-        expect(countDrawingPlanScaleAnnotations(content)).toEqual({ dimensions: 1, texts: 1 });
-    });
+test('counts the non-annotative dimensions and texts it may resize', () => {
+    assert.deepEqual(countDrawingPlanScaleAnnotations(content), { dimensions: 1, texts: 1 });
+});
 
-    it('keeps the paper size of styles and leaves existing objects unless asked', () => {
-        const next = changeDrawingPlanScale(content, 50);
-        expect(next.settings.annotationScale).toBe(50);
-        expect(next.annotationScales).toContain(50);
-        expect(next.dimensionStyles[0].textSize).toBeCloseTo(0.175, 9);
-        expect(next.dimensionStyles[0].arrowSize).toBeCloseTo(0.1225, 9);
-        expect(next.entities[0]).toBe(dimension);
-        expect(next.entities[2]).toBe(text);
-    });
+test('keeps the paper size of styles and leaves existing objects unless asked', () => {
+    const next = changeDrawingPlanScale(content, 50);
+    assert.equal(next.settings.annotationScale, 50);
+    assert.ok(next.annotationScales.includes(50));
+    assert.ok(Math.abs((next.dimensionStyles[0].textSize) - (0.175)) < 1e-9);
+    assert.ok(Math.abs((next.dimensionStyles[0].arrowSize) - (0.1225)) < 1e-9);
+    assert.equal(next.entities[0], dimension);
+    assert.equal(next.entities[2], text);
+});
 
-    it('rescales existing dimensions and texts in the same revision', () => {
-        const next = changeDrawingPlanScale(content, 200, { rescaleExisting: true });
-        expect(next.entities[0].textSize).toBeCloseTo(0.7, 9);
-        expect(next.entities[0].arrowSize).toBeCloseTo(0.49, 9);
-        expect(next.entities[0].offset).toBe(0.6);
-        expect(next.entities[2].fontSize).toBeCloseTo(0.7, 9);
-    });
+test('rescales existing dimensions and texts in the same revision', () => {
+    const next = changeDrawingPlanScale(content, 200, { rescaleExisting: true });
+    assert.ok(Math.abs((next.entities[0].textSize) - (0.7)) < 1e-9);
+    assert.ok(Math.abs((next.entities[0].arrowSize) - (0.49)) < 1e-9);
+    assert.equal(next.entities[0].offset, 0.6);
+    assert.ok(Math.abs((next.entities[2].fontSize) - (0.7)) < 1e-9);
+});
 
-    it('adds the new scale to annotative objects so they stay visible', () => {
-        const next = changeDrawingPlanScale(content, 50, { rescaleExisting: true });
-        expect(next.entities[1].annotation.scales.map(item => item.scale)).toEqual([100, 50]);
-        expect(next.entities[1].textSize).toBe(0.35);
-    });
+test('adds the new scale to annotative objects so they stay visible', () => {
+    const next = changeDrawingPlanScale(content, 50, { rescaleExisting: true });
+    assert.deepEqual(next.entities[1].annotation.scales.map(item => item.scale), [100, 50]);
+    assert.equal(next.entities[1].textSize, 0.35);
+});
 
-    it('is a no-op on sizes when the scale does not change', () => {
-        const next = changeDrawingPlanScale(content, 100, { rescaleExisting: true });
-        expect(next.entities).toBe(content.entities);
-    });
+test('is a no-op on sizes when the scale does not change', () => {
+    const next = changeDrawingPlanScale(content, 100, { rescaleExisting: true });
+    assert.equal(next.entities, content.entities);
 });
