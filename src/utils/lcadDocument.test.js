@@ -21,7 +21,7 @@ test('creates and normalizes a versioned LUMCAD document', () => {
     assert.equal(normalized.document.name, 'Toiture nord');
     assert.equal(normalized.document.content.unit, 'm');
     assert.equal(normalized.document.layouts.length, 1);
-    assert.equal(normalized.document.layouts[0].format, 'A0');
+    assert.equal(normalized.document.layouts[0].format, 'A3');
     assert.equal(normalized.document.layouts[0].orientation, 'landscape');
     assert.deepEqual(normalized.document.layouts[0].plotSettings, DEFAULT_DRAWING_PLOT_SETTINGS);
     assert.equal(normalized.document.updatedAt, '2026-08-10T10:00:00.000Z');
