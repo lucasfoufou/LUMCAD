@@ -71,3 +71,24 @@ test('layer states and flags survive the portable archive without changing model
     assert.equal(loaded.layers.at(-1).newViewportFrozen, true);
     assert.equal(loaded.layers.at(-1).plot, false);
 });
+
+test('layer filter accepts French state keywords and keeps English aliases', async () => {
+    const { drawingLayerFilterKeyword } = await import('./drawingLayers.js');
+    const layers = [
+        { id: 'a', name: 'Toiture', visible: true, locked: true, frozen: false, plot: true },
+        { id: 'b', name: 'PV', visible: false, locked: false, frozen: true, plot: false },
+        { id: 'c', name: 'Câbles', visible: true, locked: false, frozen: false, plot: true },
+    ];
+    const ids = query => filterDrawingLayers(layers, query).map(layer => layer.id);
+    assert.deepEqual(ids('verrouillé'), ['a']);
+    assert.deepEqual(ids('locked'), ['a']);
+    assert.deepEqual(ids('gelés'), ['b']);
+    assert.deepEqual(ids('masqué'), ['b']);
+    assert.deepEqual(ids('non-imprimé'), ['b']);
+    assert.deepEqual(ids('visible'), ['a', 'c']);
+    assert.deepEqual(ids('cables'), ['c']);
+    assert.deepEqual(ids('toit verrouille'), ['a']);
+    assert.deepEqual(ids('inconnu'), []);
+    assert.equal(drawingLayerFilterKeyword('Verrouillées'), 'locked');
+    assert.equal(drawingLayerFilterKeyword('ROOF'), null);
+});

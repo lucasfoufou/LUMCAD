@@ -7,7 +7,6 @@ import DrawingConstraintsPanel from '~components/drawing/DrawingConstraintsPanel
 import DrawingBlockVariantEditor from '~components/drawing/DrawingBlockVariantEditor';
 import DrawingAnnotationFields from '~components/drawing/DrawingAnnotationFields';
 import DrawingPlotStylesPanel from '~components/drawing/DrawingPlotStylesPanel';
-import { filterDrawingLayers } from '~utils/drawingLayers';
 import DrawingInquiryPanel from '~components/drawing/DrawingInquiryPanel';
 import { createDimensionSourceMap } from '~utils/drawingDimensionSources';
 import { presentDrawingDimension } from '~utils/drawingDimensionPresentation';
@@ -17,16 +16,17 @@ import DrawingBlockAttributeFields from '~components/drawing/DrawingBlockAttribu
 import DrawingBlockParameterFields from '~components/drawing/DrawingBlockParameterFields';
 import DrawingBlocksPanel from '~components/drawing/DrawingBlocksPanel';
 import DrawingManagerWindow from '~components/drawing/DrawingManagerWindow';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import DrawingLayersPanel from '~components/drawing/DrawingLayersPanel';
+import React, { useEffect, useRef, useState } from 'react';
 
 import Icon from '~components/ui/Icon';
 
-import { DrawingEntityAppearanceFields, DrawingLayerAppearanceFields } from '~components/drawing/DrawingAppearanceFields';
+import { DrawingEntityAppearanceFields } from '~components/drawing/DrawingAppearanceFields';
 import DrawingDimensionFields from '~components/drawing/DrawingDimensionFields';
 import DrawingQdimOptions from '~components/drawing/DrawingQdimOptions';
 import DrawingTextStylesPanel from '~components/drawing/DrawingTextStylesPanel';
 import { useI18n } from '~i18n/I18nProvider';
-import { addLayer, canEditEntity, isProtectedDrawingLayer, removeEmptyLayer, updateLayer, updateSelectedEntities } from '~utils/drawingDocument';
+import { canEditEntity, updateSelectedEntities } from '~utils/drawingDocument';
 import {
     DEFAULT_DRAWING_TEXT_STYLE_ID,
     addDrawingTextStyle,
@@ -50,7 +50,7 @@ const MANAGER_PANELS = Object.freeze({
     inquiry: 'inquiry.title',
 });
 
-export default function DrawingSidebar({ content, selectedIds, editEntityId = null, onCommit, panel, onPanelChange, blockSearch, onBlockSearch, onBlockDefine, onBlockInsert, onBlockEdit, onBlockImport, onBlockExport, onManageAttribute, onDefineAttribute, onDimensionStyleCommand, inquiryResult, comparisonPreview, onCopyInquiry, onInspectTransmittal, onSelectDuplicateGroup, onSelectCountOccurrence, onOpenRecovery, canOpenRecovery = false, onSelectRecovery, onShowRecoveryManager, hasRecoveryGraph = false, onShowRecoveryHistory, onRetryRecovery, onForgetRecovery, onRelinkRecovery, canRelinkRecovery, layerFilter, onLayerFilter, onPlotStyleCommand, onCreationControlsMount, onAnnotationCommand, commandActive = false, dynamicBlockEditing = false, onSmartBlockCommand, smartBlockDetection, libraryBrowser, onBrowseLibrary, onSelectConstraintObjects, parametersEnabled = false }) {
+export default function DrawingSidebar({ content, selectedIds, editEntityId = null, onCommit, panel, onPanelChange, blockSearch, onBlockSearch, onBlockDefine, onBlockInsert, onBlockEdit, onBlockImport, onBlockExport, onManageAttribute, onDefineAttribute, onDimensionStyleCommand, inquiryResult, comparisonPreview, onCopyInquiry, onInspectTransmittal, onSelectDuplicateGroup, onSelectCountOccurrence, onOpenRecovery, canOpenRecovery = false, onSelectRecovery, onShowRecoveryManager, hasRecoveryGraph = false, onShowRecoveryHistory, onRetryRecovery, onForgetRecovery, onRelinkRecovery, canRelinkRecovery, layerFilter, onLayerFilter, onMergeLayer, onPlotStyleCommand, onCreationControlsMount, onAnnotationCommand, commandActive = false, dynamicBlockEditing = false, onSmartBlockCommand, smartBlockDetection, libraryBrowser, onBrowseLibrary, onSelectConstraintObjects, parametersEnabled = false }) {
     const { t, locale } = useI18n();
     const [internalPanel, setInternalPanel] = useState('selection');
     const requested = panel || internalPanel;
@@ -106,7 +106,7 @@ export default function DrawingSidebar({ content, selectedIds, editEntityId = nu
                         <DrawingAnnotationFields content={content} selectedIds={selectedIds} onCommand={onAnnotationCommand} t={t} />
                     </>
                 )}
-                {tab === 'layers' && <LayersPanel content={content} onCommit={onCommit} filter={layerFilter} onFilter={onLayerFilter} t={t} />}
+                {tab === 'layers' && <DrawingLayersPanel content={content} onCommit={onCommit} filter={layerFilter} onFilter={onLayerFilter} onMergeLayer={onMergeLayer} t={t} />}
                 {tab === 'blocks' && <DrawingBlocksPanel libraryBrowser={libraryBrowser} onBrowseLibrary={onBrowseLibrary} onSmartCommand={onSmartBlockCommand} detection={smartBlockDetection} content={content} selectedIds={selectedIds} search={blockSearch} onSearch={onBlockSearch} onDefine={onBlockDefine} onInsert={onBlockInsert} onEdit={onBlockEdit} onImport={onBlockImport} onExport={onBlockExport} onManageAttribute={onManageAttribute} onDefineAttribute={onDefineAttribute} />}
             </div>
             {manager && (
@@ -239,90 +239,6 @@ function drawingTextStyleLabels(t) {
             [DEFAULT_DRAWING_TEXT_STYLE_ID]: t('textStyles.styleNames.text-style-standard'),
         },
     };
-}
-
-function LayersPanel({ content, onCommit, filter, onFilter, t }) {
-    const entityCounts = useMemo(() => content.entities.reduce((counts, entity) => {
-        counts[entity.layerId] = (counts[entity.layerId] || 0) + 1;
-        return counts;
-    }, {}), [content.entities]);
-    return (
-        <section className="drawing-layer-panel">
-            <div className="drawing-sidebar-heading">
-                <div><strong>{t('sidebar.layers')}</strong><small>{t('sidebar.layerCount', { count: content.layers.length })}</small></div>
-                <Button type="button" onClick={() => onCommit(addLayer(content, t('document.newLayer', { number: content.layers.length + 1 })))}>{t('sidebar.add')}</Button>
-            </div>
-            <Input aria-label={t('layerManager.filter')} placeholder={t('layerManager.filterHint')} value={filter || ''} onChange={event => onFilter?.(event.target.value)} />
-            <div className="drawing-layer-list">
-                {filterDrawingLayers(content.layers, filter).map(layer => (
-                    <LayerRow key={layer.id} layer={layer} content={content} count={entityCounts[layer.id] || 0} onCommit={onCommit} t={t} />
-                ))}
-            </div>
-        </section>
-    );
-}
-
-// One compact row per layer; appearance and less frequent flags expand below it.
-function LayerRow({ layer, content, count, onCommit, t }) {
-    const [expanded, setExpanded] = useState(false);
-    const update = updates => onCommit(updateLayer(content, layer.id, updates));
-    const active = content.activeLayerId === layer.id;
-    const toggles = [
-        ['visible', layer.visible, layer.visible ? 'eye' : 'eyeOff', t(layer.visible ? 'sidebar.hide' : 'sidebar.show')],
-        ['locked', layer.locked, layer.locked ? 'lock' : 'unlock', t(layer.locked ? 'sidebar.unlock' : 'sidebar.lock')],
-        ['frozen', layer.frozen, 'freeze', t('layerManager.frozen')],
-        ['plot', layer.plot !== false, 'plot', t('layerManager.plot')],
-    ];
-    return (
-        <div className={`drawing-layer-row ${active ? 'is-active' : ''}`}>
-            <div className="drawing-layer-row-header">
-                <Input
-                    type="radio"
-                    name="activeDrawingLayer"
-                    aria-label={t('sidebar.activateLayer', { name: layer.name })}
-                    checked={active}
-                    onChange={() => onCommit({ ...content, activeLayerId: layer.id })}
-                />
-                <span className="drawing-layer-swatch" style={{ background: layer.color }} aria-hidden="true" />
-                <div className="drawing-layer-main">
-                    <Input
-                        value={layer.name}
-                        disabled={isProtectedDrawingLayer(layer.id)}
-                        title={isProtectedDrawingLayer(layer.id) ? t('sidebar.protectedLayer') : undefined}
-                        onChange={event => update({ name: event.target.value })}
-                        aria-label={t('sidebar.layerName')}
-                    />
-                    <small>{t('sidebar.objectCount', { count })}</small>
-                </div>
-                <div className="drawing-layer-actions">
-                    {toggles.map(([field, on, icon, label]) => (
-                        <Button type="button" key={field} className={on ? 'is-active' : ''} aria-pressed={Boolean(on)} title={label} aria-label={label}
-                            onClick={() => update({ [field]: field === 'plot' ? !on : !layer[field] })}>
-                            <Icon name={icon} size="sm" />
-                        </Button>
-                    ))}
-                    <Button type="button" aria-expanded={expanded} title={t('sidebar.layerDetails')} aria-label={t('sidebar.layerDetails')} onClick={() => setExpanded(open => !open)}>
-                        <Icon name={expanded ? 'chevronDown' : 'chevronRight'} size="sm" />
-                    </Button>
-                </div>
-            </div>
-            {expanded && (
-                <div className="drawing-layer-details">
-                    <DrawingLayerAppearanceFields layer={layer} t={t} onChange={update} />
-                    <div className="drawing-layer-flags">
-                        <label>
-                            <Input type="checkbox" checked={Boolean(layer.newViewportFrozen)} onChange={event => update({ newViewportFrozen: event.target.checked })} />
-                            {t('layerManager.newViewportFrozen')}
-                        </label>
-                        <Button type="button" className="ui-button is-small is-danger" disabled={Boolean(count) || isProtectedDrawingLayer(layer.id)}
-                            title={t('sidebar.deleteEmptyLayer')} onClick={() => onCommit(removeEmptyLayer(content, layer.id))}>
-                            {t('sidebar.deleteEmptyLayer')}
-                        </Button>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
 }
 
 // Order of the Properties tab: type and count, general properties, geometry

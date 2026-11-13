@@ -1,5 +1,6 @@
 import { Input, Select } from '~components/ui/Controls';
 import React from 'react';
+import { useI18n } from '~i18n/I18nProvider';
 
 import {
     DRAWING_LINE_TYPE_OPTIONS,
@@ -13,6 +14,7 @@ import {
 } from '~utils/drawingDocument';
 
 export function DrawingLayerAppearanceFields({ layer, onChange, t }) {
+    const { formatNumber } = useI18n();
     return (
         <div className="drawing-layer-appearance">
             <Input
@@ -27,7 +29,7 @@ export function DrawingLayerAppearanceFields({ layer, onChange, t }) {
                 onChange={event => onChange({ lineWeight: Number(event.target.value) })}
             >
                 {DRAWING_LINE_WEIGHT_OPTIONS.map(weight => (
-                    <option key={weight} value={weight}>{formatWeight(weight)}</option>
+                    <option key={weight} value={weight}>{formatWeight(weight, t, formatNumber)}</option>
                 ))}
             </Select>
             <Select
@@ -57,6 +59,7 @@ export function DrawingLayerAppearanceFields({ layer, onChange, t }) {
 }
 
 export function DrawingEntityAppearanceFields({ content, disabled, entities, onUpdate, t, showHeading = true }) {
+    const { formatNumber } = useI18n();
     const colorEntities = entities.filter(entity => entity.type !== 'image');
     const strokeEntities = entities.filter(supportsStrokeAppearance);
     const transparencyEntities = entities;
@@ -78,7 +81,7 @@ export function DrawingEntityAppearanceFields({ content, disabled, entities, onU
                         customOptions={DRAWING_LINE_WEIGHT_OPTIONS}
                         disabled={disabled}
                         entities={strokeEntities}
-                        formatOption={formatWeight}
+                        formatOption={weight => formatWeight(weight, t, formatNumber)}
                         getResolved={entity => getEntityLineWeight(content, entity)}
                         label={t('sidebar.lineWeight')}
                         onUpdate={onUpdate}
@@ -249,6 +252,7 @@ function supportsStrokeAppearance(entity) {
     return ['point', 'line', 'xline', 'ray', 'polyline', 'rectangle', 'polygon', 'circle', 'arc', 'linearDimension', 'radialDimension'].includes(entity.type);
 }
 
-function formatWeight(weight) {
-    return String(weight);
+// Line weights are screen and paper pixels (1/96 in), shown with their unit.
+function formatWeight(weight, t, formatNumber) {
+    return t('sidebar.lineWeightValue', { value: formatNumber(weight) });
 }

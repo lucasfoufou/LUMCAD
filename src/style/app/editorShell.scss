@@ -763,6 +763,10 @@
   .drawing-manager-window { right: 272px; }
   .drawing-sidebar-tabs button { padding: 0 4px; font-size: var(--text-sm); }
   .drawing-manage-trigger span { display: none; }
+  // Narrow panel: compact layer toggles leave room for the layer name.
+  .drawing-sidebar .drawing-layer-row-header { gap: 4px; }
+  .drawing-sidebar .drawing-layer-actions > button { width: 20px; min-width: 20px; }
+  .drawing-sidebar .drawing-layer-main input { padding: 0 2px; }
   .drawing-command-message { max-width: 40%; }
 }
 

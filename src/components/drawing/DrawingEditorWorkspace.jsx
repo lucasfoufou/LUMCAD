@@ -3046,7 +3046,7 @@ export default function DrawingEditorWorkspace({
                             onOpenRecovery: recovery.open, canOpenRecovery: recovery.canOpen,
                             onSelectRecovery: recovery.select, onShowRecoveryManager: recovery.showManager, hasRecoveryGraph: recovery.hasGraph,
                             onShowRecoveryHistory: recovery.showHistory, onRetryRecovery: recovery.retry, onForgetRecovery: recovery.forget, onRelinkRecovery: recovery.relink, canRelinkRecovery: recovery.canRelink,
-                            layerFilter: layerManager.filter, onLayerFilter: layerManager.setFilter, onPlotStyleCommand: plotStyles.run,
+                            layerFilter: layerManager.filter, onLayerFilter: layerManager.setFilter, onMergeLayer: (source, target) => layerManager.run('layerMerge', `${source.id} ${target.id}`), onPlotStyleCommand: plotStyles.run,
                             panel: sidebarPanel, onPanelChange: setSidebarPanel,
                             libraryBrowser: blockLibrary.browser, onBrowseLibrary: blockLibrary.browse,
                             blockSearch, onBlockSearch: setBlockSearch, onBlockDefine: blockCommands.define, onBlockInsert: blockCommands.insert, onBlockEdit: beginBlockEdit, onBlockImport: () => blockLibrary.run('import'),
