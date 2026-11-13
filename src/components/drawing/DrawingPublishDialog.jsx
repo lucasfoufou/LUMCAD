@@ -61,7 +61,7 @@ export default function DrawingPublishDialog({
         const first = drawing.layouts.find(layout => layout.id === fallbackIds[0]) || drawing.layouts[0];
         setSelectedIds(fallbackIds);
         setPreviewId(first?.id || null);
-        setSetup(first && onApplySheetSetup && (initialStep === 'setup' || !first.viewports.length)
+        setSetup(first && onApplySheetSetup && (initialStep === 'setup' || (!first.viewports.length && !first.paperEntities?.length))
             ? getDrawingSheetSetupDefaults(first)
             : null);
         setSettings(normalizeDrawingPlotSettings(first?.plotSettings));
@@ -355,8 +355,9 @@ export default function DrawingPublishDialog({
                     <span role="status" className={error ? 'is-error' : ''}>{error || (busy ? t('publish.preparing') : '')}</span>
                     {setup ? (
                     <div>
-                        <Button type="button" disabled={busy} onClick={previewLayout?.viewports.length ? () => setSetup(null) : onClose}>
-                            {t(previewLayout?.viewports.length ? 'layout.sheetSetup.back' : 'publish.cancel')}
+                        {!previewLayout?.viewports.length && <Button type="button" disabled={busy} onClick={onClose}>{t('publish.cancel')}</Button>}
+                        <Button type="button" disabled={busy} onClick={() => setSetup(null)}>
+                            {t(previewLayout?.viewports.length ? 'layout.sheetSetup.back' : 'layout.sheetSetup.skip')}
                         </Button>
                         <Button type="button" className="is-primary" disabled={busy || !previewLayout} onClick={applySetup}>{t('layout.sheetSetup.apply')}</Button>
                     </div>

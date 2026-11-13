@@ -424,6 +424,8 @@ async function publishedDwfx(page) {
     await openDrawing(page, document => ({ ...basic(document), layouts: [createDrawingLayout({ name: 'Sheet', format: 'A4' })] }));
     await command(page, 'DWFXOUT');
     await expect(page.locator('.drawing-publish-dialog')).toBeVisible();
+    // The sheet has no viewport: skip the page-setup step and publish it as it is.
+    await page.locator('.drawing-publish-dialog').getByRole('button', { name: 'Print the sheet as it is' }).click();
     const downloading = page.waitForEvent('download');
     await page.locator('.drawing-publish-dialog').getByRole('button', { name: /Save/ }).click();
     const file = await downloading;

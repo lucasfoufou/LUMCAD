@@ -1782,6 +1782,7 @@ const fr = {
     'layout.sheetSetup.lockedHint': 'La fenêtre est verrouillée pour que son échelle ne change pas par erreur.',
     'layout.sheetSetup.apply': 'Mettre en page',
     'layout.sheetSetup.back': 'Retour à l’aperçu',
+    'layout.sheetSetup.skip': 'Imprimer la feuille telle quelle',
     'layout.sheetSetup.applied': 'Feuille prête : {{format}} {{orientation}} au {{scale}}.',
     'layout.sheetSetup.orientation.landscape': 'paysage',
     'layout.sheetSetup.orientation.portrait': 'portrait',

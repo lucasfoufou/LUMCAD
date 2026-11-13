@@ -1782,6 +1782,7 @@ const en = {
     'layout.sheetSetup.lockedHint': 'The viewport is locked so that its scale cannot change by mistake.',
     'layout.sheetSetup.apply': 'Place on the sheet',
     'layout.sheetSetup.back': 'Back to preview',
+    'layout.sheetSetup.skip': 'Print the sheet as it is',
     'layout.sheetSetup.applied': 'Sheet ready: {{format}} {{orientation}} at {{scale}}.',
     'layout.sheetSetup.orientation.landscape': 'landscape',
     'layout.sheetSetup.orientation.portrait': 'portrait',

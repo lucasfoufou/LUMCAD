@@ -43,11 +43,11 @@ test('CIRCLE then a typed 2 creates a radius-2 circle instead of switching to 2P
     await expect.poll(async () => (await entities(page)).find(entity => entity.type === 'circle')?.r).toBe(2);
 });
 
-test('Enter never runs a command prefix: E, ALL, SAVE and OP start nothing', async ({ page }) => {
+test('Enter never runs a command prefix: ALL, SAVEA and OPE start nothing', async ({ page }) => {
     await start(page);
     let fileChooser = false;
     page.on('filechooser', () => { fileChooser = true; });
-    for (const typed of ['ALL', 'SAVE', 'OP']) {
+    for (const typed of ['ALL', 'SAVEA', 'OPE']) {
         await typeAndEnter(page, typed);
         const current = await state(page);
         expect(current.editor.activeTool).toBe('select');

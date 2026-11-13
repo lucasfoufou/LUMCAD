@@ -97,7 +97,7 @@ test('a dimension text height typed with a decimal point or comma is one undo st
 test('several selected dimensions share their layer, style and text height fields', async ({ page }) => {
     await open(page, dimensioned);
     await selectDimensions(page);
-    const layer = page.locator('.drawing-selection-panel > label', { has: page.locator('span', { hasText: /^Layer$/ }) }).locator('select');
+    const layer = page.locator('.drawing-selection-panel label', { has: page.locator('span', { hasText: /^Layer$/ }) }).locator('select');
     await expect(layer).toHaveValue('dimensions');
     const field = page.locator('label:has-text("Text height (mm on paper)") input').first();
     await field.fill('5');
