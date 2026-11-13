@@ -149,6 +149,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     backgroundContext = null,
     onContextAction = null,
     onKeyboardEnter = null,
+    onGestureStart = null,
 }, forwardedRef) {
     const { t, locale } = useI18n();
     const svgRef = useRef(null);
@@ -383,6 +384,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         if (mode === 'tangentTangentRadius') return t(pointCount < 2 ? 'canvas.circleTangentTarget' : 'canvas.circleTangentRadius');
         if (mode === 'tangentTangentTangent') return t('canvas.circleTangentTarget');
         if (activeTool === 'polygon') return t('canvas.polygonSecondPoint');
+        if (activeTool === 'line') return t('canvas.lineNextPoint');
+        if (activeTool === 'rectangle') return t('canvas.rectangleSecondCorner');
         return t(activeTool === 'circle' ? 'canvas.circleSecondPoint' : 'canvas.secondPoint');
     };
 
@@ -1152,6 +1155,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         }
 
         if (activeTool === 'select' || interactiveOperation?.stage === 'select') {
+            // A new selection or grip gesture replaces whatever the last command reported.
+            if (!interactiveOperation && gesture?.kind !== 'select-window') onGestureStart?.();
             if (gesture?.kind === 'select-window') {
                 event.preventDefault();
                 completeSelectionWindow(worldPoint(event));

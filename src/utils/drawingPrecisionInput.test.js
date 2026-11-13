@@ -7,6 +7,7 @@ import {
     remapDrawingExpressionVariables,
     drawingDynamicInputAnchor,
     drawingDynamicInputPointerAnchor,
+    drawingCommaPairSuggestion,
     hasDrawingPointSyntax,
     parseDrawingPointInput,
     resolveDrawingPointInput,
@@ -196,4 +197,12 @@ test('dynamic input sits beside the pointer and flips away from the canvas edges
         assert.equal(covers, false);
     }
     assert.equal(drawingDynamicInputPointerAnchor(null, size), null);
+});
+
+test('comma pairs typed with a decimal-comma locale suggest the semicolon form', () => {
+    assert.equal(drawingCommaPairSuggestion('0,0', { decimalComma: true }), '0;0');
+    assert.equal(drawingCommaPairSuggestion(' @12,5 ', { decimalComma: true }), '@12;5');
+    assert.equal(drawingCommaPairSuggestion('-3.5,2', { decimalComma: true }), '-3.5;2');
+    assert.equal(drawingCommaPairSuggestion('0,0', { decimalComma: false }), null);
+    for (const value of ['0;0', '2', '1,2,3', '@5<30', 'abc']) assert.equal(drawingCommaPairSuggestion(value, { decimalComma: true }), null);
 });

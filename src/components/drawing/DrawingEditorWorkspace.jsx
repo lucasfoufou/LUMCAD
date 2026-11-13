@@ -27,6 +27,7 @@ import useDrawingZoomCommand from '~hooks/useDrawingZoomCommand';
 import useDrawingCommandRepeat from '~hooks/useDrawingCommandRepeat';
 import DrawingContextMenu from '~components/drawing/DrawingContextMenu';
 import { resolveDrawingRepeatSubmission } from '~utils/drawingCommandRepeat';
+import { drawingToolPromptMessage } from '~utils/drawingToolPrompts';
 import useDrawingAnnotations from '~hooks/useDrawingAnnotations';
 import useDrawingReferences from '~hooks/useDrawingReferences';
 import useDrawingDwf from '~hooks/useDrawingDwf';
@@ -176,6 +177,7 @@ import { normalizePolarAngles } from '~utils/drawingDraftingSettings';
 import {
     evaluateDrawingCalculation,
     evaluateDrawingExpression,
+    drawingCommaPairSuggestion,
     hasDrawingPointSyntax,
     isDrawingExpressionInput,
     resolveDrawingPointInput,
@@ -787,9 +789,21 @@ export default function DrawingEditorWorkspace({
         if (previousLocaleRef.current === locale) return;
         previousLocaleRef.current = locale;
         if (interactiveOperation) setMessage(t('messages.continueActiveCommand'));
-        else if (activeTool !== 'select') setMessage(t('messages.toolActive', { tool: t(`commands.${activeTool}`) }));
+        else if (activeTool !== 'select') setMessage(drawingToolPromptMessage(activeTool, t));
         else setMessage('');
     }, [locale]);
+
+    // Undo/Redo always confirm what happened; the history keeps no per-step labels yet.
+    const undoWithMessage = () => {
+        if (!history.canUndo) { setMessage(t('messages.nothingToUndo')); return; }
+        history.undo();
+        setMessage(t('messages.undone'));
+    };
+    const redoWithMessage = () => {
+        if (!history.canRedo) { setMessage(t('messages.nothingToRedo')); return; }
+        history.redo();
+        setMessage(t('messages.redone'));
+    };
 
     const deleteSelection = ({ quiet = false } = {}) => {
         if (!selectedIds.length) { if (!quiet) setMessage(t('messages.deleteSelectionRequired')); return; }
@@ -1355,12 +1369,16 @@ export default function DrawingEditorWorkspace({
             variables: inputVariablesRef.current,
         });
         if (!result.matched) return false;
+        // In French "0,0" is one number: explain the "x;y" separator instead of a generic error.
+        const commaPair = drawingCommaPairSuggestion(rawValue, { decimalComma: locale === 'fr' });
         if (!result.valid) {
-            setMessage(t(`precisionInput.error.${result.error}`));
+            setMessage(commaPair ? t('precisionInput.commaPairHint', { value: commaPair })
+                : t(`precisionInput.error.${result.error}`));
             return true;
         }
         const accepted = activeCanvas.current?.submitPoint(result.point, { precision: true });
         if (!accepted) setMessage(t('messages.pointRequired'));
+        else if (commaPair && result.kind === 'directDistance') setMessage(t('precisionInput.commaPairDistance', { value: commaPair }));
         return true;
     };
 
@@ -1867,6 +1885,14 @@ export default function DrawingEditorWorkspace({
         }
         if (workspaceMode === 'model' && activeTool !== 'select'
             && (!immediateCommand || immediateCommand.command === 'unknown')) {
+            const commaPair = drawingCommaPairSuggestion(rawValue, { decimalComma: locale === 'fr' });
+            if (commaPair && !submitPrecisionPoint(rawValue)) {
+                // "12,0" must not silently become RECTANGLE dimensions 12 x 0.
+                setCommandValue('');
+                setMessage(t('precisionInput.commaPairHint', { value: commaPair }));
+                return;
+            }
+            if (commaPair) { setCommandValue(''); return; }
             if (canvasRef.current?.submitCreationInput(rawValue)) {
                 setCommandValue('');
                 return;
@@ -2173,7 +2199,7 @@ export default function DrawingEditorWorkspace({
                 canvasRef.current?.submitCreationInputForTool(parsed.command, rawValue);
             }
             setActiveTool(parsed.command);
-            setMessage(t('messages.toolActive', { tool: t(`commands.${parsed.command}`) }));
+            setMessage(drawingToolPromptMessage(parsed.command, t));
             return;
         }
         if (parsed.command === 'region' && selectedEntities.length && getDrawingCommandInput(rawValue).trim().toUpperCase() !== 'PICK') {
@@ -2736,8 +2762,8 @@ export default function DrawingEditorWorkspace({
         else if (parsed.command === 'explode') beginCompoundOperation('explode');
         else if (parsed.command === 'xplode') beginCompoundOperation('xplode');
         else if (parsed.command === 'delete') workspaceMode === 'layout' ? deleteSelectedViewport() : deleteSelection();
-        else if (parsed.command === 'undo') history.undo();
-        else if (parsed.command === 'redo') history.redo();
+        else if (parsed.command === 'undo') undoWithMessage();
+        else if (parsed.command === 'redo') redoWithMessage();
         else if (parsed.command === 'saveAs') await saveDrawingAs();
         else if (parsed.command === 'new') await createNewDrawing(getDrawingCommandInput(rawValue));
         else if (parsed.command === 'quickNew') await createQuickDrawing(getDrawingCommandInput(rawValue));
@@ -2795,8 +2821,8 @@ export default function DrawingEditorWorkspace({
 
     useDrawingEditorShortcuts({ commandBarRef, actions: {
         command: submitCommand,
-        undo: history.undo,
-        redo: history.redo,
+        undo: undoWithMessage,
+        redo: redoWithMessage,
         copy: copyClip,
         cut: cutClip,
         paste: beginPasteClip,
@@ -2822,8 +2848,8 @@ export default function DrawingEditorWorkspace({
         selectionCount: workspaceMode === 'model' ? selectedIds.length : 0, submitCommand, t });
 
     const toolbarActions = {
-        undo: history.undo,
-        redo: history.redo,
+        undo: undoWithMessage,
+        redo: redoWithMessage,
         copy: () => copyClip().catch(() => {}),
         cut: () => cutClip().catch(() => {}),
         paste: () => beginPasteClip().catch(() => {}),
@@ -3020,7 +3046,7 @@ export default function DrawingEditorWorkspace({
                         />
                     )}
                     editActions={{
-                        undo: history.undo, redo: history.redo, canUndo: history.canUndo, canRedo: history.canRedo,
+                        undo: undoWithMessage, redo: redoWithMessage, canUndo: history.canUndo, canRedo: history.canRedo,
                         copy: toolbarActions.copy, cut: toolbarActions.cut, paste: toolbarActions.paste,
                         canCopy: workspaceMode === 'model' && selectedIds.length > 0,
                     }}
@@ -3048,7 +3074,7 @@ export default function DrawingEditorWorkspace({
                             setInteractiveOperation(null);
                             setMessage(tool === 'dimension'
                                 ? t('messages.dimensionPrompt')
-                                : t('messages.toolActive', { tool: t(`commands.${tool}`) }));
+                                : drawingToolPromptMessage(tool, t));
                         }}
                         canvasRef={canvasRef}
                         canvas={{ content: history.content, assets, activeTool, dimensionMode, selectedIds, interactiveOperation, backgroundContext: referenceContext,
@@ -3056,6 +3082,7 @@ export default function DrawingEditorWorkspace({
                             onEndCoalescing: history.endCoalescing, onCancelCommand: cancelCommand,
                             onStatus: setMessage, onInteractiveOperation: handleInteractiveOperation,
                             onContextAction: commandRepeat.requestContextMenu, onKeyboardEnter: () => submitCommand('').catch(() => {}),
+                            onGestureStart: () => setMessage(''),
                             dynamicInput: { value: commandValue, onChange: setCommandValue, focus: value => commandBarRef.current?.focus(value),
                                 onSubmit: value => submitCommand(value).catch(() => {}) },
                             onEntityCreated: entity => {

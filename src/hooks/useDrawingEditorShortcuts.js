@@ -21,7 +21,11 @@ export default function useDrawingEditorShortcuts({ actions, commandBarRef }) {
             const shortcut = drawingShortcutFromEvent(event);
             const binding = preferencesRef.current.find(row => row.shortcut === shortcut)
                 || legacySelectAllBinding(preferencesRef.current, shortcut);
-            if (binding && (!targetIsInput || ['@saveAs', '@open', '@newDocument'].includes(binding.command))) {
+            // Ctrl/Cmd+A selects all objects from an empty command line, as in AutoCAD; in any
+            // other text field it keeps selecting the text.
+            const emptyCommandLine = event.target?.closest?.('.drawing-command-bar') && !event.target.value;
+            if (binding && (!targetIsInput || ['@saveAs', '@open', '@newDocument'].includes(binding.command)
+                || (binding.command === '@selectAll' && emptyCommandLine))) {
                 event.preventDefault();
                 if (event.repeat) return;
                 const action = binding.command.startsWith('@') ? actionsRef.current[binding.command.slice(1)]

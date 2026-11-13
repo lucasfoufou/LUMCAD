@@ -165,6 +165,17 @@ export function parseDrawingPointInput(value, {
     };
 }
 
+/**
+ * With a decimal-comma locale, "0,0" or "@12,5" is read as one number. When it
+ * looks like an "x,y" pair, returns the same input with ";" as the X/Y
+ * separator so the user can be told how to type the point; otherwise null.
+ */
+export function drawingCommaPairSuggestion(value, { decimalComma = false } = {}) {
+    if (!decimalComma) return null;
+    const match = /^\s*([@#]?)\s*([+-]?\d+(?:\.\d+)?)\s*,\s*([+-]?\d+(?:\.\d+)?)\s*$/.exec(String(value ?? ''));
+    return match ? `${match[1]}${match[2]};${match[3]}` : null;
+}
+
 export function hasDrawingPointSyntax(value, { decimalComma = false } = {}) {
     const source = String(value ?? '').trim();
     if (!source) return false;

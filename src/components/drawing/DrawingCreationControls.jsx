@@ -59,7 +59,11 @@ export default function DrawingCreationControls({
     const contextual = !editMode && (operation || activeTool !== 'select');
     if (!supportsDrawingCreationPanel(panelTool) && !contextual) return null;
 
-    const operationLabelKey = operation ? getDrawingCommandDefinition(operation.type)?.labelKey : null;
+    // PLINE, MLINE and DONUT share the 'linework' operation: name the command, not a generic label.
+    const operationCommand = operation?.type === 'linework'
+        ? { wide: 'widePolyline', multiline: 'multiline', donut: 'donut' }[operation.kind] || operation.type
+        : operation?.type;
+    const operationLabelKey = operation ? getDrawingCommandDefinition(operationCommand)?.labelKey : null;
     const toolLabel = operation ? t(operationLabelKey || 'creation.context') : editEntity?.arcText ? t('commands.arcText') : editEntity?.tolerance ? t('commands.tolerance') : editEntity?.table ? t('commands.table') : t(`${editMode ? 'entity' : 'commands'}.${panelTool}`);
     const updateOptions = patch => onChange({
         mode,
@@ -125,7 +129,7 @@ function ContextFields({ operation, activeTool, input, onCancel, t }) {
     return <div className="drawing-creation-context" role="group" aria-label={t('creation.contextOption')}>
         {suggestions.map(option => <Button type="button" className="ui-button is-small" key={option.command || option.name}
             onClick={() => choose(option)}>{t(option.labelKey)}</Button>)}
-        {onCancel && <Button type="button" className="ui-button is-small is-ghost" onClick={onCancel}>{t('settings.cancel')}<kbd>Esc</kbd></Button>}
+        {onCancel && <Button type="button" className="ui-button is-small is-ghost" onClick={onCancel}>{t('creation.abort')}<kbd>{t('creation.abortKey')}</kbd></Button>}
     </div>;
 }
 

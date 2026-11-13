@@ -1,5 +1,5 @@
 import { appendDrawingLineworkVertex, finishDrawingLineworkDefinition } from '~utils/drawingLinework';
-import { createDrawingLinework, editDrawingLinework, parseDrawingLineworkEdit, parseMultilineCreation, runDrawingMultilineStyle } from '~utils/drawingLineworkCommands';
+import { createDrawingLinework, editDrawingLinework, normalizeDrawingLineworkKeyword, parseDrawingLineworkEdit, parseMultilineCreation, runDrawingMultilineStyle } from '~utils/drawingLineworkCommands';
 
 export default function useDrawingLinework({ history, selectedIds, setSelectedIds, operation, setOperation, setActiveTool, setMessage, enabled, t }) {
     const report = key => setMessage(t(`linework.${key}`));
@@ -70,6 +70,7 @@ export default function useDrawingLinework({ history, selectedIds, setSelectedId
     const input = value => {
         if (operation?.type !== 'linework') return false;
         if (operation.stage === 'vertices') {
+            value = normalizeDrawingLineworkKeyword(value);
             const option = value.trim().toUpperCase();
             if (operation.kind === 'wide' && (option === 'LINE' || option.startsWith('ARC'))) {
                 const tokens = option.split(/\s+/);
