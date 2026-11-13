@@ -112,7 +112,7 @@
 
 .drawing-editor-body {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr) 300px;
+  grid-template-columns: auto minmax(0, 1fr) 300px;
   min-height: 0;
   overflow: hidden;
 }
@@ -131,7 +131,12 @@
   border-right: 1px solid var(--line);
   background: var(--panel);
 
+  width: 46px;
+
   &::-webkit-scrollbar { display: none; }
+
+  // Below a certain height the rail uses two columns so every tool stays visible.
+  &.is-two-columns { width: 80px; }
 }
 
 .drawing-toolbar-group {
@@ -141,6 +146,32 @@
   gap: 2px;
 
   & + & { padding-top: 4px; border-top: 1px solid var(--line); }
+
+  .is-two-columns & {
+    display: grid;
+    grid-template-columns: repeat(2, 34px);
+    padding-inline: 4px;
+  }
+}
+
+// Tools hidden by scrolling are signalled at the edge of the rail: a fade and
+// a chevron that scrolls to them.
+.drawing-toolbar-scroll {
+  position: sticky;
+  z-index: 2;
+  flex: none;
+  align-self: stretch;
+  height: 34px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--accent-ink);
+
+  .ui-icon { width: 18px; height: 18px; padding: 1px; border-radius: 50%; background: var(--accent); }
+  &.is-up { top: -6px; margin-block: -6px -28px; align-items: flex-start; padding-top: 4px; background: linear-gradient(var(--panel) 40%, transparent); }
+  &.is-down { bottom: -6px; margin-block: -28px -6px; align-items: flex-end; padding-bottom: 4px; background: linear-gradient(transparent, var(--panel) 60%); }
+  &:hover:not(:disabled) .ui-icon { background: var(--accent-hover); }
 }
 
 .drawing-tool-slot { position: relative; display: flex; }
@@ -303,6 +334,9 @@
   color: var(--muted);
 
   span { min-width: 0.75rem; color: var(--accent); font-family: var(--font-num); }
+
+  // In the Properties tab, collapsed groups read like the section titles.
+  .drawing-sidebar-content & { justify-content: flex-start; gap: 6px; padding: 0; font-weight: 500; }
 }
 
 .drawing-creation-action,
@@ -343,7 +377,7 @@
 
 .drawing-properties-mount {
   .drawing-creation-controls { display: grid; gap: 8px; }
-  .drawing-creation-controls > header strong { padding: 0; background: none; box-shadow: none; color: var(--muted); }
+  .drawing-creation-controls > header strong { padding: 0; background: none; box-shadow: none; color: var(--muted); letter-spacing: 0.07em; font-family: var(--font-ui); white-space: normal; overflow-wrap: anywhere; }
   .drawing-creation-fields, .drawing-creation-details, .drawing-creation-details-fields { display: grid; }
   .drawing-creation-field { display: grid; grid-template-columns: 96px minmax(0, 1fr); }
   .drawing-creation-field input, .drawing-creation-field select, .drawing-creation-field textarea { width: 100%; }
@@ -564,30 +598,76 @@
 // --- Properties panel frame ---------------------------------------------------
 
 .drawing-sidebar {
+  position: relative;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   border-left: 1px solid var(--line);
   background: var(--panel);
+
+  // Collapsed: a narrow strip with the tab icons.
+  &.is-collapsed {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 0;
+  }
+}
+
+.drawing-editor-body:has(> .drawing-sidebar.is-collapsed) { grid-template-columns: auto minmax(0, 1fr) 36px; }
+
+// Hide/show handle on the panel border, outside the crowded tab row.
+.drawing-sidebar-collapse {
+  position: absolute;
+  top: 50%;
+  left: -12px;
+  z-index: 4;
+  width: 22px;
+  min-width: 22px;
+  min-height: 36px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  color: var(--muted);
+  transform: translateY(-50%);
+
+  &:hover:not(:disabled) { background: var(--field-hover); color: var(--ink); }
+  .is-collapsed > & { position: static; transform: none; margin-bottom: 4px; }
+}
+
+.drawing-sidebar.is-collapsed .drawing-manage-trigger span { display: none; }
+
+.drawing-sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px;
+  border-bottom: 1px solid var(--line);
 }
 
 .drawing-sidebar-tabs {
   display: flex;
-  flex-wrap: wrap;
+  flex: 1 1 auto;
   gap: 2px;
-  padding: 6px;
-  border-bottom: 1px solid var(--line);
+  min-width: 0;
 
   button {
     flex: 1 1 auto;
+    min-width: 0;
     min-height: 26px;
-    padding: 0 8px;
+    padding: 0 6px;
+    overflow: hidden;
     border: 0;
     border-radius: var(--radius-sm);
     background: transparent;
     color: var(--muted);
     font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 
     &:hover:not(:disabled) { background: var(--field); color: var(--ink); }
     &.is-active { background: var(--field); color: var(--ink); }
@@ -605,12 +685,42 @@
   overflow-y: auto;
 }
 
-.drawing-manage-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
+.drawing-manage-menu { position: relative; flex: none; }
 
-  button { justify-content: flex-start; min-height: 30px; padding: 4px 8px; text-align: left; white-space: normal; }
+.drawing-manage-trigger {
+  gap: 4px;
+  min-height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-weight: 500;
+
+  &:hover:not(:disabled), &[aria-expanded="true"] { background: var(--field); color: var(--ink); }
+}
+
+.drawing-manage-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 70;
+  display: grid;
+  min-width: 220px;
+  padding: 4px;
+
+  button {
+    justify-content: flex-start;
+    min-height: 30px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    text-align: left;
+
+    &:hover:not(:disabled), &:focus-visible { background: var(--field); }
+    &[aria-current="true"] { color: var(--accent); }
+  }
 }
 
 // Floating, non-modal manager window docked beside the properties panel.
@@ -627,14 +737,17 @@
   > header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 8px 8px 8px 14px;
+    gap: 4px;
+    padding: 6px 8px 6px 4px;
     border-bottom: 1px solid var(--line);
+    cursor: move;
+    touch-action: none;
 
-    h2 { margin: 0; font-size: var(--text-md); }
+    h2 { flex: 1; min-width: 0; margin: 0; overflow: hidden; font-size: var(--text-md); text-overflow: ellipsis; white-space: nowrap; }
   }
 }
+
+.drawing-manager-grip { color: var(--muted); cursor: move; }
 
 .drawing-manager-body { display: grid; align-content: start; gap: 10px; min-height: 0; padding: 12px 14px 16px; overflow-y: auto; }
 
@@ -691,14 +804,30 @@
 
 .drawing-status-separator { width: 1px; height: 16px; margin: 0 4px; background: var(--line); }
 
+// Live pointer position; fixed width so the aids beside it do not move.
+.drawing-cursor-position {
+  display: inline-flex;
+  justify-content: flex-end;
+  width: 13.5rem;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font: var(--text-sm) var(--font-num);
+  white-space: nowrap;
+
+  &.is-idle { color: var(--muted); }
+  output { overflow: hidden; text-overflow: ellipsis; }
+}
+
 .drawing-snap-scale {
   display: inline-flex;
   align-items: center;
   gap: 2px;
   color: var(--muted);
   font: var(--text-sm) var(--font-num);
+  white-space: nowrap;
 
-  input { width: 4.5rem; min-height: 22px; padding: 0 4px; border-color: transparent; background: transparent; font: inherit; }
+  input { width: 3.6rem; min-height: 22px; padding: 0 4px; border-color: transparent; background: transparent; font: inherit; }
   input:hover:not(:focus) { background: var(--field); }
 }
 
@@ -748,15 +877,28 @@
 }
 
 @media (max-width: 1100px) {
-  .drawing-editor-body { grid-template-columns: 46px minmax(0, 1fr) 260px; }
+  .drawing-editor-body { grid-template-columns: auto minmax(0, 1fr) 260px; }
+  .drawing-editor-body:has(> .drawing-sidebar.is-collapsed) { grid-template-columns: auto minmax(0, 1fr) 36px; }
   // Copy, cut and paste stay on Ctrl+C/X/V and the context menu; undo/redo stay visible.
   .lumcad-header-group[role="group"] > :nth-child(n + 3) { display: none; }
   .drawing-manager-window { right: 272px; }
+  .drawing-sidebar-tabs button { padding: 0 4px; font-size: var(--text-sm); }
+  .drawing-manage-trigger span { display: none; }
+  // Narrow status bar: compact aids and no zoom buttons (wheel, Zoom field
+  // and the ZOOM command remain) so the layout tabs keep some room.
+  .drawing-cursor-position { width: 11rem; font-size: var(--text-xs); }
+  .drawing-status-aid { padding: 0 4px; letter-spacing: 0; }
+  .drawing-status-aids .drawing-status-view { display: none; }
+  .drawing-workspace-tab-strip { min-width: 4.5rem; }
+  // Narrow panel: compact layer toggles leave room for the layer name.
+  .drawing-sidebar .drawing-layer-row-header { gap: 4px; }
+  .drawing-sidebar .drawing-layer-actions > button { width: 20px; min-width: 20px; }
+  .drawing-sidebar .drawing-layer-main input { padding: 0 2px; }
   .drawing-command-message { max-width: 40%; }
 }
 
 @media (max-width: 820px) {
-  .drawing-editor-body { grid-template-columns: 46px minmax(0, 1fr); }
+  .drawing-editor-body { grid-template-columns: auto minmax(0, 1fr); }
   .drawing-sidebar { display: none; }
   .lumcad-header-group[role="group"] { display: none; }
   .drawing-status-aids .drawing-status-view { display: none; }

@@ -2,6 +2,8 @@ import { Button, Input } from '~components/ui/Controls';
 import DrawingTransmittalReport from './DrawingTransmittalReport';
 import DrawingComparisonPreview from './DrawingComparisonPreview';
 import { formatDrawingDistance, formatDrawingAngle } from '~utils/drawingCoordinates';
+import { formatDrawingCursorPosition } from '~utils/drawingCursorPosition';
+import { describeDrawingEntityForList } from '~utils/drawingEntityListing';
 import React from 'react';
 import { useI18n } from '~i18n/I18nProvider';
 import { localizeError } from '~i18n/translator';
@@ -10,7 +12,7 @@ const UNITS = { distance: 'm', dx: 'm', dy: 'm', x: 'm', y: 'm', radius: 'm', pe
     centroidX: 'm', centroidY: 'm', area: 'm²', totalArea: 'm²', cumulativeArea: 'm²', inertiaX: 'm⁴', inertiaY: 'm⁴', angle: '°' };
 const FIELDS = [...Object.keys(UNITS), 'layers', 'blocks', 'selected', 'objects', 'total', 'added', 'removed', 'changed'];
 
-export default function DrawingInquiryPanel({ result, onCopy, onInspectTransmittal, onSelectDuplicateGroup, onSelectCountOccurrence, settings, t, comparisonPreview, onOpenRecovery, canOpenRecovery = false,
+export default function DrawingInquiryPanel({ result, layers = [], blocks = [], onCopy, onInspectTransmittal, onSelectDuplicateGroup, onSelectCountOccurrence, settings, t, comparisonPreview, onOpenRecovery, canOpenRecovery = false,
     onSelectRecovery, onShowRecoveryManager, hasRecoveryGraph = false, onShowRecoveryHistory, onRetryRecovery, onForgetRecovery, onRelinkRecovery, canRelinkRecovery = false }) {
     const { formatNumber, formatDate, formatTime, locale } = useI18n();
     const renderValues = (values, key) => <dl key={key}>
@@ -24,13 +26,19 @@ export default function DrawingInquiryPanel({ result, onCopy, onInspectTransmitt
             <dd>{UNITS[field] ? field === 'angle' ? formatDrawingAngle(values[field], settings, locale) : formatDrawingDistance(values[field], settings, locale, UNITS[field] === 'm²' ? 2 : UNITS[field] === 'm⁴' ? 4 : 1) : formatNumber(values[field], { maximumFractionDigits: 6 })}</dd>
         </React.Fragment>)}
     </dl>;
+    const heading = { sheetSet: 'sheetSet.title', standards: 'standards.title', drawingCompare: 'comparison.title', recoveryRelink: 'recovery.relink',
+        recoveryHistory: 'recovery.historyTitle', recoveryManager: 'recovery.managerTitle', recovery: 'recovery.title', audit: 'audit.title' }[result?.mode];
+    // Recovery tools belong to recovery results; RECOVERYMANAGER opens them otherwise.
+    const recoveryResult = String(result?.mode || '').startsWith('recovery');
+    const listing = Array.isArray(result?.objects) && result.objects.some(object => object && Object.hasOwn(object, 'layerId'));
     return <section className="drawing-inquiry-panel">
-        <h3>{t(result?.mode === 'sheetSet' ? 'sheetSet.title' : result?.mode === 'standards' ? 'standards.title' : result?.mode === 'drawingCompare' ? 'comparison.title' : result?.mode === 'recoveryRelink' ? 'recovery.relink' : result?.mode === 'recoveryHistory' ? 'recovery.historyTitle' : result?.mode === 'recoveryManager' ? 'recovery.managerTitle' : result?.mode === 'recovery' ? 'recovery.title' : result?.mode === 'audit' ? 'audit.title' : 'inquiry.title')}</h3>
+        {/* The window already says "Measurements"; only other results get their own title. */}
+        {heading && <h3>{t(heading)}</h3>}
         <Button type="button" disabled={!result} onClick={onCopy}>{t('inquiry.copy')}</Button>
-        {hasRecoveryGraph && result?.mode !== 'recoveryManager' && <Button type="button" onClick={onShowRecoveryManager}>{t('recovery.managerTitle')}</Button>}
-        {onShowRecoveryHistory && result?.mode !== 'recoveryHistory' && <Button type="button" onClick={onShowRecoveryHistory}>{t('recovery.historyTitle')}</Button>}
+        {hasRecoveryGraph && recoveryResult && result?.mode !== 'recoveryManager' && <Button type="button" onClick={onShowRecoveryManager}>{t('recovery.managerTitle')}</Button>}
+        {onShowRecoveryHistory && recoveryResult && result?.mode !== 'recoveryHistory' && <Button type="button" onClick={onShowRecoveryHistory}>{t('recovery.historyTitle')}</Button>}
         {result ? <>
-            {renderValues(result, 'summary')}
+            {!listing && renderValues(result, 'summary')}
             {result.mode === 'sheetSet' && <>
                 <p>{t(result.dirty ? 'sheetSet.modified' : 'sheetSet.recorded')}</p>
                 {result.checked && <p>{t('sheetSet.checked')}</p>}
@@ -138,8 +146,36 @@ export default function DrawingInquiryPanel({ result, onCopy, onInspectTransmitt
             {Array.isArray(result.rows) && <table><thead><tr><th>{t('selectionQuery.type')}</th><th>{t('selectionQuery.layer')}</th><th>{t('selectionQuery.block')}</th><th>{t('selectionQuery.count')}</th></tr></thead><tbody>
                 {result.rows.map((row, index) => <tr key={index}><td>{t(`entity.${row.type}`)}</td><td>{row.layer}</td><td>{row.block}</td><td>{row.count}</td></tr>)}
             </tbody></table>}
-            {Array.isArray(result.objects) && result.objects.map((object, index) => renderValues(object, object.id || index))}
-            <details><summary>{t('inquiry.details')}</summary><pre tabIndex={0}>{JSON.stringify(result, null, 2)}</pre></details>
+            {listing && result.objects.map((object, index) => (
+                <DrawingListedObject key={object.id || index} entry={describeDrawingEntityForList(object, { layers, blocks })} settings={settings} locale={locale} t={t} />
+            ))}
+            {!listing && Array.isArray(result.objects) && result.objects.map((object, index) => renderValues(object, object.id || index))}
+            <details>
+                <summary>{t('inquiry.details')}</summary>
+                {listing && <p className="drawing-inquiry-ids">{t('inquiry.objectIds', { ids: result.objects.map(object => object.id).join(', ') })}</p>}
+                <pre tabIndex={0}>{JSON.stringify(result, null, 2)}</pre>
+            </details>
         </> : <p>{t('inquiry.empty')}</p>}
     </section>;
+}
+
+const LISTED_VALUE_EXPONENTS = { length: 1, perimeter: 1, radius: 1, area: 2 };
+
+// One object of a LIST result: type, layer by name, measures and key points.
+function DrawingListedObject({ entry, settings, locale, t }) {
+    if (!entry) return null;
+    return <article className="drawing-inquiry-object">
+        <h4>{t(`entity.${entry.type}`)}{entry.blockName ? ` — ${entry.blockName}` : ''}</h4>
+        <dl>
+            <dt>{t('sidebar.layer')}</dt><dd>{entry.layerName ?? t('inquiry.unknownLayer')}</dd>
+            {Object.entries(entry.values).map(([key, value]) => <React.Fragment key={key}>
+                <dt>{t(`inquiry.list.${key}`)}</dt>
+                <dd>{formatDrawingDistance(value, settings, locale, LISTED_VALUE_EXPONENTS[key])}</dd>
+            </React.Fragment>)}
+            {entry.points.map(point => <React.Fragment key={point.key}>
+                <dt>{t(`inquiry.point.${point.key}`)}</dt>
+                <dd>{formatDrawingCursorPosition(point, settings, locale, t)}</dd>
+            </React.Fragment>)}
+        </dl>
+    </article>;
 }

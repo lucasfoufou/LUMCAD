@@ -22,6 +22,7 @@ import useDrawingTables from '~hooks/useDrawingTables';
 import useDrawingRevision from '~hooks/useDrawingRevision';
 import useDrawingSketch from '~hooks/useDrawingSketch';
 import useDrawingLinework from '~hooks/useDrawingLinework';
+import { resolveToolbarActiveOperation } from '~utils/drawingToolbarLayout';
 import useDrawingPointPlacement from '~hooks/useDrawingPointPlacement';
 import useDrawingZoomCommand from '~hooks/useDrawingZoomCommand';
 import useDrawingCommandRepeat from '~hooks/useDrawingCommandRepeat';
@@ -2963,6 +2964,7 @@ export default function DrawingEditorWorkspace({
         zoomOut: () => canvasRef.current?.zoom(1.25),
         fit: () => canvasRef.current?.fit(),
         importImage: () => imageInputRef.current?.click(),
+        command: name => submitCommand(name).catch(() => {}),
     };
 
     const mcpFiles = useMcpFiles({ document, blockEditing: Boolean(blockEditor.session), onReplaceSession,
@@ -3153,7 +3155,7 @@ export default function DrawingEditorWorkspace({
                 </section>}
                 {workspaceMode === 'model' ? (
                     <DrawingEditorBody
-                        toolbar={{ activeTool, activeOperation: interactiveOperation?.arrayKind === 'path' ? 'arrayPath' : interactiveOperation?.arrayKind === 'polar' ? 'arrayPolar' : interactiveOperation?.type || null, actions: toolbarActions,
+                        toolbar={{ activeTool, activeOperation: resolveToolbarActiveOperation(interactiveOperation), actions: toolbarActions,
                             selectionCount: selectedIds.length }}
                         onToolChange={tool => {
                             if (tool === 'hatch') { submitCommand('HATCH').catch(() => {}); return; }
@@ -3202,7 +3204,7 @@ export default function DrawingEditorWorkspace({
                             onOpenRecovery: recovery.open, canOpenRecovery: recovery.canOpen,
                             onSelectRecovery: recovery.select, onShowRecoveryManager: recovery.showManager, hasRecoveryGraph: recovery.hasGraph,
                             onShowRecoveryHistory: recovery.showHistory, onRetryRecovery: recovery.retry, onForgetRecovery: recovery.forget, onRelinkRecovery: recovery.relink, canRelinkRecovery: recovery.canRelink,
-                            layerFilter: layerManager.filter, onLayerFilter: layerManager.setFilter, onPlotStyleCommand: plotStyles.run,
+                            layerFilter: layerManager.filter, onLayerFilter: layerManager.setFilter, onMergeLayer: (source, target) => layerManager.run('layerMerge', `${source.id} ${target.id}`), onPlotStyleCommand: plotStyles.run,
                             panel: sidebarPanel, onPanelChange: setSidebarPanel,
                             libraryBrowser: blockLibrary.browser, onBrowseLibrary: blockLibrary.browse,
                             blockSearch, onBlockSearch: setBlockSearch, onBlockDefine: blockCommands.define, onBlockInsert: blockCommands.insert, onBlockEdit: beginBlockEdit, onBlockImport: () => blockLibrary.run('import'),

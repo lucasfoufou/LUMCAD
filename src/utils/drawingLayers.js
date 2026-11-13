@@ -61,14 +61,43 @@ export function mergeDrawingLayers(content, sourceIds, targetId, layouts = []) {
     };
 }
 
+// State keywords of the layer filter. English keywords stay accepted in every
+// language; French forms are compared without accents, in the singular or
+// plural, masculine or feminine.
+const LAYER_FILTER_KEYWORDS = Object.freeze({
+    locked: ['locked', 'verrouille', 'verrouilles', 'verrouillee', 'verrouillees'],
+    unlocked: ['unlocked', 'deverrouille', 'deverrouilles', 'deverrouillee', 'deverrouillees'],
+    frozen: ['frozen', 'gele', 'geles', 'gelee', 'gelees'],
+    visible: ['visible', 'visibles', 'affiche', 'affiches', 'affichee', 'affichees'],
+    hidden: ['hidden', 'masque', 'masques', 'masquee', 'masquees', 'cache', 'caches', 'cachee', 'cachees'],
+    noplot: ['noplot', 'nonimprime', 'non-imprime', 'nonimprimes', 'non-imprimes', 'nonimprimable', 'non-imprimable'],
+    plot: ['plot', 'imprime', 'imprimes', 'imprimable', 'imprimables'],
+});
+const LAYER_FILTER_TESTS = Object.freeze({
+    locked: layer => Boolean(layer.locked),
+    unlocked: layer => !layer.locked,
+    frozen: layer => Boolean(layer.frozen),
+    visible: layer => isDrawingLayerVisible(layer),
+    hidden: layer => !isDrawingLayerVisible(layer),
+    noplot: layer => layer.plot === false,
+    plot: layer => layer.plot !== false,
+});
+
+function foldFilterText(value) {
+    return String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+/** State keyword ('locked', 'frozen'…) meant by a filter token, or null for a name fragment. */
+export function drawingLayerFilterKeyword(token) {
+    const folded = foldFilterText(token);
+    return Object.keys(LAYER_FILTER_KEYWORDS).find(key => LAYER_FILTER_KEYWORDS[key].includes(folded)) || null;
+}
+
 export function filterDrawingLayers(layers, query = '') {
-    const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const tokens = String(query || '').trim().split(/\s+/).filter(Boolean);
     return layers.filter(layer => tokens.every(token => {
-        if (token === 'locked') return layer.locked;
-        if (token === 'frozen') return layer.frozen;
-        if (token === 'visible') return isDrawingLayerVisible(layer);
-        if (token === 'hidden') return !isDrawingLayerVisible(layer);
-        if (token === 'noplot') return layer.plot === false;
-        return layer.name.toLowerCase().includes(token);
+        const keyword = drawingLayerFilterKeyword(token);
+        if (keyword) return LAYER_FILTER_TESTS[keyword](layer);
+        return foldFilterText(layer.name).includes(foldFilterText(token));
     }));
 }

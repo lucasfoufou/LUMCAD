@@ -187,32 +187,73 @@
 // --- Layers -------------------------------------------------------------------
 
 // Panel sections space their children evenly; stand-alone inputs span the panel.
-.drawing-layer-panel { display: grid; gap: 10px; min-width: 0; }
-.drawing-layer-panel > input,
+.drawing-layer-panel { display: grid; gap: 6px; min-width: 0; }
+.drawing-layer-panel-header > input,
 .drawing-blocks-panel > input { width: 100%; }
 
-.drawing-layer-list { display: grid; gap: 2px; }
+// Title, count, add button and filter stay visible while the list scrolls.
+.drawing-layer-panel-header {
+  position: sticky;
+  top: -10px;
+  z-index: 3;
+  display: grid;
+  gap: 6px;
+  margin: -10px -12px 0;
+  padding: 10px 12px 6px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+
+  .drawing-sidebar-heading > div { flex-direction: row; align-items: baseline; gap: 8px; white-space: nowrap; }
+  .drawing-sidebar-heading .ui-button { gap: 4px; }
+}
+
+.drawing-layer-status {
+  color: var(--success);
+  font-size: var(--text-xs);
+
+  &:empty { display: none; }
+}
+
+.drawing-layer-list { display: grid; gap: 1px; }
 
 .drawing-layer-row {
   display: grid;
   gap: 6px;
   min-width: 0;
-  padding: 6px;
-  border-radius: var(--radius);
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
 
   &:hover { background: var(--field); }
   &.is-active { background: var(--accent-soft); }
+  &.is-expanded { padding-bottom: 8px; background: var(--field); }
 }
 
 .drawing-layer-row-header {
   display: grid;
-  grid-template-columns: 14px 10px minmax(0, 1fr) auto;
+  grid-template-columns: 14px 16px minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
   min-width: 0;
 }
 
-.drawing-layer-swatch { width: 10px; height: 10px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35); }
+// Colour swatch: a native colour input drawn as a framed square.
+input[type="color"].drawing-layer-swatch {
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+
+  &::-webkit-color-swatch-wrapper { padding: 1px; }
+  &::-webkit-color-swatch { border: 0; border-radius: 2px; }
+  &::-moz-color-swatch { border: 0; border-radius: 2px; }
+  &:hover { border-color: var(--muted); }
+}
 
 .drawing-layer-details { display: grid; gap: 8px; padding: 4px 0 2px 20px; }
 
@@ -231,7 +272,13 @@
     color: var(--faint);
 
     &:hover:not(:disabled) { background: var(--field-hover); color: var(--ink); }
-    &.is-active, &[aria-pressed="true"] { border: 0; background: transparent; color: var(--ink); }
+    &[aria-pressed="false"] { color: var(--faint); }
+    // A restricted state (hidden, locked, frozen, not plotted) stands out.
+    &.is-restricted, &.is-restricted:hover:not(:disabled) {
+      border: 0;
+      background: color-mix(in srgb, var(--warning) 18%, transparent);
+      color: var(--warning);
+    }
     &[aria-expanded="true"] { color: var(--ink); }
     &:disabled { opacity: 0.25; }
   }
@@ -239,21 +286,52 @@
 
 .drawing-layer-main {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 4px;
   min-width: 0;
 
   input {
-    min-height: 22px;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 24px;
     padding: 0 4px;
     border-color: transparent;
     background: transparent;
     font-weight: 600;
   }
 
-  // Protected layer names are read-only, not inactive.
-  input:disabled { opacity: 1; color: var(--ink); }
+  input:hover:not(:focus) { border-color: var(--line); }
 
-  small { padding-left: 4px; color: var(--muted); font: var(--text-xs) var(--font-num); }
+  small { flex: none; color: var(--muted); font: var(--text-xs) var(--font-num); }
+}
+
+// System layers (0, DIM, REF) cannot be renamed: the name is plain text with a lock.
+.drawing-layer-system-name {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 0 5px;
+  font-weight: 600;
+
+  > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ui-icon { flex: none; color: var(--faint); }
+}
+
+.drawing-layer-merge {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.drawing-layer-merge-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+
+  select { min-height: 24px; font-size: var(--text-sm); }
 }
 
 .drawing-layer-appearance {
@@ -277,18 +355,6 @@
   font-size: var(--text-xs);
 
   input[type="number"] { width: 100%; }
-}
-
-.drawing-layer-flags {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 4px 10px;
-  color: var(--muted);
-  font-size: var(--text-sm);
-
-  label { display: inline-flex; align-items: center; gap: 5px; }
 }
 
 // --- Properties fields ------------------------------------------------------------
@@ -435,10 +501,24 @@
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
 
-  > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: start;
+
+  > header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 8px; }
   > header strong { min-width: 0; overflow-wrap: anywhere; font-family: var(--font-num); }
   > details > summary { font-size: var(--text-xs); }
+  > :not(.drawing-block-thumbnail, header) { grid-column: 1 / -1; }
+  > header:first-child { grid-column: 1 / -1; }
 }
+
+// Thumbnail of the block drawn on the light sheet colours.
+.drawing-block-thumbnail {
+  .drawing-content-preview { aspect-ratio: 1; border: 1px solid var(--line); pointer-events: none; }
+}
+
+.drawing-blocks-empty p { max-width: 30ch; font-size: var(--text-sm); }
+.drawing-block-create form > .drawing-sidebar-empty { font-size: var(--text-xs); }
+.drawing-disabled-hint { display: inline-flex; }
 
 .drawing-block-actions,
 .drawing-block-smart-controls { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -545,7 +625,46 @@
   details > :not(summary) { margin-top: 8px; }
 }
 
-.drawing-selection-panel > h3 { font-size: var(--text-lg); }
+.drawing-selection-header {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+
+  h3 { overflow-wrap: anywhere; font-size: var(--text-lg); }
+  p { overflow-wrap: anywhere; }
+}
+
+// Sections of the Properties tab: General, Geometry, then the collapsed link.
+.drawing-properties-section,
+.drawing-selection-panel .drawing-properties-mount:not(:empty),
+.drawing-properties-link {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.drawing-properties-section > h4 {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.drawing-properties-section .drawing-appearance-panel { padding-top: 0; border-top: 0; }
+.drawing-properties-link .drawing-hyperlink-fields { padding-top: 0; border-top: 0; }
+.drawing-properties-link .drawing-hyperlink-fields > legend { display: none; }
+
+.drawing-properties-mount p.drawing-creation-field.drawing-block-reference-name {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 8px;
+
+  span { color: var(--muted); }
+  strong { overflow-wrap: anywhere; }
+}
 
 // Hints among editing fields span the panel instead of the label column.
 .drawing-properties-mount p.drawing-creation-field { display: block; color: var(--muted); font-size: var(--text-sm); }

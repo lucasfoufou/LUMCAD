@@ -19,7 +19,7 @@
   border-bottom: 1px solid var(--line);
   background: var(--field);
 
-  strong { font-size: 0.82rem; }
+  strong { font-size: var(--text-md); }
 
   button {
     display: grid;
@@ -43,20 +43,22 @@
 .drawing-text-styles-panel__body {
   display: grid;
   min-height: 0;
-  grid-template-columns: minmax(9rem, 0.8fr) minmax(12rem, 1.2fr);
+  // The manager window is narrow: the style list sits above the editor.
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .drawing-text-styles-panel__list {
   min-height: 0;
-  max-height: 24rem;
+  max-height: 9rem;
   margin: 0;
   padding: 0.35rem;
-  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
   list-style: none;
   overflow-y: auto;
 
   button {
     display: grid;
+    justify-items: start;
     width: 100%;
     gap: 0.08rem;
     padding: 0.42rem 0.48rem;
@@ -68,13 +70,13 @@
 
     span {
       overflow: hidden;
-      font-size: 0.76rem;
-      font-weight: 700;
+      font-size: var(--text-md);
+      font-weight: 600;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
 
-    small { color: var(--muted); font-size: 0.65rem; }
+    small { color: var(--muted); font-size: var(--text-xs); }
 
     &:hover:not(:disabled),
     &:focus-visible,
@@ -99,8 +101,8 @@
     min-width: 0;
     gap: 0.14rem;
     color: var(--muted);
-    font-size: 0.69rem;
-    font-weight: 600;
+    font-size: var(--text-sm);
+    font-weight: 500;
   }
 
   input,
@@ -113,6 +115,7 @@
     border-radius: 5px;
     background: var(--panel);
     color: var(--ink);
+    font-size: var(--text-md);
 
     &:focus {
       border-color: var(--accent);
@@ -132,7 +135,7 @@
     align-items: center;
     gap: 0.28rem;
     color: var(--muted);
-    font-size: 0.7rem;
+    font-size: var(--text-sm);
   }
 
   input { width: auto; height: auto; }
@@ -158,9 +161,4 @@
   color: var(--danger);
 
   &:disabled { opacity: 0.4; }
-}
-
-@media (max-width: 720px) {
-  .drawing-text-styles-panel__body { grid-template-columns: 1fr; }
-  .drawing-text-styles-panel__list { max-height: 9rem; border-right: 0; border-bottom: 1px solid var(--line); }
 }
