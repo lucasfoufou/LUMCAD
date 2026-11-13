@@ -56,6 +56,7 @@ export default function DrawingSidebar({ content, selectedIds, editEntityId = nu
     const requested = panel || internalPanel;
     const manager = Object.hasOwn(MANAGER_PANELS, requested) ? requested : null;
     const [lastTab, setLastTab] = useState('selection');
+    const [collapsed, setCollapsed] = useStoredFlag(SIDEBAR_COLLAPSED_KEY);
     const tab = manager ? lastTab : requested;
     const open = next => {
         setInternalPanel(next);
@@ -89,8 +90,38 @@ export default function DrawingSidebar({ content, selectedIds, editEntityId = nu
         ['blocks', t('sidebar.library')],
     ];
     const managers = Object.entries(MANAGER_PANELS).filter(([id]) => id !== 'parameters' || parametersEnabled);
+    const managerWindow = manager && (
+        <DrawingManagerWindow title={t(MANAGER_PANELS[manager])} closeLabel={t('sidebar.closeManager')} moveLabel={t('sidebar.moveManager')}
+            commandActive={commandActive} onClose={() => open(lastTab)}>
+            {managerContent[manager]()}
+        </DrawingManagerWindow>
+    );
+    const collapseToggle = (
+        <Button type="button" className="drawing-sidebar-collapse" aria-expanded={!collapsed}
+            aria-label={t(collapsed ? 'sidebar.expandPanel' : 'sidebar.collapsePanel')} title={t(collapsed ? 'sidebar.expandPanel' : 'sidebar.collapsePanel')}
+            onClick={() => setCollapsed(!collapsed)}>
+            <Icon name={collapsed ? 'sidebarExpand' : 'sidebarCollapse'} size="sm" />
+        </Button>
+    );
+    if (collapsed) {
+        // A narrow strip keeps the tabs one click away and the managers open.
+        return (
+            <aside className="drawing-sidebar is-collapsed">
+                {collapseToggle}
+                {tabs.map(([id, label]) => (
+                    <Button type="button" key={id} className="ui-icon-button is-small" aria-label={label} title={label}
+                        onClick={() => { setCollapsed(false); showTab(id); }}>
+                        <Icon name={{ selection: 'properties', layers: 'layers', blocks: 'blocks' }[id] || 'properties'} size="sm" />
+                    </Button>
+                ))}
+                <DrawingManageMenu managers={managers} current={manager} onOpen={open} t={t} />
+                {managerWindow}
+            </aside>
+        );
+    }
     return (
         <aside className="drawing-sidebar">
+            {collapseToggle}
             <div className="drawing-sidebar-header">
                 <div className="drawing-sidebar-tabs" role="tablist">
                     {tabs.map(([id, label]) => (
@@ -111,14 +142,23 @@ export default function DrawingSidebar({ content, selectedIds, editEntityId = nu
                 {tab === 'layers' && <DrawingLayersPanel content={content} onCommit={onCommit} filter={layerFilter} onFilter={onLayerFilter} onMergeLayer={onMergeLayer} t={t} />}
                 {tab === 'blocks' && <DrawingBlocksPanel libraryBrowser={libraryBrowser} onBrowseLibrary={onBrowseLibrary} onSmartCommand={onSmartBlockCommand} detection={smartBlockDetection} content={content} selectedIds={selectedIds} search={blockSearch} onSearch={onBlockSearch} onDefine={onBlockDefine} onInsert={onBlockInsert} onEdit={onBlockEdit} onImport={onBlockImport} onExport={onBlockExport} onManageAttribute={onManageAttribute} onDefineAttribute={onDefineAttribute} />}
             </div>
-            {manager && (
-                <DrawingManagerWindow title={t(MANAGER_PANELS[manager])} closeLabel={t('sidebar.closeManager')} moveLabel={t('sidebar.moveManager')}
-                    commandActive={commandActive} onClose={() => open(lastTab)}>
-                    {managerContent[manager]()}
-                </DrawingManagerWindow>
-            )}
+            {managerWindow}
         </aside>
     );
+}
+
+const SIDEBAR_COLLAPSED_KEY = 'lumcad.sidebar.collapsed';
+
+// A per-viewer display preference kept in browser storage when available.
+function useStoredFlag(key) {
+    const [value, setValue] = useState(() => {
+        try { return window.localStorage.getItem(key) === '1'; } catch { return false; }
+    });
+    const update = next => {
+        setValue(next);
+        try { window.localStorage.setItem(key, next ? '1' : '0'); } catch { /* storage unavailable */ }
+    };
+    return [value, update];
 }
 
 // Permanent access to the managers, whatever the tab and the selection.

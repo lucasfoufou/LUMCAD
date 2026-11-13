@@ -2192,6 +2192,8 @@ const fr = {
     'sidebar.manageHint': 'Gérer : styles, formules, contraintes et mesures',
     'sidebar.manageParameters': 'Formules et paramètres',
     'sidebar.closeManager': 'Fermer',
+    'sidebar.collapsePanel': 'Masquer le panneau',
+    'sidebar.expandPanel': 'Afficher le panneau',
     'sidebar.moveManager': 'Déplacer la fenêtre (glisser, ou flèches du clavier)',
     'sidebar.layerDetails': 'Détails du calque',
     'sidebar.layers': 'Calques',

@@ -2192,6 +2192,8 @@ const en = {
     'sidebar.manageHint': 'Manage: styles, formulas, constraints and measurements',
     'sidebar.manageParameters': 'Formulas and parameters',
     'sidebar.closeManager': 'Close',
+    'sidebar.collapsePanel': 'Hide the panel',
+    'sidebar.expandPanel': 'Show the panel',
     'sidebar.moveManager': 'Move the window (drag, or arrow keys)',
     'sidebar.layerDetails': 'Layer details',
     'sidebar.layers': 'Layers',
