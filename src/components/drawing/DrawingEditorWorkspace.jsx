@@ -57,6 +57,7 @@ import useDrawingWmf from '~hooks/useDrawingWmf';
 import useDrawingDgn from '~hooks/useDrawingDgn';
 import useDrawingCad from '~hooks/useDrawingCad';
 import useOnDemandPublishPages from '~hooks/useOnDemandPublishPages';
+import useDrawingSheetSetup from '~hooks/useDrawingSheetSetup';
 import useDrawingDataExtraction from '~hooks/useDrawingDataExtraction';
 import { manageDrawingAttributes, parseDrawingAttributeManagerInput } from '~utils/drawingAttributeManager';
 import { defineDrawingAttribute, editDrawingAttribute, syncDrawingAttributes } from '~utils/drawingAttributeOperations';
@@ -153,6 +154,7 @@ import {
     updateDrawingLayout,
     updateDrawingViewport,
 } from '~utils/drawingLayouts';
+import { applyDrawingViewportScaleCommand, formatDrawingScaleLabel } from '~utils/drawingSheetSetup';
 import {
     createAngularDimensionResult,
     createArcLengthDimensionResult,
@@ -330,6 +332,12 @@ export default function DrawingEditorWorkspace({
     const activeLayout = useMemo(() => (
         layouts.find(layout => layout.id === activeLayoutId) || layouts[0] || null
     ), [activeLayoutId, layouts]);
+    const sheetSetup = useDrawingSheetSetup({ history, layouts, drawingName: name, designer: settings.drawingDefaults.designer, locale, setMessage, t });
+    const [sheetSetupRequested, setSheetSetupRequested] = useState(false);
+    const openSheetSetup = layoutId => {
+        setSheetSetupRequested(true);
+        exportPdf([layoutId]).then(opened => { if (!opened) setSheetSetupRequested(false); }).catch(() => setSheetSetupRequested(false));
+    };
     useEffect(() => {
         const viewportIds = new Set(activeLayout?.viewports.map(viewport => viewport.id) || []);
         if (selectedViewportId && !viewportIds.has(selectedViewportId)) setSelectedViewportId(null);
@@ -1928,6 +1936,12 @@ export default function DrawingEditorWorkspace({
             else addLayout();
             return;
         }
+        if (parsed.command === 'viewportScale') {
+            const result = applyDrawingViewportScaleCommand(activeLayout, selectedViewportId, getDrawingCommandInput(rawValue));
+            if (result.layout) commitActiveLayout(result.layout);
+            setMessage(t(result.messageKey, { scale: result.scale ? formatDrawingScaleLabel(result.scale, locale) : '' }));
+            return;
+        }
         if (parsed.command === 'pageSetupImport') {
             await importPageSetups();
             return;
@@ -3066,6 +3080,8 @@ export default function DrawingEditorWorkspace({
                         onDeleteViewport={deleteSelectedViewport}
                         onExportPageSetups={() => exportPageSetups().catch(() => {})}
                         onImportPageSetups={() => importPageSetups().catch(() => {})}
+                        onInsertTitleBlock={() => sheetSetup.insertTitleBlock(activeLayout.id)}
+                        onOpenSheetSetup={() => openSheetSetup(activeLayout.id)}
                         onMaximizeViewport={viewportId => {
                             setSelectedViewportId(viewportId);
                             setMaximizedViewportId(viewportId);
@@ -3144,8 +3160,11 @@ export default function DrawingEditorWorkspace({
                     drawing={document}
                     initialFormat={publishRequest.format}
                     initialLayoutIds={publishRequest.layoutIds}
+                    initialStep={sheetSetupRequested ? 'setup' : 'auto'}
                     onApplySettings={applyPublishSettings}
-                    onClose={closePublishDialog}
+                    onApplySheetSetup={sheetSetup.applySheetSetup}
+                    onPreviewSheetSetup={sheetSetup.previewSheetSetup}
+                    onClose={() => { setSheetSetupRequested(false); closePublishDialog(); }}
                     onPublish={publishRenderedLayouts}
                     onSystemPrint={printPublishedLayouts}
                     open

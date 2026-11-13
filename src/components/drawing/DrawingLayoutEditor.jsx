@@ -25,7 +25,9 @@ export default function DrawingLayoutEditor({
     onDeleteViewport,
     onExportPageSetups,
     onImportPageSetups,
+    onInsertTitleBlock,
     onMaximizeViewport,
+    onOpenSheetSetup,
     onMinimizeViewport,
     onOperationPoint,
     onScaleViewport,
@@ -121,6 +123,8 @@ export default function DrawingLayoutEditor({
                 onDeletePageSetup={onDeletePageSetup}
                 onExportPageSetups={onExportPageSetups}
                 onImportPageSetups={onImportPageSetups}
+                onInsertTitleBlock={onInsertTitleBlock}
+                onOpenSheetSetup={onOpenSheetSetup}
                 onSelectedPaperEntityChange={selectPaperEntity}
                 onSelectViewport={selectViewport}
                 onToolChange={onToolChange}

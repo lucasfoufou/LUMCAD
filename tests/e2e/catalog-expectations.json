@@ -2711,6 +2711,18 @@
       "layout.viewportMinimized"
     ]
   },
+  "viewportScale": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "entities": 0,
+    "fileChooser": false,
+    "messageKeys": [
+      "layout.viewportSelectionRequired"
+    ]
+  },
   "blockTable": {
     "activeTool": "select",
     "operation": null,

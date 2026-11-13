@@ -17,6 +17,8 @@ import {
     getDrawingSheetSetupRects,
     insertDrawingTitleBlock,
     isDrawingTitleBlockEntity,
+    applyDrawingViewportScaleCommand,
+    parseDrawingViewportScaleInput,
     snapDrawingViewportScale,
     snapDrawingViewportToStandardScale,
 } from './drawingSheetSetup.js';
@@ -118,4 +120,28 @@ test('a title block stays inside a small portrait sheet', () => {
     const bounds = layout.paperEntities.filter(entity => entity.type === 'rectangle')[0];
     assert.ok(bounds.x >= 10 - 1e-9 && bounds.x + bounds.width <= 200 + 1e-9);
     assert.ok(bounds.y + bounds.height <= 287 + 1e-9);
+});
+
+test('VPSCALE input accepts plain denominators and ratios', () => {
+    assert.equal(parseDrawingViewportScaleInput('100'), 100);
+    assert.equal(parseDrawingViewportScaleInput('1:50'), 50);
+    assert.equal(parseDrawingViewportScaleInput('1/20'), 20);
+    assert.equal(parseDrawingViewportScaleInput('2:1'), 0.5);
+    assert.equal(parseDrawingViewportScaleInput('12,5'), 12.5);
+    assert.equal(parseDrawingViewportScaleInput(''), null);
+    assert.equal(parseDrawingViewportScaleInput('abc'), null);
+    assert.equal(parseDrawingViewportScaleInput('-5'), null);
+});
+
+test('VPSCALE scales the only viewport and refuses a locked one', () => {
+    const viewport = createDrawingViewport({ id: 'vp', rect: { x: 10, y: 10, width: 200, height: 100 }, modelViewBox: { x: 0, y: 0, width: 50, height: 25 } });
+    const layout = createDrawingLayout({ format: 'A3', viewports: [viewport] });
+    const result = applyDrawingViewportScaleCommand(layout, null, '1:100');
+    assert.equal(result.messageKey, 'layout.viewportScaleSet');
+    assert.ok(Math.abs(getDrawingViewportScale(result.layout.viewports[0]) - 100) < 1e-9);
+    const locked = createDrawingLayout({ format: 'A3', viewports: [{ ...viewport, locked: true }] });
+    assert.equal(applyDrawingViewportScaleCommand(locked, 'vp', '100').layout, undefined);
+    assert.equal(applyDrawingViewportScaleCommand(locked, 'vp', '100').messageKey, 'layout.viewportScaleLockedHint');
+    assert.equal(applyDrawingViewportScaleCommand(createDrawingLayout({ format: 'A3' }), null, '100').messageKey, 'layout.viewportSelectionRequired');
+    assert.equal(applyDrawingViewportScaleCommand(layout, 'vp', 'x').messageKey, 'layout.viewportScaleSyntax');
 });

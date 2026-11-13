@@ -9,6 +9,7 @@ import {
     getDrawingPrintableArea,
     getDrawingViewportScale,
     normalizeDrawingPaperEntities,
+    setDrawingViewportScale,
 } from './drawingLayouts.js';
 
 // "Put the model on a sheet": one viewport, centred on the model extents, at an
@@ -226,6 +227,33 @@ export function getDrawingSheetModelExtent(content) {
         height: Math.max(1e-6, bounds.maxY - bounds.minY),
         centerX: (bounds.minX + bounds.maxX) / 2,
         centerY: (bounds.minY + bounds.maxY) / 2,
+    };
+}
+
+/** Reads "100", "1:100", "1/100" or "2:1" as a viewport scale denominator. */
+export function parseDrawingViewportScaleInput(input) {
+    const text = String(input ?? '').trim().replace(/,/g, '.');
+    const ratio = /^(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)$/.exec(text);
+    const value = ratio ? Number(ratio[2]) / Number(ratio[1]) : /^\d+(?:\.\d+)?$/.test(text) ? Number(text) : NaN;
+    return Number.isFinite(value) && value > 0 && value <= 1_000_000 ? value : null;
+}
+
+/**
+ * VPSCALE: sets the scale of the selected viewport, or of the only viewport of
+ * the layout. Returns the next layout, or a message key explaining the refusal.
+ */
+export function applyDrawingViewportScaleCommand(layout, selectedViewportId, input) {
+    const viewport = layout?.viewports.find(item => item.id === selectedViewportId)
+        || (layout?.viewports.length === 1 ? layout.viewports[0] : null);
+    if (!viewport) return { messageKey: 'layout.viewportSelectionRequired' };
+    const denominator = parseDrawingViewportScaleInput(input);
+    if (!denominator) return { messageKey: 'layout.viewportScaleSyntax', scale: getDrawingViewportScale(viewport) };
+    if (viewport.locked) return { messageKey: 'layout.viewportScaleLockedHint' };
+    return {
+        layout: { ...layout, viewports: layout.viewports.map(item => item.id === viewport.id ? setDrawingViewportScale(item, denominator) : item) },
+        messageKey: 'layout.viewportScaleSet',
+        scale: denominator,
+        viewportId: viewport.id,
     };
 }
 
