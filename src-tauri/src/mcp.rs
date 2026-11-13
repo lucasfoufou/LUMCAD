@@ -758,7 +758,7 @@ mod tests {
     #[test]
     fn shared_command_manifest_is_unique_and_complete() {
         let commands = command_manifest();
-        assert_eq!(commands.len(), 298);
+        assert_eq!(commands.len(), 303);
         assert_eq!(
             commands
                 .iter()
@@ -794,7 +794,11 @@ mod tests {
             find_command("OTRACK").map(|value| value.command.as_str()),
             Some("objectTracking")
         );
-        assert!(find_command("SAVE").is_none());
+        // SAVE is the interactive QSAVE; MCP clients save through save_document.
+        assert_eq!(
+            find_command("SAVE").map(|value| value.command.as_str()),
+            Some("quickSave")
+        );
     }
 
     #[test]

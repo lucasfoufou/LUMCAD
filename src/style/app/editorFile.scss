@@ -146,7 +146,7 @@
 
 .drawing-command-palette-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 5.5rem;
+  grid-template-columns: minmax(0, 1fr) auto minmax(3rem, auto);
   align-items: center;
   gap: 12px;
   min-height: 30px;
@@ -229,3 +229,27 @@
   li.is-command { margin-top: 4px; color: var(--accent); }
   p { margin: 0; padding: 4px 8px 8px; color: var(--muted); }
 }
+
+// --- Empty drawing ---------------------------------------------------------------
+
+// Centred over the drawing area (rail on the left, properties panel on the right).
+.drawing-empty-state {
+  --drawing-empty-offset: -127px;
+
+  position: absolute;
+  top: 76px;
+  left: calc(50% + var(--drawing-empty-offset));
+  z-index: 4;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--radius-lg);
+  background: var(--raised);
+  box-shadow: var(--shadow-pop);
+  transform: translateX(-50%);
+
+  .ui-button { gap: 6px; color: var(--ink); }
+}
+
+@media (max-width: 1100px) { .drawing-empty-state { --drawing-empty-offset: -107px; } }
+@media (max-width: 820px) { .drawing-empty-state { --drawing-empty-offset: 23px; } }

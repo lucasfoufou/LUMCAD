@@ -124,22 +124,34 @@ fn standard_directories() -> Vec<PathBuf> {
     directories
 }
 
+/// Folder of a LibreDWG copy shipped in the application resources
+/// (`<resources>/libredwg`, bundled by the Windows installer when available).
+pub(crate) fn bundled_directory(app: &tauri::AppHandle) -> Option<PathBuf> {
+    use tauri::Manager;
+    app.path().resource_dir().ok().map(|directory| directory.join("libredwg"))
+}
+
 /// Lookup order: LUMCAD_LIBREDWG_DIR, then the Settings folder when one is set,
-/// otherwise PATH and standard folders. An explicit Settings folder is
+/// otherwise the copy bundled with LUMCAD (`libredwg` and `libredwg/bin` in the
+/// resources), PATH and standard folders. An explicit Settings folder is
 /// authoritative: a wrong folder reports LibreDWG as missing instead of silently
 /// using another installation. The first folder containing both converters
 /// wins, so read and write use one installation.
-fn locate_converters(configured: &str) -> Option<PathBuf> {
+fn locate_converters(configured: &str, bundled: Option<&Path>) -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = std::env::var_os("LUMCAD_LIBREDWG_DIR")
         .map(PathBuf::from)
         .into_iter()
         .collect();
     if !configured.is_empty() {
         candidates.push(PathBuf::from(configured));
-    } else if let Some(path) = std::env::var_os("PATH") {
-        candidates.extend(std::env::split_paths(&path));
-    }
-    if configured.is_empty() {
+    } else {
+        if let Some(bundled) = bundled {
+            candidates.push(bundled.to_path_buf());
+            candidates.push(bundled.join("bin"));
+        }
+        if let Some(path) = std::env::var_os("PATH") {
+            candidates.extend(std::env::split_paths(&path));
+        }
         candidates.extend(standard_directories());
     }
     candidates.into_iter().find(|directory| {
@@ -154,8 +166,8 @@ fn configured_directory(settings: &tauri::State<'_, crate::settings::AppSettings
     settings.snapshot().cad_interchange.libredwg_directory
 }
 
-fn convert(input: &[u8], to_dwg: bool, configured: &str) -> Result<Vec<u8>, String> {
-    let directory = locate_converters(configured).ok_or("cadConverterMissing")?;
+fn convert(input: &[u8], to_dwg: bool, configured: &str, bundled: Option<&Path>) -> Result<Vec<u8>, String> {
+    let directory = locate_converters(configured, bundled).ok_or("cadConverterMissing")?;
     let work = tempfile::tempdir().map_err(|_| "cadConversionFailed")?;
     let source = work
         .path()
@@ -230,7 +242,7 @@ fn convert(input: &[u8], to_dwg: bool, configured: &str) -> Result<Vec<u8>, Stri
     }
 }
 
-fn read_cad(path: &str, format: &str, configured: &str) -> Result<Vec<u8>, String> {
+fn read_cad(path: &str, format: &str, configured: &str, bundled: Option<&Path>) -> Result<Vec<u8>, String> {
     validate_path(Path::new(path), format)?;
     let bytes = read_bounded(Path::new(path))?;
     if format == "dwg" {
@@ -238,17 +250,17 @@ fn read_cad(path: &str, format: &str, configured: &str) -> Result<Vec<u8>, Strin
         if !bytes.starts_with(b"AC10") {
             return Err("cadInvalid".into());
         }
-        convert(&bytes, false, configured)
+        convert(&bytes, false, configured, bundled)
     } else {
         Ok(bytes)
     }
 }
 
-fn write_cad(path: &str, format: &str, text: &str, configured: &str) -> Result<(), String> {
+fn write_cad(path: &str, format: &str, text: &str, configured: &str, bundled: Option<&Path>) -> Result<(), String> {
     validate_path(Path::new(path), format)?;
     validate_dxf(text.as_bytes())?;
     let bytes = if format == "dwg" {
-        convert(text.as_bytes(), true, configured)?
+        convert(text.as_bytes(), true, configured, bundled)?
     } else {
         text.as_bytes().to_vec()
     };
@@ -257,13 +269,15 @@ fn write_cad(path: &str, format: &str, text: &str, configured: &str) -> Result<(
 
 #[tauri::command]
 pub async fn read_drawing_cad(
+    app: tauri::AppHandle,
     path: String,
     format: String,
     settings: tauri::State<'_, crate::settings::AppSettingsState>,
 ) -> Result<tauri::ipc::Response, String> {
     let configured = configured_directory(&settings);
+    let bundled = bundled_directory(&app);
     tauri::async_runtime::spawn_blocking(move || {
-        read_cad(&path, &format, &configured).map(tauri::ipc::Response::new)
+        read_cad(&path, &format, &configured, bundled.as_deref()).map(tauri::ipc::Response::new)
     })
     .await
     .map_err(|_| "cadConversionFailed".to_string())?
@@ -271,13 +285,15 @@ pub async fn read_drawing_cad(
 
 #[tauri::command]
 pub async fn write_drawing_cad(
+    app: tauri::AppHandle,
     path: String,
     format: String,
     text: String,
     settings: tauri::State<'_, crate::settings::AppSettingsState>,
 ) -> Result<(), String> {
     let configured = configured_directory(&settings);
-    tauri::async_runtime::spawn_blocking(move || write_cad(&path, &format, &text, &configured))
+    let bundled = bundled_directory(&app);
+    tauri::async_runtime::spawn_blocking(move || write_cad(&path, &format, &text, &configured, bundled.as_deref()))
         .await
         .map_err(|_| "cadConversionFailed".to_string())?
 }
@@ -285,12 +301,16 @@ pub async fn write_drawing_cad(
 /// Reports the LibreDWG folder that conversions would use with `directory` as the
 /// Settings value. It only checks that the files exist; nothing is executed.
 #[tauri::command]
-pub fn locate_libredwg(directory: String) -> Option<String> {
+pub fn locate_libredwg(app: tauri::AppHandle, directory: String) -> Option<String> {
+    locate_libredwg_with(&directory, bundled_directory(&app).as_deref())
+}
+
+fn locate_libredwg_with(directory: &str, bundled: Option<&Path>) -> Option<String> {
     let configured = crate::settings::CadInterchangePreferences {
-        libredwg_directory: directory,
+        libredwg_directory: directory.into(),
     }
     .normalized();
-    locate_converters(&configured.libredwg_directory)
+    locate_converters(&configured.libredwg_directory, bundled)
         .map(|path| path.to_string_lossy().into_owned())
 }
 
@@ -330,7 +350,7 @@ mod tests {
         assert_eq!(read_bounded(&dxf).unwrap().len() as u64, DWG_INPUT_LIMIT + 1);
         let dwg = work.path().join("large.dwg");
         fs::rename(dxf, &dwg).unwrap();
-        assert_eq!(read_cad(dwg.to_str().unwrap(), "dwg", "").unwrap_err(), "cadLimit");
+        assert_eq!(read_cad(dwg.to_str().unwrap(), "dwg", "", None).unwrap_err(), "cadLimit");
     }
     #[test]
     fn paths_and_limits_are_checked_before_conversion() {
@@ -347,12 +367,12 @@ mod tests {
         let work = tempfile::tempdir().unwrap();
         let path = work.path().join("plan.dxf");
         fs::write(&path, b"original").unwrap();
-        assert!(write_cad(path.to_str().unwrap(), "dxf", "invalid", "").is_err());
+        assert!(write_cad(path.to_str().unwrap(), "dxf", "invalid", "", None).is_err());
         assert_eq!(fs::read(&path).unwrap(), b"original");
         let text = "999\nLibreDWG comment\n0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n";
-        write_cad(path.to_str().unwrap(), "dxf", text, "").unwrap();
+        write_cad(path.to_str().unwrap(), "dxf", text, "", None).unwrap();
         assert_eq!(
-            read_cad(path.to_str().unwrap(), "dxf", "").unwrap(),
+            read_cad(path.to_str().unwrap(), "dxf", "", None).unwrap(),
             text.as_bytes()
         );
     }
@@ -362,18 +382,45 @@ mod tests {
         let folder = work.path().to_str().unwrap();
         File::create(work.path().join(executable("dwgread"))).unwrap();
         let configured_only = |found: Option<PathBuf>| found.filter(|path| path == work.path());
-        assert_eq!(configured_only(locate_converters(folder)), None);
+        assert_eq!(configured_only(locate_converters(folder, None)), None);
         File::create(work.path().join(executable("dwgwrite"))).unwrap();
         if std::env::var_os("LUMCAD_LIBREDWG_DIR").is_none() {
             // A wrong explicit folder never falls back to another installation.
             let missing = work.path().join("missing");
-            assert_eq!(locate_converters(missing.to_str().unwrap()), None);
-            assert_eq!(locate_converters(folder).as_deref(), Some(work.path()));
-            assert_eq!(locate_libredwg(folder.into()).as_deref(), Some(folder));
+            assert_eq!(locate_converters(missing.to_str().unwrap(), None), None);
+            assert_eq!(locate_converters(folder, None).as_deref(), Some(work.path()));
+            assert_eq!(locate_libredwg_with(folder, None).as_deref(), Some(folder));
         }
         assert_eq!(
-            configured_only(locate_libredwg("relative/bin".into()).map(PathBuf::from)),
+            configured_only(locate_libredwg_with("relative/bin", None).map(PathBuf::from)),
             None
         );
+    }
+
+    #[test]
+    fn bundled_converters_follow_the_settings_folder_and_precede_path() {
+        let bundled = tempfile::tempdir().unwrap();
+        let nested = bundled.path().join("bin");
+        fs::create_dir_all(&nested).unwrap();
+        for name in ["dwgread", "dwgwrite"] {
+            File::create(nested.join(executable(name))).unwrap();
+        }
+        let configured = tempfile::tempdir().unwrap();
+        let folder = configured.path().to_str().unwrap();
+        if std::env::var_os("LUMCAD_LIBREDWG_DIR").is_none() {
+            // Automatic lookup: the copy shipped with LUMCAD (here in its bin folder) comes first.
+            assert_eq!(locate_converters("", Some(bundled.path())).as_deref(), Some(nested.as_path()));
+            // An explicit Settings folder stays authoritative, even when it is empty.
+            assert_eq!(locate_converters(folder, Some(bundled.path())), None);
+            for name in ["dwgread", "dwgwrite"] {
+                File::create(configured.path().join(executable(name))).unwrap();
+            }
+            assert_eq!(locate_converters(folder, Some(bundled.path())).as_deref(), Some(configured.path()));
+            assert_eq!(locate_libredwg_with("", Some(bundled.path())).map(PathBuf::from), Some(nested.clone()));
+        }
+        // A bundled folder holding a single converter is ignored.
+        let partial = tempfile::tempdir().unwrap();
+        File::create(partial.path().join(executable("dwgread"))).unwrap();
+        assert_ne!(locate_converters("", Some(partial.path())).as_deref(), Some(partial.path()));
     }
 }

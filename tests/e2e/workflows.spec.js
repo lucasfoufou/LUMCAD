@@ -190,7 +190,7 @@ for (const language of ['en', 'fr']) {
     test(`pointer drawing and selection work in ${language}`, async ({ page }) => {
         await page.addInitScript(locale => localStorage.setItem('lumcad.settings.v1', JSON.stringify({ language: locale })), language);
         await start(page);
-        await expect(page.getByRole('button', { name: language === 'fr' ? 'Nouveau' : 'New', exact: true })).toBeVisible();
+        await expect(page.getByRole('button', { name: language === 'fr' ? 'Fichier' : 'File', exact: true })).toBeVisible();
         await command(page, 'LINE');
         const canvas = page.locator('.drawing-canvas-svg');
         const box = await canvas.boundingBox();

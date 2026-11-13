@@ -134,3 +134,13 @@ test('the session log keeps commands and replies in order, bounded and copyable'
     assert.equal(log.length, DRAWING_COMMAND_LOG_LIMIT);
     assert.equal(log.at(-1).text, `C${DRAWING_COMMAND_LOG_LIMIT + 4}`);
 });
+
+test('the system language is used only when it is supported', async () => {
+    const { detectSystemLanguage } = await import('../settings/appSettings.js');
+    assert.equal(detectSystemLanguage(['fr-FR', 'en-US']), 'fr');
+    assert.equal(detectSystemLanguage(['de-DE', 'fr-CA']), 'fr');
+    assert.equal(detectSystemLanguage(['en_GB']), 'en');
+    assert.equal(detectSystemLanguage(['de-DE', 'es']), null);
+    assert.equal(detectSystemLanguage('fr'), 'fr');
+    assert.equal(detectSystemLanguage([]), null);
+});

@@ -2166,6 +2166,18 @@
       "file.savedAs"
     ]
   },
+  "quickSave": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "entities": 0,
+    "fileChooser": false,
+    "messageKeys": [
+      "file.savedAs"
+    ]
+  },
   "pdfAttach": {
     "activeTool": "select",
     "operation": null,
@@ -3297,6 +3309,30 @@
     "entities": 0,
     "fileChooser": false
   },
+  "options": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "entities": 0,
+    "fileChooser": false,
+    "messageKeys": [
+      "messages.settingsOpened"
+    ]
+  },
+  "help": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "entities": 0,
+    "fileChooser": false,
+    "messageKeys": [
+      "commandPalette.opened"
+    ]
+  },
   "overkill": {
     "activeTool": "select",
     "operation": null,
@@ -3523,6 +3559,28 @@
     "fileChooser": false,
     "messageKeys": [
       "cad.error.cadEmpty"
+    ]
+  },
+  "import": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "message": "",
+    "entities": 0,
+    "fileChooser": true
+  },
+  "export": {
+    "activeTool": "select",
+    "operation": null,
+    "stage": null,
+    "workspace": "model",
+    "layoutTool": null,
+    "entities": 0,
+    "fileChooser": false,
+    "messageKeys": [
+      "export.chooseFormat"
     ]
   }
 }

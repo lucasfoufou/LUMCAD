@@ -2,7 +2,7 @@ import { validateDrawingAliases, validateDrawingCommandShortcuts, DEFAULT_DRAWIN
 
 import { invoke } from '@tauri-apps/api/core';
 
-import { normalizeLocale } from '../i18n/translator.js';
+import { normalizeLocale, SUPPORTED_LOCALES } from '../i18n/translator.js';
 import { isTauriRuntime } from '../utils/lcadStorage.js';
 
 export const APP_SETTINGS_STORAGE_KEY = 'lumcad.settings.v1';
@@ -65,10 +65,35 @@ export function normalizeAppSettings(value) {
     };
 }
 
+/**
+ * First supported language of the system's preferred list (navigator.languages),
+ * or null. Used only while no settings were ever saved.
+ */
+export function detectSystemLanguage(languages) {
+    for (const value of Array.isArray(languages) ? languages : [languages]) {
+        const candidate = String(value || '').trim().toLowerCase().split(/[-_]/)[0];
+        if (SUPPORTED_LOCALES.includes(candidate)) return candidate;
+    }
+    return null;
+}
+
+function systemLanguages() {
+    if (typeof navigator === 'undefined') return [];
+    return navigator.languages?.length ? [...navigator.languages] : [navigator.language];
+}
+
 export async function loadAppSettings() {
     if (isTauriRuntime()) {
         let settings = normalizeAppSettings(await invoke('get_app_settings'));
         const legacyLanguage = readLegacyLanguage();
+        // First launch: follow the system language; any saved choice wins afterwards.
+        const firstLanguage = !legacyLanguage && !await invoke('app_settings_stored').catch(() => true)
+            && detectSystemLanguage(systemLanguages());
+        if (firstLanguage) {
+            settings = normalizeAppSettings(await invoke('update_app_settings', {
+                settings: { ...settings, language: firstLanguage },
+            }));
+        }
         if (legacyLanguage) {
             settings = normalizeAppSettings(await invoke('update_app_settings', {
                 settings: { ...settings, language: legacyLanguage },
@@ -78,8 +103,13 @@ export async function loadAppSettings() {
         return settings;
     }
     try {
-        const stored = normalizeAppSettings(JSON.parse(window.localStorage.getItem(APP_SETTINGS_STORAGE_KEY) || 'null'));
+        const raw = window.localStorage.getItem(APP_SETTINGS_STORAGE_KEY);
         const legacyLanguage = readLegacyLanguage();
+        // First visit: the browser's language, kept in memory until settings are saved.
+        if (!raw && !legacyLanguage) {
+            return normalizeAppSettings({ language: detectSystemLanguage(systemLanguages()) || DEFAULT_APP_SETTINGS.language });
+        }
+        const stored = normalizeAppSettings(JSON.parse(raw || 'null'));
         if (!legacyLanguage) return stored;
         const migrated = normalizeAppSettings({ ...stored, language: legacyLanguage });
         window.localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify(migrated));

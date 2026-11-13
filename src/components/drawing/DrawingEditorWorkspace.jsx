@@ -81,6 +81,7 @@ import DrawingStatusBar from '~components/drawing/DrawingStatusBar';
 import DrawingEditorHeader from '~components/drawing/DrawingEditorHeader';
 import DrawingCommandPalette from '~components/drawing/DrawingCommandPalette';
 import UnsavedChangesDialog from '~components/drawing/UnsavedChangesDialog';
+import DrawingEmptyState from '~components/drawing/DrawingEmptyState';
 import DrawingLayoutEditor from '~components/drawing/DrawingLayoutEditor';
 import DrawingPrintPage from '~components/drawing/DrawingPrintPage';
 import DrawingPublishDialog from '~components/drawing/DrawingPublishDialog';
@@ -2774,7 +2775,8 @@ export default function DrawingEditorWorkspace({
         const pending = initialImportRef.current;
         if (!pending) return;
         initialImportRef.current = null;
-        withPreselectedDrawingFile(pending.selection, () => submitCommandRef.current(pending.command)).catch(() => {});
+        withPreselectedDrawingFile(pending.selection, () => submitCommandRef.current(pending.command))
+            .then(() => canvasRef.current?.fit()).catch(() => {});
     }, [submitCommandRef]);
 
     const toggleAllSnaps = () => {
@@ -3189,6 +3191,13 @@ export default function DrawingEditorWorkspace({
                 />
                 <Input ref={imageInputRef} type="file" accept="image/*" hidden onChange={handleImageFile} disabled={isUploading} />
                 {isUploading && <div className="drawing-upload-indicator">{t('messages.importingImage')}</div>}
+                {workspaceMode === 'model' && !blockEditor.session && !history.content.entities.length && activeTool === 'select' && !interactiveOperation && (
+                    <DrawingEmptyState
+                        onOpen={() => openDrawing().catch(() => {})}
+                        onImport={() => fileTransfer.importFile().catch(() => {})}
+                        onHelp={() => setCommandPaletteOpen(true)}
+                    />
+                )}
             </div>
             {publishPages.active && <DrawingPublishRenderer ref={publishPages.rendererRef} drawing={document} layouts={layouts} />}
             <DrawingModelExportRenderer request={wmf.renderRequest} />

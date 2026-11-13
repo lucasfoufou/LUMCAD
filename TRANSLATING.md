@@ -11,7 +11,7 @@ Runtime text is stored in flat JavaScript catalogs:
 - `src/i18n/translator.js` — locale registry, fallback, interpolation, plural rules, and localized error handling;
 - `src/i18n/I18nProvider.jsx` — React context, persisted language preference, and date/number formatters.
 
-The selected locale is stored under `lumcad.locale`. A first launch uses English. Changing the language updates the interface immediately and the choice is restored on the next launch.
+The selected locale is stored with the application settings (`lumcad.locale` is only migrated from older versions). Until settings have been saved once, LUMCAD follows the system language (`navigator.languages`) when it is supported, otherwise English; an explicit choice is never overwritten. Changing the language updates the interface immediately and the choice is restored on the next launch.
 
 ## Adding or changing interface text
 

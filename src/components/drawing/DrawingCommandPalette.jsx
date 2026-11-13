@@ -103,7 +103,7 @@ export default function DrawingCommandPalette({ open, onClose, onRun }) {
                                 >
                                     <span>{t(command.labelKey)}</span>
                                     <strong>{command.name}</strong>
-                                    <kbd>{command.alias}</kbd>
+                                    <kbd>{command.alias !== command.name ? command.alias : ''}</kbd>
                                 </div>
                             ))}
                         </div>
