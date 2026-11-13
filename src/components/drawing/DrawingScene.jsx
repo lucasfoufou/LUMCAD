@@ -1305,7 +1305,7 @@ function DimensionText({ point, angle, color, textSize, anchor = 'middle', inspe
                 fontFamily="SourceSans3, Arial, sans-serif"
                 paintOrder="stroke"
                 stroke="white"
-                strokeWidth={textSize * 0.3}
+                strokeWidth={textSize * 0.12}
                 strokeLinejoin="round"
             >
                 {lines.map((line, index) => (
